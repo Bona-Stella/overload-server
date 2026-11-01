@@ -1,6 +1,6 @@
 # 로컬 PostgreSQL · Flyway
 
-> **Task 009 V10 적용 완료:** 2026-10-31 사용자 승인으로 기존 `overload-local-postgres-1`의 `127.0.0.1:5433/overload_dev`를 V8→V9→V10으로 업그레이드했습니다. 기존 데이터·전용 볼륨을 보존했고 컨테이너는 원래 정지 상태로 복원했습니다. [실제 적용 보고서](../tasks/task-009-v10-local-application-report.md)를 확인하세요. 아래 앱 실행 명령은 대기 중인 migration을 자동 적용할 수 있으며 다른 DB나 후속 파괴적 변경까지 승인하는 안내가 아닙니다.
+> **개인 개발 DB V15 재구성 완료 (2026-11-01):** 사용자 명시 승인으로 `127.0.0.1:5433/overload_dev`의 기존 테스트 데이터를 폐기하고 V1~V15를 신규 적용했습니다. Flyway/Hibernate 검증·기본 조회 통과, 계정과 업무 데이터는 모두 비어 있습니다. 기존 컨테이너/볼륨을 유지했고 기동 검증 후 원래 정지 상태로 복원했습니다. [실제 재구성 보고서](../tasks/task-009-dev-v15-rebuild-report.md)를 확인하세요. 다른 DB·후속 파괴적 변경은 별도 승인이 필요합니다.
 
 Task 007의 개발 환경이다. Windows/WSL에 PostgreSQL을 직접 설치하지 않는다.
 007-1B의 내부 계정·개인 종목 seed는 [별도 문서](account-provisioning.md)를 따른다.

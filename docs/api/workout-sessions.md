@@ -1,6 +1,6 @@
 # 운동 세션 API — Task 009 1~4단계
 
-상태: START·조회·takeover·snapshot·승인 요청/해결, FINISH·최초 평가 봉인·24시간 AUTO_CLOSED, 종료 후 수행 정정·삭제·명시 복구·현재 평가·승인 해결 구현. V12~V15는 격리 PostgreSQL에서만 검증하며 개인 로컬 `overload_dev`에는 적용하지 않는다.
+상태: START·조회·takeover·snapshot·승인 요청/해결, FINISH·최초 평가 봉인·24시간 AUTO_CLOSED, 종료 후 수행 정정·삭제·명시 복구·현재 평가·승인 해결 구현. V12~V15 격리 검증 후 2026-11-01 사용자 명시 승인으로 개인 개발 DB도 V1~V15 신규 구성을 완료했다. [실제 재구성 보고서](../tasks/task-009-dev-v15-rebuild-report.md)를 따르며 다른 DB·후속 파괴적 작업에는 별도 승인이 필요하다.
 기준: [현행 설계와 후속 승인 보완](../tasks/task-009-redesign-v1.0.md), [루틴 계약](routine-management.md), 기존 인증·CSRF·Task 008 영속성 경계.
 
 ## 현재 제공 범위

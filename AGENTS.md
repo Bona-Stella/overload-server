@@ -107,8 +107,8 @@ Task 009 및 이후 운동 쓰기·진행 세션·복구 작업 시 필수:
 일반 관리는 온라인 API, 진행 운동 보호는 전체 확정 스냅샷과 IndexedDB를 기준으로 합니다.
 폐기된 범용 명령·Outbox·필드 병합·영수증/feed 구조를 다시 구현하지 않습니다.
 일반 온라인 종목 생성·이름 변경·휴식 설정 변경은 [온라인 쓰기 API 계약](docs/api/workout-online-write.md)을 따릅니다.
-루틴 관리 API는 [루틴 온라인 계약](docs/api/routine-management.md)을 따릅니다. 개인 로컬 V11 적용·기존 데이터 보존은 사용자 확인 사항입니다.
-세션 START·조회·takeover(V12), snapshot·승인 요청/해결(V13), FINISH·최초 평가·AUTO_CLOSED(V14), 종료 후 정정·명시 복구·논리 삭제·현재 평가·승인 해결(V15)은 [세션 계약](docs/api/workout-sessions.md)을 따릅니다. V12~V15는 격리 PostgreSQL에서만 검증하고 개인 로컬 `overload_dev`에 적용하지 않습니다.
+루틴 관리 API는 [루틴 온라인 계약](docs/api/routine-management.md)을 따릅니다. 개인 개발 DB는 2026-11-01 사용자 승인으로 기존 테스트 데이터를 폐기하고 V15까지 재구성했습니다. [실제 재구성 보고서](docs/tasks/task-009-dev-v15-rebuild-report.md)를 따릅니다.
+세션 START·조회·takeover(V12), snapshot·승인 요청/해결(V13), FINISH·최초 평가·AUTO_CLOSED(V14), 종료 후 정정·명시 복구·논리 삭제·현재 평가·승인 해결(V15)은 [세션 계약](docs/api/workout-sessions.md)을 따릅니다. V12~V15의 격리 검증과 개인 개발 DB의 승인된 V15 신규 구성을 완료했습니다. 다른 DB나 후속 파괴적 변경은 별도 승인이 필요합니다.
 Frontend/IndexedDB 연결은 후속 미구현 범위입니다. 조회·중복·takeover·실제 무변경 snapshot·승인 해결은 마지막 운동 동기화 시각을 연장하지 않습니다. 종료 후 쓰기는 expectedVersion으로 분리하고, 봉인 계획/평가와 최초 수행 승인 문맥을 유지합니다. 확인 불가 복구 주장은 UNVERIFIED입니다.
 2026-10-31 사용자 승인으로 개인 로컬 `127.0.0.1:5433/overload_dev`에 V9/V10을 적용하고 기존 데이터를 보존했습니다.
 근거는 [실제 적용 보고서](docs/tasks/task-009-v10-local-application-report.md)를 따릅니다. 다른 DB나 후속 파괴적 마이그레이션은 이 승인에 포함되지 않습니다.
