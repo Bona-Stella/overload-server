@@ -56,12 +56,12 @@ class V9MigrationCompatibilityTests {
 		assertThat(jdbc.queryForList("SELECT version FROM exercise_definitions WHERE user_id=?", Long.class, owner)).containsOnly(0L);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions WHERE user_id=? AND deleted_at IS NOT NULL", Integer.class, owner)).isZero();
 		try (var app = new SpringApplicationBuilder(OverloadServerApplication.class).web(WebApplicationType.NONE)
-				.run("--spring.profiles.active=integration", "--spring.flyway.target=15", "--spring.datasource.url=" + postgres.getJdbcUrl(),
+				.run("--spring.profiles.active=integration", "--spring.flyway.target=16", "--spring.datasource.url=" + postgres.getJdbcUrl(),
 						"--spring.datasource.username=" + postgres.getUsername(), "--spring.datasource.password=" + postgres.getPassword(),
 						"--GOOGLE_OIDC_ENABLED=false", "--OTP_EMAIL_ENABLED=false", "--logging.level.root=WARN", "--spring.main.banner-mode=off")) {
 			MixedPersistenceAssertions.verify(app);
 			var flyway = app.getBean(Flyway.class);
-			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("15");
+			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("16");
 			assertThat(Arrays.stream(flyway.info().applied()).limit(8).map(value -> value.getChecksum()).toList()).isEqualTo(checksums);
 			assertThat(jdbc.queryForList("SELECT * FROM users ORDER BY id")).isEqualTo(users);
 			assertThat(jdbc.queryForList("SELECT * FROM auth_identities ORDER BY id")).isEqualTo(identities);

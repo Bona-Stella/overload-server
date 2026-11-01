@@ -57,15 +57,15 @@ class PostgresMigrationTests {
 					SELECT table_name FROM information_schema.tables
 					WHERE table_schema = 'public' ORDER BY table_name
 					""", String.class)).containsExactly("auth_identities", "cardio_results", "email_otp_challenges", "email_otp_limits",
-					"email_otp_login_claims", "email_otp_rate_limits", "exercise_definitions",
-					"flyway_schema_history", "google_identity_change_versions", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "user_reauthentication_emails", "user_workout_settings", "users", "workout_sessions");
+					"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_definitions", "exercise_muscle",
+					"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "workout_sessions");
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();
-			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("15");
+			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("16");
 			assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();
 			assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
 			flyway.validate();
 			history = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
-			assertThat(history).hasSize(15);
+			assertThat(history).hasSize(16);
 			assertThat(history.getFirst()).containsEntry("version", "1")
 					.containsEntry("script", "V1__create_users.sql").containsEntry("success", true);
 			assertThat(history.get(1)).containsEntry("version", "2")
@@ -84,6 +84,7 @@ class PostgresMigrationTests {
 			assertThat(history.get(10)).containsEntry("version","11").containsEntry("script","V11__create_routine_management.sql").containsEntry("success",true);
 			assertThat(history.get(13)).containsEntry("version","14").containsEntry("script","V14__add_workout_session_closure.sql").containsEntry("success",true);
 			assertThat(history.get(14)).containsEntry("version","15").containsEntry("script","V15__add_closed_workout_record_edits.sql").containsEntry("success",true);
+			assertThat(history.get(15)).containsEntry("version","16").containsEntry("script","V16__create_standard_exercise_catalog.sql").containsEntry("success",true);
 			assertThat(history.get(12)).containsEntry("version","13").containsEntry("script","V13__add_workout_snapshots.sql").containsEntry("success",true);
 			assertThat(history.get(11)).containsEntry("version","12").containsEntry("script","V12__create_workout_sessions.sql").containsEntry("success",true);
             jdbc.update("INSERT INTO users (id) VALUES (?)", userId);
@@ -140,7 +141,7 @@ class PostgresMigrationTests {
 		var checksums = java.util.Arrays.stream(v2.info().applied()).map(info -> info.getChecksum()).toList();
 		try (var context = startApplication(WebApplicationType.NONE)) {
 			var latest = context.getBean(Flyway.class);
-			assertThat(latest.info().current().getVersion().toString()).isEqualTo("15");
+			assertThat(latest.info().current().getVersion().toString()).isEqualTo("16");
 			assertThat(java.util.Arrays.stream(latest.info().applied()).limit(2).map(info -> info.getChecksum()).toList())
 					.isEqualTo(checksums);
 			assertThat(latest.migrate().migrationsExecuted).isZero();

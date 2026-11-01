@@ -45,7 +45,7 @@ class V15MigrationIntegrationTests {
         var tables=jdbc.queryForList("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename",String.class);
         var rows=new LinkedHashMap<String,List<String>>();
         for(String table:tables)rows.put(table,jdbc.queryForList("SELECT to_jsonb(t)::text FROM "+table+" t ORDER BY to_jsonb(t)::text",String.class));
-        var latest=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).load();
+        var latest=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).target("15").load();
         assertThat(latest.migrate().migrationsExecuted).isEqualTo(1);
         for(String table:tables){
             String value=switch(table){case "workout_sessions"->"(to_jsonb(t)-'deleted_at')";case "session_weight_approval_requests"->"(to_jsonb(t)-'created_after_closure')";case "record_change_events"->"(to_jsonb(t)-'change_context')";default->"to_jsonb(t)";};

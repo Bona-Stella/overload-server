@@ -1,5 +1,6 @@
 package com.overload.overload_server.workout;
 
+import com.overload.overload_server.catalog.CatalogReadController;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -26,8 +27,8 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
 
-/** Only the two workout reads use this contract. Security and authentication retain their own boundaries. */
-@RestControllerAdvice(assignableTypes = WorkoutReadController.class)
+/** Workout and catalog reads share this contract; authentication retains its own boundary. */
+@RestControllerAdvice(assignableTypes = {WorkoutReadController.class, CatalogReadController.class})
 public class WorkoutReadErrors {
 
 	private static final Logger LOG = LoggerFactory.getLogger(WorkoutReadErrors.class);
