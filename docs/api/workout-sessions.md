@@ -7,13 +7,13 @@
 
 V12는 `workout_sessions`를 추가한다. InitialPlan은 `initial_plan_snapshot` JSONB 하나가 유일한 원본이다.
 V13은 현재 AppliedPlan과 수행·승인·정정 사실을 추가한다. V14는 명시 종료 시각·서버 종료 시각·최초 평가만 추가한다. 예정 세트 수만큼 수행 행이나 객체를 생성하지 않는다.
-V15는 기존 테이블의 논리 삭제·복구 이력·승인 문맥만 확장한다. Frontend/IndexedDB 연결은 후속 단계다. 종료된 세션의 ACTIVE 쓰기나 자동 재개는 제공하지 않는다.
+V15는 기존 테이블의 논리 삭제·복구 이력·승인 문맥만 확장한다. Frontend/IndexedDB의 종료·사후 정정·선택 복구 연결은 [Frontend 5D 보고서](../../../overload-pwa/docs/tasks/task-009-frontend-5d-report.md)를 따른다. 종료된 세션의 ACTIVE 쓰기나 자동 재개는 제공하지 않는다.
 
 ## HTTP·인증
 
 기존 SessionPrincipal의 userId, 세션 쿠키, 쓰기의 X-CSRF-TOKEN을 사용한다. userId를 입력받지 않는다.
 별도 editorProof·기기 비밀 토큰·기기 인증 테이블은 없다. editorDeviceId는 인증 수단이 아닌 브라우저 인스턴스 UUID다.
-query는 지원하지 않으며 GET body도 거절한다. 쓰기의 Content-Type은 application/json이다.
+종료 목록의 명시된 페이지 query 외 query는 지원하지 않으며 GET body도 거절한다. 쓰기의 Content-Type은 application/json이다.
 성공·명시적 오류는 no-store, 기존 X-Request-ID를 유지한다. Entity를 반환하지 않는다.
 UUID는 완전한 하이픈 표기(대소문자 허용), Counter는 0..9223372036854775807의 정규 십진 문자열이다.
 JSON 중복 키·추가 필드·필수 필드 누락·명시적으로 허용하지 않은 null·잘못된 타입·후행 JSON을 거부한다.
@@ -22,6 +22,7 @@ JSON 중복 키·추가 필드·필수 필드 누락·명시적으로 허용하�
 |---|---|---|
 | POST | /api/v1/workout-sessions | 신규201+Location, 동일 시작 재확인200 |
 | GET | /api/v1/workout-sessions/active | 200, session은 상세 또는null |
+| GET | /api/v1/workout-sessions/closed | 200, 본인 현재 세대 종료 메타의 제한 페이지 |
 | GET | /api/v1/workout-sessions/{id} | 200, 본인 현재 세대 상세 |
 | POST | /api/v1/workout-sessions/{id}/takeover | 200, 새 epoch 또는 동일 인수 확인 |
 | PUT | /api/v1/workout-sessions/{id}/snapshot | 200, 전체 확정 상태 저장 또는 중복 ACK |
@@ -258,6 +259,21 @@ CSRF·소유권·세대·편집 기기·epoch 검증은 중복 ACK와 해결 재
 추가400 INVALID_REQUEST,404 RECORD_NOT_FOUND/EXERCISE_NOT_FOUND,409 RECORD_ID_CONFLICT(다른 문맥이 점유한 수행/종목 UUID),422 INVALID_SNAPSHOT/IMMUTABLE_RECORD_CONTEXT/RECORD_DELETED와 위 도메인 오류를 사용한다. 기존503/500 저장소 오류 경계는 유지한다.
 위 snapshot/approval-resolutions는 ACTIVE 전용이다. 종료 후 수정은 아래 별도 계약을 사용한다.
 
+## 종료 운동 목록 — Frontend 5D 최소 읽기 계약
+
+`GET /api/v1/workout-sessions/closed?limit=20`. 로그인 principal의 본인·현재 dataGeneration 중 FINISHED/AUTO_CLOSED만 조회한다. 논리 삭제된 세션도 삭제 메타를 반환하며 ACTIVE는 제외한다. 목록 조회는 만료 전이·운동 저장·평가 계산을 수행하지 않는다. 기존 세션 필터의 인증 접근 처리는 그대로다. no-store와 GET body 거절을 유지한다.
+
+query는 `limit`, `beforeClosedAt`, `beforeId`만 허용하고 중복/추가 키는400이다. limit은 기본20, 정규 양수1~50이다. cursor 두 필드는 둘 다 없거나 둘 다 있어야 한다. beforeClosedAt은 UTC Z 시각(소수 최대6자리), beforeId는 UUID다. `closedAt DESC → id DESC`의 엄격한 다음 페이지를 가져오며 cursor는 불변 종료 메타를 사용한다. 임의 sort/filter/userId/dataGeneration query를 받지 않는다.
+
+```text
+{userId,dataGeneration,sessions:[
+ {id,routineName,status:"FINISHED"|"AUTO_CLOSED",version,workoutDate,startedAt,
+  endedAt:Instant|null,closedAt,deletedAt:Instant|null}
+],next:{beforeClosedAt,beforeId}|null}
+```
+
+routineName은 불변 InitialPlan의 시작 당시 이름이다. Counter는 정규 문자열이다. 수행 요약·통계·달력·메모·평가·전체 상세를 추가하지 않는다. 종료/삭제 메타의 의미는 상세 계약과 같다. UI는 AUTO_CLOSED의 closedAt을 실제 endedAt으로 대신 표시하지 않는다. DB 스키마/기존 V1~V15 migration 변경은 없다.
+
 ## FINISH — 최종 snapshot과 최초 종료 평가
 
 `POST /api/v1/workout-sessions/{id}/finish`, application/json. 요청의 정확한 필드는 기존 snapshot PUT의 `dataGeneration,editorDeviceId,writerEpoch,localRevision,snapshot`에 `endedAt:Instant` 하나를 추가한 것이다. snapshot 구조와 모든 필드·정규화·명시 삭제·허용 정정·승인 요청 규칙은 V13과 동일하다. userId·평가값·승인 처리 상태를 입력받지 않는다.
@@ -309,6 +325,7 @@ START·snapshot·종료의 서버 저장 메타 시각은 PostgreSQL과 동일�
 ### 종료 중복·revision
 
 - 높은 revision은 V13과 같이 검증·저장한다. 현재 revision과 동일하고 canonical snapshot hash가 같아도 최초 finish로 종료할 수 있다. 낮은 revision이나 같은 revision의 다른 snapshot은 기존409를 유지한다.
+- START/takeover 직후 revision 0은 아직 확인된 snapshot hash가 없다. 최초 FINISH는 종료 선택이라는 새 로컬 확정 변경의 높은 revision을 사용한다. 재시도 때 revision을 새로 발급하지 않는다.
 - FINISHED의 동일 `owner/generation/device/epoch/revision/canonical snapshot hash/endedAt`은200 duplicate=true다. 최초 평가·승인·수행·version·시각을 다시 저장하지 않는다.
 - 종료 식별에는 기존 snapshot hash·epoch·revision과 endedAt을 사용한다. 별도 finish 요청 ID·영구 영수증·추가 fingerprint 컬럼은 없다.
 - 다른 내용·종료 시각·revision의 finish는409 FINISH_REQUEST_MISMATCH, 구 기기/epoch는409 EDITOR_OWNERSHIP_LOST다. 동일 종료 재확인은 24시간 이후에도 최초 결과를 반환한다.

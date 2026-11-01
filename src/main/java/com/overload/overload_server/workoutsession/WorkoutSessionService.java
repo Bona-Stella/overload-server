@@ -67,6 +67,17 @@ public class WorkoutSessionService {
         expireForRead(owner,id);
         return transaction(reads, () -> response(find(owner, sessions.generation(owner, false), id, false)));
     }
+    WorkoutSessionResponses.ClosedPage closed(UUID owner,WorkoutSessionRequests.ClosedQuery page) {
+        return transaction(reads,()->{
+            long generation=sessions.generation(owner,false);
+            var rows=sessions.closed(owner,generation,page);
+            var values=rows.stream().limit(page.limit()).map(s->new WorkoutSessionResponses.ClosedSummary(s.id,
+                    InitialPlan.read(s.initialPlan).routineName(),s.status,Long.toString(s.version),s.workoutDate,s.startedAt,s.endedAt,s.closedAt,s.deletedAt)).toList();
+            var last=values.isEmpty()?null:values.getLast();
+            return new WorkoutSessionResponses.ClosedPage(owner,Long.toString(generation),values,
+                    rows.size()>page.limit()?new WorkoutSessionResponses.ClosedCursor(last.closedAt(),last.id()):null);
+        });
+    }
     WorkoutSessionResponses.Detail takeover(UUID owner, UUID id, WorkoutSessionRequests.Takeover input) {
         var result=transaction(writes, () -> {
             owner(owner, input.dataGeneration());

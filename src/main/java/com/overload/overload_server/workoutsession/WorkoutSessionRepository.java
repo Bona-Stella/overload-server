@@ -19,6 +19,13 @@ public class WorkoutSessionRepository {
     boolean exists(UUID owner,long generation,UUID id) {
         return jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE user_id=? AND data_generation=? AND id=?)",Boolean.class,owner,generation,id);
     }
+    List<WorkoutSession> closed(UUID owner,long generation,WorkoutSessionRequests.ClosedQuery page) {
+        var query=entityManager.createQuery("select s from WorkoutSession s where s.userId=:u and s.dataGeneration=:g and s.status in ('FINISHED','AUTO_CLOSED')"
+                +(page.beforeId()==null?"":" and (s.closedAt<:at or (s.closedAt=:at and s.id<:id))")+" order by s.closedAt desc,s.id desc",WorkoutSession.class)
+                .setParameter("u",owner).setParameter("g",generation).setMaxResults(page.limit()+1);
+        if(page.beforeId()!=null)query.setParameter("at",page.beforeClosedAt()).setParameter("id",page.beforeId());
+        return query.getResultList();
+    }
     List<WorkoutSession> finishedBefore(WorkoutSession current) {
         return entityManager.createQuery("select s from WorkoutSession s where s.userId=:u and s.dataGeneration=:g and s.status='FINISHED' and s.deletedAt is null and s.id<>:id and s.endedAt<=:start order by s.id",WorkoutSession.class)
                 .setParameter("u",current.userId).setParameter("g",current.dataGeneration).setParameter("id",current.id).setParameter("start",current.startedAt).getResultList();

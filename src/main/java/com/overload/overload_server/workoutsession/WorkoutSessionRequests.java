@@ -13,6 +13,18 @@ final class WorkoutSessionRequests {
     record Start(UUID id, long dataGeneration, UUID routineId, UUID editorDeviceId,
                  Instant startedAt, LocalDate workoutDate, String startedTimeZone) { }
     record Takeover(long dataGeneration, UUID editorDeviceId, long expectedWriterEpoch) { }
+    record ClosedQuery(int limit, Instant beforeClosedAt, UUID beforeId) { }
+    static ClosedQuery closed(org.springframework.util.MultiValueMap<String,String> query) {
+        if (query.entrySet().stream().anyMatch(e -> !Set.of("limit","beforeClosedAt","beforeId").contains(e.getKey()) || e.getValue().size()!=1)) throw invalid();
+        String limit=query.getFirst("limit"), at=query.getFirst("beforeClosedAt"), id=query.getFirst("beforeId");
+        if (limit!=null&&!limit.matches("[1-9]|[1-4][0-9]|50") || (at==null)!=(id==null)) throw invalid();
+        Instant before=null;
+        if (at!=null) {
+            if (!at.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z") || at.startsWith("0000")) throw invalid();
+            try { before=Instant.parse(at); } catch (DateTimeException failure) { throw invalid(); }
+        }
+        return new ClosedQuery(limit==null?20:Integer.parseInt(limit),before,id==null?null:uuid(id));
+    }
 
     static Start start(String raw) {
         var body = parse(raw);

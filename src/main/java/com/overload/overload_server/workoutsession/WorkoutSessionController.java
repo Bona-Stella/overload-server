@@ -73,6 +73,12 @@ public class WorkoutSessionController {
     ResponseEntity<WorkoutSessionResponses.Active> active(@AuthenticationPrincipal SessionPrincipal principal, HttpServletRequest request) {
         validate(request, true); return ok(service.active(principal.userId()));
     }
+    @GetMapping("/closed")
+    ResponseEntity<WorkoutSessionResponses.ClosedPage> closed(@AuthenticationPrincipal SessionPrincipal principal,
+            @RequestParam org.springframework.util.MultiValueMap<String,String> query,HttpServletRequest request) {
+        if(request.getContentLengthLong()>0||request.getHeader("Transfer-Encoding")!=null)throw WorkoutSessionRequests.invalid();
+        return ok(service.closed(principal.userId(),WorkoutSessionRequests.closed(query)));
+    }
     @GetMapping("/{id}")
     ResponseEntity<WorkoutSessionResponses.Detail> detail(@AuthenticationPrincipal SessionPrincipal principal,
             @PathVariable String id, HttpServletRequest request) {

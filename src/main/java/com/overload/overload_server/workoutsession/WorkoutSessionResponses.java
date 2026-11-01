@@ -12,6 +12,10 @@ public final class WorkoutSessionResponses {
                          Instant lastSnapshotSavedAt, WorkoutSnapshotData.View snapshot,
                          Instant endedAt, Instant closedAt, JsonNode completionAssessment, Instant deletedAt) { }
     public record Active(UUID userId, String dataGeneration, Detail session) { }
+    public record ClosedSummary(UUID id, String routineName, String status, String version, LocalDate workoutDate,
+                                Instant startedAt, Instant endedAt, Instant closedAt, Instant deletedAt) { }
+    public record ClosedPage(UUID userId, String dataGeneration, java.util.List<ClosedSummary> sessions, ClosedCursor next) { }
+    public record ClosedCursor(Instant beforeClosedAt, UUID beforeId) { }
     record Started(boolean created, Detail session) { }
     static Detail detail(WorkoutSession value,WorkoutSnapshotData.View snapshot) {
         return new Detail(value.userId, Long.toString(value.dataGeneration), value.id, value.status, Long.toString(value.version),

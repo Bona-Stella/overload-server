@@ -85,6 +85,37 @@ class WorkoutSessionIntegrationTests {
         assertThat(row()).isEqualTo(before);
     }
 
+    @Test void closedListIsOwnerGenerationBoundedStableAndReadOnly() throws Exception {
+        assertThat(node(browser.get(BASE+"/closed")).get("sessions").size()).isZero();
+        var state=initialState();var first=session;
+        assertThat(node(browser.get(BASE+"/closed")).get("sessions").size()).isZero();
+        assertThat(finish(1,state).statusCode()).isEqualTo(200);
+        var before=row();session=UUID.randomUUID();state=initialState();
+        assertThat(finish(1,state).statusCode()).isEqualTo(200);
+        assertThat(browser.send("DELETE",path(),json(Map.of("dataGeneration","0","expectedVersion",row().get("version").toString())),csrf).statusCode()).isEqualTo(200);
+        var second=row();
+        var pageResponse=browser.get(BASE+"/closed?limit=1");headers(pageResponse);var page=node(pageResponse);
+        assertThat(page.get("sessions").size()).isEqualTo(1);assertThat(page.get("dataGeneration").asString()).isEqualTo("0");
+        var next=page.get("next");assertThat(next.isNull()).isFalse();
+        String cursor="?limit=1&beforeClosedAt="+next.get("beforeClosedAt").asString()+"&beforeId="+next.get("beforeId").asString();
+        var last=node(browser.get(BASE+"/closed"+cursor));assertThat(last.get("next").isNull()).isTrue();
+        var ids=Set.of(page.get("sessions").get(0).get("id").asString(),last.get("sessions").get(0).get("id").asString());
+        assertThat(ids).containsExactlyInAnyOrder(first.toString(),session.toString());
+        assertThat(node(browser.get(BASE+"/closed?limit=1"))).isEqualTo(page);
+        var all=node(browser.get(BASE+"/closed")).get("sessions");
+        assertThat(java.util.stream.StreamSupport.stream(all.spliterator(),false).anyMatch(s->s.get("id").asString().equals(session.toString())&&!s.get("deletedAt").isNull())).isTrue();
+        assertThat(row()).isEqualTo(second);var latest=session;session=first;assertThat(row()).isEqualTo(before);session=latest;
+        try(var other=new Browser()) {other.login(UUID.randomUUID()+"@example.test");assertThat(node(other.get(BASE+"/closed")).get("sessions").size()).isZero();}
+        try(var anonymous=new Browser()) {error(anonymous.get(BASE+"/closed"),401,"AUTHENTICATION_REQUIRED");}
+        for(String invalid:List.of("?limit=0","?limit=51","?limit=01","?limit=2&limit=3","?beforeId="+session,"?unknown=1"))error(browser.get(BASE+"/closed"+invalid),400,"INVALID_REQUEST");
+        error(browser.send("GET",BASE+"/closed","{}",null),400,"INVALID_REQUEST");
+        // Disposable fixture reset only: preserve the current-generation FK instead of bypassing it.
+        jdbc.update("DELETE FROM record_change_events WHERE session_id IN (SELECT id FROM workout_sessions WHERE user_id=?)",owner.id());
+        for(String table:List.of("session_exercises","workout_sessions","routine_weight_placements","routine_cardio_placements","routines","exercise_definitions","user_workout_settings"))jdbc.update("DELETE FROM "+table+" WHERE user_id=?",owner.id());
+        jdbc.update("UPDATE users SET data_generation=1 WHERE id=?",owner.id());
+        var reset=node(browser.get(BASE+"/closed"));assertThat(reset.get("dataGeneration").asString()).isEqualTo("1");assertThat(reset.get("sessions").size()).isZero();
+    }
+
     @Test void routineRenameApprovalAndDeletionNeverRewriteStartedPlanOrPreventStartRetry() throws Exception {
         var original = node(start(startBody())).get("initialPlan");
         var update = updateRoutine(); update.put("name", "changed");
