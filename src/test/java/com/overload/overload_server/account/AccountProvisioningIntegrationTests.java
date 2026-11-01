@@ -71,20 +71,21 @@ class AccountProvisioningIntegrationTests {
 		assertThat(second.nickname()).isNull();
 		assertSeed(first);
 		assertSeed(second);
-		assertThat(exerciseIds(first)).doesNotContainAnyElementsOf(exerciseIds(second));
-		assertCounts(2, 2, 40, 2);
+		assertThat(exerciseIds(first)).isEmpty();assertThat(exerciseIds(second)).isEmpty();
+		assertCounts(2, 2, 0, 2);
 		assertThat(jdbc.queryForList("""
 				SELECT table_name FROM information_schema.tables
 				WHERE table_schema = 'public' ORDER BY table_name
 				""", String.class)).containsExactly("auth_identities", "cardio_results", "email_otp_challenges", "email_otp_limits",
-				"email_otp_login_claims", "email_otp_rate_limits", "exercise_definitions",
-				"flyway_schema_history", "google_identity_change_versions", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "user_reauthentication_emails", "user_workout_settings", "users", "workout_sessions");
+				"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_definitions", "exercise_muscle",
+				"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "workout_sessions");
 	}
 
 	@Test
 	void reentryPreservesExistingNamesSettingsAndPersonalExerciseIds() {
 		var identity = VerifiedIdentity.email("First.Last+Tag@EXAMPLE.COM");
 		var first = service.provision(identity, "원래 닉네임");
+		com.overload.testfixture.CatalogFixtures.personalExercises(jdbc, first.id());
 		var ids = exerciseIds(first);
 		jdbc.update("UPDATE exercise_definitions SET name = '개인 편집' WHERE id = ? AND user_id = ?",
 				ids.getFirst(), first.id());
@@ -132,7 +133,7 @@ class AccountProvisioningIntegrationTests {
 				VerifiedIdentity.google(VerifiedIdentity.GOOGLE_ISSUER, "First.Last+Tag@example.com"));
 		var accounts = identities.stream().map(identity -> service.provision(identity, null)).toList();
 		assertThat(accounts.stream().map(Account::id)).doesNotHaveDuplicates();
-		assertCounts(5, 5, 100, 5);
+		assertCounts(5, 5, 0, 5);
 	}
 
 	@Test
@@ -176,7 +177,7 @@ class AccountProvisioningIntegrationTests {
 				assertThat(future.get(20, TimeUnit.SECONDS)).isEqualTo(winner);
 			}
 			assertSeed(winner);
-			assertCounts(1, 1, 20, 1);
+			assertCounts(1, 1, 0, 1);
 		}
 	}
 
@@ -190,19 +191,25 @@ class AccountProvisioningIntegrationTests {
 		jdbc.execute("CREATE TRIGGER task007_fail BEFORE INSERT ON " + table
 				+ " FOR EACH ROW EXECUTE FUNCTION task007_fail_insert()");
 		var identity = VerifiedIdentity.email("rollback@example.com");
+		if (table.equals("exercise_definitions")) {
+			// This former seed stage must no longer be touched, even when inserts would fail.
+			assertSeed(service.provision(identity, null));assertCounts(1,1,0,1);
+			jdbc.execute("DROP TRIGGER task007_fail ON " + table);return;
+		}
 		assertThatThrownBy(() -> service.provision(identity, null))
 				.isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("task007 forced SQL failure");
 		assertCounts(0, 0, 0, 0);
 		jdbc.execute("DROP TRIGGER task007_fail ON " + table);
 		var account = service.provision(identity, null);
 		assertSeed(account);
-		assertCounts(1, 1, 20, 1);
+		assertCounts(1, 1, 0, 1);
 	}
 
 	@Test
 	void permitsDuplicateDisplayNamesButRejectsForeignOwnerAndGenerationReferences() {
 		var first = service.provision(VerifiedIdentity.email("owner-a@example.com"), null);
 		var second = service.provision(VerifiedIdentity.email("owner-b@example.com"), null);
+		com.overload.testfixture.CatalogFixtures.personalExercises(jdbc, first.id());
 		var firstExercise = exerciseIds(first).getFirst();
 		jdbc.update("INSERT INTO exercise_definitions (id, user_id, data_generation, name) VALUES (?, ?, 0, ?)",
 				UUID.randomUUID(), first.id(), "벤치프레스");
@@ -259,7 +266,7 @@ class AccountProvisioningIntegrationTests {
 				SELECT data_type FROM information_schema.columns WHERE table_name = 'user_workout_settings'
 				AND column_name IN ('rest_low_seconds', 'rest_medium_seconds', 'rest_high_seconds')
 				""", String.class)).containsExactly("integer", "integer", "integer");
-		assertCounts(2, 2, 40, 2);
+		assertCounts(2, 2, 0, 2);
 	}
 
 	private List<UUID> exerciseIds(Account account) {
@@ -272,7 +279,7 @@ class AccountProvisioningIntegrationTests {
 		assertThat(jdbc.queryForList("""
 				SELECT name FROM exercise_definitions WHERE user_id = ? AND data_generation = ?
 				""", String.class, account.id(), account.dataGeneration()))
-				.containsExactlyInAnyOrderElementsOf(AccountSeed.WEIGHT_EXERCISE_NAMES);
+				.isEmpty();
 		var settings = jdbc.queryForObject("""
 				SELECT rest_low_seconds, rest_medium_seconds, rest_high_seconds FROM user_workout_settings
 				WHERE user_id = ? AND data_generation = ?

@@ -109,6 +109,8 @@ public class SecurityConfiguration {
 								"/login/oauth2/code/google", "/auth/google/failure", "/auth/google/reauth/failure", "/auth/google/contact/failure", "/auth/google/link/failure").permitAll()
 						.requestMatchers(org.springframework.http.HttpMethod.POST,
 								"/api/v1/auth/email-otp/request", "/api/v1/auth/email-otp/verify").permitAll()
+						.requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/exercises").denyAll()
+						.requestMatchers(org.springframework.http.HttpMethod.PATCH, "/api/v1/exercises/*").denyAll()
 						.anyRequest().authenticated())
 				.exceptionHandling(errors -> errors.authenticationEntryPoint((request, response, exception) ->
 						writeError(response, 401, "AUTHENTICATION_REQUIRED")).accessDeniedHandler(denied))

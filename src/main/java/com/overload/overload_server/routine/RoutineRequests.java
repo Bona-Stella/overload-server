@@ -22,7 +22,8 @@ public final class RoutineRequests {
 					RoutineResponses.decimal(p.inclinePercent()),RoutineResponses.decimal(p.resistance()))));
 		} catch (RoutineFailure failure) { return Optional.empty(); }
 	}
-	public record Weight(Mode mode, UUID id, UUID exerciseDefinitionId, int setCount, int minReps, int maxReps, BigDecimal initialWeightKg) { }
+	public record Weight(Mode mode, UUID id, UUID standardExerciseId, UUID manufacturerId, String loadType,
+			int setCount, int minReps, int maxReps, BigDecimal initialWeightKg) { }
 	public record Plan(String kind, String name, int targetSeconds, BigDecimal targetDistanceKm,
 			String intensityMode, BigDecimal intensityValue, BigDecimal inclinePercent, BigDecimal resistance) { }
 	public record Cardio(Mode mode, UUID id, Plan plan) { }
@@ -114,14 +115,26 @@ public final class RoutineRequests {
 		var result = new ArrayList<Weight>();
 		for (var item : array(body, "weightPlacements")) {
 			Mode mode = create ? Mode.NEW : mode(item);
-			if (create) fields(item, "id", "exerciseDefinitionId", "setCount", "minReps", "maxReps", "initialWeightKg");
-			else if (mode == Mode.NEW) fields(item, "mode", "id", "exerciseDefinitionId", "setCount", "minReps", "maxReps", "initialWeightKg");
-			else fields(item, "mode", "id", "setCount", "minReps", "maxReps");
+			if (create) fields(item, "id", "standardExerciseId", "manufacturerId", "loadType", "setCount", "minReps", "maxReps", "initialWeightKg");
+			else if (mode == Mode.NEW) fields(item, "mode", "id", "standardExerciseId", "manufacturerId", "loadType", "setCount", "minReps", "maxReps", "initialWeightKg");
+			else fields(item, "mode", "id", "manufacturerId", "loadType", "setCount", "minReps", "maxReps");
 			int min = count(item, "minReps"), max = count(item, "maxReps"); if (max < min) throw invalid();
-			result.add(new Weight(mode, uuid(text(item, "id")), mode == Mode.NEW ? uuid(text(item, "exerciseDefinitionId")) : null,
+			result.add(new Weight(mode, uuid(text(item, "id")), mode == Mode.NEW ? uuid(text(item, "standardExerciseId")) : null,
+					nullableUuid(item, "manufacturerId"), loadType(item),
 					count(item, "setCount"), min, max, mode == Mode.NEW ? decimal(item, "initialWeightKg") : null));
 		}
 		return List.copyOf(result);
+	}
+	private static UUID nullableUuid(JsonNode item, String field) {
+		var value = item.get(field); if (value == null) throw invalid();
+		return value.isNull() ? null : uuid(text(item, field));
+	}
+	private static String loadType(JsonNode item) {
+		var value = item.get("loadType"); if (value == null) throw invalid();
+		if (value.isNull()) return null;
+		String code = text(item, "loadType");
+		if (!Set.of("PLATE", "STACK", "DUMBBELL", "BODYWEIGHT").contains(code)) throw invalid();
+		return code;
 	}
 	private static List<Cardio> cardio(JsonNode body, boolean create) {
 		var result = new ArrayList<Cardio>();

@@ -10,10 +10,29 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.*;
 
 class RoutineRequestsTests {
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.ValueSource(strings={"PLATE","STACK","DUMBBELL","BODYWEIGHT"})
+	void acceptsOnlyNewEquipmentCodes(String code) {
+		var input=weight(); input.put("loadType",code); input.put("manufacturerId",ID);
+		var result=RoutineRequests.create(json(create(List.of(input),List.of()))).weightPlacements().getFirst();
+		assertThat(result.loadType()).isEqualTo(code);assertThat(result.manufacturerId()).isEqualTo(UUID.fromString(ID));
+	}
+	@Test void equipmentKeysAreRequiredNullableAndOldIdentityOrLoadCodesAreRejected() {
+		for(String field:List.of("manufacturerId","loadType")) {
+			var input=weight();input.remove(field);
+			assertThatThrownBy(()->RoutineRequests.create(json(create(List.of(input),List.of())))).isInstanceOf(RoutineFailure.class);
+		}
+		for(Object value:List.of("FREE_WEIGHT","PLATE_LOADED","WEIGHT_STACK","NULL","UNKNOWN","plate",1,true)) {
+			var input=weight();input.put("loadType",value);
+			assertThatThrownBy(()->RoutineRequests.create(json(create(List.of(input),List.of())))).isInstanceOf(RoutineFailure.class);
+		}
+		var input=weight();input.put("exerciseDefinitionId",input.remove("standardExerciseId"));
+		assertThatThrownBy(()->RoutineRequests.create(json(create(List.of(input),List.of())))).isInstanceOf(RoutineFailure.class);
+	}
 	static final JsonMapper JSON = JsonMapper.builder().build();
 	static final String ID = "00000000-0000-4000-8000-000000000001";
 	static final String EXERCISE = "00000000-0000-4000-8000-000000000002";
-	static Map<String, Object> weight() { return new LinkedHashMap<>(Map.of("id", ID, "exerciseDefinitionId", EXERCISE, "setCount", 3, "minReps", 6, "maxReps", 10, "initialWeightKg", "61.3")); }
+	static Map<String, Object> weight() { var value = new LinkedHashMap<String,Object>(Map.of("id", ID, "standardExerciseId", EXERCISE, "setCount", 3, "minReps", 6, "maxReps", 10, "initialWeightKg", "61.3")); value.put("manufacturerId", null); value.put("loadType", null); return value; }
 	static Map<String, Object> plan() {
 		var value = new LinkedHashMap<String, Object>(); value.put("kind", "TREADMILL"); value.put("name", "러닝머신"); value.put("targetSeconds", 86400);
 		value.put("targetDistanceKm", "1000"); value.put("intensity", Map.of("mode", "PACE", "value", "120")); value.put("inclinePercent", "50"); value.put("resistance", null); return value;

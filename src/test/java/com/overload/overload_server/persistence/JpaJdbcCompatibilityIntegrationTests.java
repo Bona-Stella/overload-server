@@ -104,6 +104,7 @@ class JpaJdbcCompatibilityIntegrationTests {
 		primary = new TransactionTemplate(app.getBean(PlatformTransactionManager.class));
 		accounts = app.getBean(AccountProvisioningService.class);
 		account = accounts.provision(VerifiedIdentity.email(UUID.randomUUID() + "@example.test"), null);
+		com.overload.testfixture.CatalogFixtures.personalExercises(jdbc, account.id());
 		exerciseId = jdbc.queryForList("SELECT id FROM exercise_definitions WHERE user_id=? ORDER BY id", UUID.class, account.id()).getFirst();
 	}
 
@@ -112,7 +113,7 @@ class JpaJdbcCompatibilityIntegrationTests {
 		JpaCompatibilityFixtures.sessionObserver = null;
 		JpaCompatibilityFixtures.jpaObserver = null;
 		ReauthenticationFixtures.reset();
-		jdbc.execute("DROP TRIGGER IF EXISTS compat_seed_fail ON exercise_definitions");
+		jdbc.execute("DROP TRIGGER IF EXISTS compat_seed_fail ON user_workout_settings");
 		jdbc.execute("DROP TRIGGER IF EXISTS compat_rotation_fail ON email_otp_challenges");
 		assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
 		assertThat(TransactionSynchronizationManager.hasResource(factory)).isFalse();
@@ -163,7 +164,7 @@ class JpaJdbcCompatibilityIntegrationTests {
 		jdbc = app.getBean(JdbcTemplate.class);
 		factory = app.getBean(EntityManagerFactory.class);
 		assertThat(rows()).isEqualTo(before);
-		assertThat(jdbc.queryForList("SELECT version,checksum,success FROM flyway_schema_history ORDER BY installed_rank")).isEqualTo(history).hasSize(16);
+		assertThat(jdbc.queryForList("SELECT version,checksum,success FROM flyway_schema_history ORDER BY installed_rank")).isEqualTo(history).hasSize(17);
 	}
 
 	@Test
@@ -308,7 +309,7 @@ class JpaJdbcCompatibilityIntegrationTests {
 			return result;
 		});
 		assertThat(name()).isNotEqualTo("outer rollback");
-		assertThat(app.getBean(ExerciseDefinitionRepository.class).findAllByUserIdAndDataGenerationOrderById(created.id(), 0)).hasSize(20);
+		assertThat(app.getBean(ExerciseDefinitionRepository.class).findAllByUserIdAndDataGenerationOrderById(created.id(), 0)).isEmpty();
 		assertThat(app.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(created.id(), 0)).isPresent();
 		assertThat(accounts.provision(VerifiedIdentity.email(email), "ignored")).isEqualTo(created);
 	}
@@ -318,7 +319,7 @@ class JpaJdbcCompatibilityIntegrationTests {
 		var email = UUID.randomUUID() + "@example.test";
 		var usersBefore = jdbc.queryForObject("SELECT count(*) FROM users", Integer.class);
 		jdbc.execute("CREATE OR REPLACE FUNCTION compat_seed_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic seed fault' USING ERRCODE='23514'; END $$");
-		jdbc.execute("CREATE TRIGGER compat_seed_fail BEFORE INSERT ON exercise_definitions FOR EACH ROW EXECUTE FUNCTION compat_seed_fail()");
+		jdbc.execute("CREATE TRIGGER compat_seed_fail BEFORE INSERT ON user_workout_settings FOR EACH ROW EXECUTE FUNCTION compat_seed_fail()");
 		primary.executeWithoutResult(status -> {
 			assertThatThrownBy(() -> accounts.provision(VerifiedIdentity.email(email), null)).isInstanceOf(DataIntegrityViolationException.class);
 			jdbc.update("UPDATE user_workout_settings SET rest_low_seconds=789 WHERE user_id=?", account.id());
@@ -373,7 +374,7 @@ class JpaJdbcCompatibilityIntegrationTests {
 			var oldId = browser.cookie();
 			var metadata = (SessionMetadata) sessions.findById(oldId).getAttribute(SessionMetadata.ATTRIBUTE);
 			var owner = metadata.userId();
-			assertThat(app.getBean(ExerciseDefinitionRepository.class).findAllByUserIdAndDataGenerationOrderById(owner, 0)).hasSize(20);
+			assertThat(app.getBean(ExerciseDefinitionRepository.class).findAllByUserIdAndDataGenerationOrderById(owner, 0)).isEmpty();
 			var proof = message(browser.post("/api/v1/auth/reauth/email/request", Map.of(), browser.csrf()));
 			var body = Map.of("challengeId", proof.issuanceId(), "code", proof.code());
 			jdbc.execute("CREATE OR REPLACE FUNCTION compat_rotation_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic rotation fault' USING ERRCODE='23514'; END $$");

@@ -50,15 +50,6 @@ class AccountRepository {
 	}
 
 	void insertInitialWorkoutData(Account account) {
-		jdbc.batchUpdate("""
-				INSERT INTO exercise_definitions (id, user_id, data_generation, name) VALUES (?, ?, ?, ?)
-				""", AccountSeed.WEIGHT_EXERCISE_NAMES, AccountSeed.WEIGHT_EXERCISE_NAMES.size(),
-				(statement, name) -> {
-					statement.setObject(1, UUID.randomUUID());
-					statement.setObject(2, account.id());
-					statement.setLong(3, account.dataGeneration());
-					statement.setString(4, name);
-				});
 		var settings = AccountSeed.WORKOUT_SETTINGS;
 		jdbc.update("""
 				INSERT INTO user_workout_settings

@@ -3,7 +3,7 @@ package com.overload.overload_server.workoutsession;
 import jakarta.persistence.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
-import com.overload.overload_server.exercise.ExerciseDefinition;
+import com.overload.overload_server.catalog.StandardExercise;
 import java.util.*;
 import static com.overload.overload_server.workoutsession.WorkoutSnapshotData.*;
 
@@ -43,17 +43,24 @@ public class WorkoutSnapshotRepository {
     void flush() {
         em.flush();
     }
-    Map<UUID, ExerciseDefinition> definitions(UUID user, long generation, Collection<UUID> ids) {
+    void validateManufacturers(Collection<UUID> ids) {
+        var selected = ids.stream().filter(Objects::nonNull).distinct().sorted().toList();
+        if (selected.isEmpty()) return;
+        var found = em.createQuery("select m.id from Manufacturer m where m.id in :ids", UUID.class)
+                .setParameter("ids", selected).getResultList();
+        if (found.size() != selected.size()) throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.INVALID_SNAPSHOT);
+    }
+    Map<UUID, StandardExercise> definitions(UUID user, long generation, Collection<UUID> ids) {
         if (ids.isEmpty())return Map.of();
-        var values = em.createQuery("select e from ExerciseDefinition e where e.userId=:u and e.dataGeneration=:g and e.id in :ids order by e.id", ExerciseDefinition.class)
-        .setParameter("u", user).setParameter("g", generation).setParameter("ids", ids).setLockMode(LockModeType.PESSIMISTIC_READ).getResultList();
-        var result = new HashMap<UUID, ExerciseDefinition>();
+        var values = em.createQuery("select e from StandardExercise e where e.id in :ids order by e.id", StandardExercise.class)
+        .setParameter("ids", ids).setLockMode(LockModeType.PESSIMISTIC_READ).getResultList();
+        var result = new HashMap<UUID, StandardExercise>();
         values.forEach(e -> result.put(e.getId(), e));
         return result;
     }
     void initialize(WorkoutSession session) {
         var initial = InitialPlan.read(session.initialPlan);
-        for (var p:initial.weightExercises())insert(new SessionExercise(session, new Exercise(p.sessionExerciseId(), "WEIGHT", p.exerciseDefinitionId()), null));
+        for (var p:initial.weightExercises())insert(new SessionExercise(session, new Exercise(p.sessionExerciseId(), "WEIGHT", p.standardExerciseId()), null));
         for (var p:initial.cardioActivities())insert(new SessionExercise(session, new Exercise(p.sessionActivityId(), "CARDIO", null), null));
     }
     List<ApprovalResult> results(UUID session, List<WeightApprovalRequest> requests) {

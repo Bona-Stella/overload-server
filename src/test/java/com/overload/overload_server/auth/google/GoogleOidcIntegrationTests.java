@@ -95,7 +95,7 @@ class GoogleOidcIntegrationTests {
 	@BeforeEach
 	void isolateOwnedDatabase() {
 		CLOCK.reset(); provider.reset(); GoogleOidcFixtures.corruptMetadataRead = false;
-		jdbc.execute("DROP TRIGGER IF EXISTS google_test_fail ON exercise_definitions");
+		jdbc.execute("DROP TRIGGER IF EXISTS google_test_fail ON user_workout_settings");
 		jdbc.execute("DROP TRIGGER IF EXISTS google_test_fail ON spring_session_attributes");
 		// Only this test class's disposable database; never the Compose developer DB.
 		jdbc.update("DELETE FROM spring_session"); jdbc.update("DELETE FROM email_otp_login_claims");
@@ -175,7 +175,7 @@ class GoogleOidcIntegrationTests {
 		assertThat(flow.oldCookie.equals(browser.cookie())).isFalse();
 		assertThat(count("SELECT count(*) FROM users")).isEqualTo(1);
 		assertThat(count("SELECT count(*) FROM auth_identities WHERE provider='google' AND issuer='https://accounts.google.com'")).isEqualTo(1);
-		assertThat(count("SELECT count(*) FROM exercise_definitions")).isEqualTo(20);
+		assertThat(count("SELECT count(*) FROM exercise_definitions")).isZero();
 		assertThat(count("SELECT count(*) FROM user_workout_settings WHERE rest_low_seconds=180 AND rest_medium_seconds=120 AND rest_high_seconds=90")).isEqualTo(1);
 		var status = get(browser, "/api/v1/auth/session");
 		assertThat(status.statusCode()).isEqualTo(200);
@@ -290,7 +290,7 @@ class GoogleOidcIntegrationTests {
 			assertThat(responses.stream().filter(this::success).count()).isEqualTo(1);
 			assertThat(provider.exchanges.get()).isEqualTo(1);
 			assertThat(count("SELECT count(*) FROM users")).isEqualTo(1);
-			assertThat(count("SELECT count(*) FROM exercise_definitions")).isEqualTo(20);
+			assertThat(count("SELECT count(*) FROM exercise_definitions")).isZero();
 		}
 		assertNoProviderStorage();
 	}
@@ -304,14 +304,14 @@ class GoogleOidcIntegrationTests {
 			assertSuccess(first.get(20, TimeUnit.SECONDS)); assertSuccess(second.get(20, TimeUnit.SECONDS));
 			assertThat(userId(browser)).isEqualTo(userId(other));
 			assertThat(count("SELECT count(*) FROM users")).isEqualTo(1);
-			assertThat(count("SELECT count(*) FROM exercise_definitions")).isEqualTo(20);
+			assertThat(count("SELECT count(*) FROM exercise_definitions")).isZero();
 		}
 	}
 
 	@Test
 	void changedEmailWithTheSameSubjectPreservesUserGenerationAndEditedData() throws Exception {
 		assertSuccess(complete(browser, begin(browser))); var user = userId(browser);
-		var exercise = jdbc.queryForObject("SELECT id FROM exercise_definitions WHERE user_id=? LIMIT 1", UUID.class, user);
+		var exercise = UUID.randomUUID();
 		jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", user); jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", user);
 		jdbc.update("UPDATE users SET data_generation=7,nickname='edited nickname' WHERE id=?", user);
 		jdbc.update("INSERT INTO exercise_definitions(id,user_id,data_generation,name) VALUES(?,?,7,'edited definition')", exercise, user);
@@ -347,7 +347,7 @@ class GoogleOidcIntegrationTests {
 		provider.subject = "different-google-sub";
 		try (var another = new Browser()) { assertSuccess(complete(another, begin(another))); }
 		assertThat(count("SELECT count(*) FROM users")).isEqualTo(3);
-		assertThat(count("SELECT count(*) FROM exercise_definitions")).isEqualTo(60);
+		assertThat(count("SELECT count(*) FROM exercise_definitions")).isZero();
 		assertThat(count("SELECT count(*) FROM user_workout_settings")).isEqualTo(3);
 	}
 
@@ -366,11 +366,11 @@ class GoogleOidcIntegrationTests {
 
 	@Test
 	void provisioningFailureRollsBackSeedAndFreshFlowRecovers() throws Exception {
-		failureTrigger("exercise_definitions", "TRUE");
+		failureTrigger("user_workout_settings", "TRUE");
 		assertFailure(complete(browser, begin(browser))); assertAnonymousAndNoAccount(browser);
-		jdbc.execute("DROP TRIGGER google_test_fail ON exercise_definitions");
+		jdbc.execute("DROP TRIGGER google_test_fail ON user_workout_settings");
 		assertSuccess(complete(browser, begin(browser)));
-		assertThat(count("SELECT count(*) FROM exercise_definitions")).isEqualTo(20);
+		assertThat(count("SELECT count(*) FROM exercise_definitions")).isZero();
 	}
 
 	@Test
@@ -379,7 +379,7 @@ class GoogleOidcIntegrationTests {
 		assertFailure(complete(browser, begin(browser)));
 		assertThat(get(browser, "/api/v1/auth/session").statusCode()).isEqualTo(401);
 		assertThat(count("SELECT count(*) FROM users")).isEqualTo(1);
-		assertThat(count("SELECT count(*) FROM exercise_definitions")).isEqualTo(20);
+		assertThat(count("SELECT count(*) FROM exercise_definitions")).isZero();
 		assertThat(count("SELECT count(*) FROM spring_session WHERE principal_name IS NOT NULL")).isZero();
 		jdbc.execute("DROP TRIGGER google_test_fail ON spring_session_attributes");
 		assertSuccess(complete(browser, begin(browser))); assertThat(count("SELECT count(*) FROM users")).isEqualTo(1);

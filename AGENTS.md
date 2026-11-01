@@ -101,6 +101,14 @@ Required:
 
 ### Task 009 Current Design
 
+표준 운동 연결은 [최종 카탈로그 설계](docs/tasks/standard-exercise-catalog-design-analysis.md)와
+[Backend 2단계 보고서](docs/tasks/standard-exercise-catalog-backend-phase-2-report.md)를 따릅니다.
+V17부터 신규 루틴·세션은 standardExerciseId 단일 계약과 계획/평가 schemaVersion=2를 사용합니다.
+장비 변경은 승인 중량·공식 비교 키를 바꾸지 않으며 완료 세트의 장비는 불변입니다.
+개인 운동 seed는 중단하고 일반 개인 POST/PATCH는403으로 차단합니다.
+V17의 격리 검증과 실제 개인 DB 적용은 구분하며 개인 DB는 이번에 변경하지 않습니다.
+Frontend/IndexedDB의 표준 계약 전환은 후속3단계입니다.
+
 Task 009 및 이후 운동 쓰기·진행 세션·복구 작업 시 필수:
 - [Task 009 현행 설계 v1.0](docs/tasks/task-009-redesign-v1.0.md)
 

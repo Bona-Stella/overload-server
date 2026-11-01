@@ -12,10 +12,10 @@ public final class WorkoutSnapshotData {
     private WorkoutSnapshotData() {
     }
 
-    public record Exercise(UUID id, String kind, UUID exerciseDefinitionId) {
+    public record Exercise(UUID id, String kind, UUID standardExerciseId) {
     }
 
-    public record WeightPlan(UUID sessionExerciseId, int setCount, int minReps, int maxReps) {
+    public record WeightPlan(UUID sessionExerciseId, int setCount, int minReps, int maxReps, UUID manufacturerId, String loadType) {
     }
 
     public record CardioPlan(UUID sessionActivityId, JsonNode plan) {
@@ -27,7 +27,7 @@ public final class WorkoutSnapshotData {
     public record Context(String kind, UUID requestId) {
     }
 
-    public record SetValue(UUID id, UUID sessionExerciseId, int ordinal, String weightKg, int reps, Instant completedAt, Context weightContext) {
+    public record SetValue(UUID id, UUID sessionExerciseId, int ordinal, String weightKg, int reps, Instant completedAt, Context weightContext, UUID manufacturerId, String loadType) {
     }
 
     public record CardioValue(Long timerMs, Long activeMs, Boolean corrected, String distanceKm, Integer averageBpm) {
@@ -87,7 +87,7 @@ public final class WorkoutSnapshotData {
     }
 
     static Plan initial(InitialPlan plan) {
-        return new Plan(1, plan.weightExercises().stream().map(p -> new WeightPlan(p.sessionExerciseId(), p.setCount(), p.minReps(), p.maxReps())).toList(),
+        return new Plan(2, plan.weightExercises().stream().map(p -> new WeightPlan(p.sessionExerciseId(), p.setCount(), p.minReps(), p.maxReps(), p.manufacturerId(), p.loadType())).toList(),
             plan.cardioActivities().stream().map(p -> new CardioPlan(p.sessionActivityId(), JSON.valueToTree(p.plan()))).toList());
     }
 }

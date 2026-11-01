@@ -1,8 +1,8 @@
 # 루틴 관리 온라인 API — Task 009
 
-상태: 승인된 계약 구현. 웨이트·유산소 루틴 관리와 루틴 화면의 명시적 중량 승인만 제공한다.
+상태: V17 표준 운동 UUID 단일 계약. 웨이트·유산소 루틴 관리와 명시적 중량 승인을 제공한다. 개인 DB에는 V17을 적용하지 않았다.
 기준은 [Task 009 v1.0](../tasks/task-009-redesign-v1.0.md), 유지되는 [Task 006 도메인 정책](../tasks/task-006-integrated-design-v0.3.1.md), 기존 [온라인 쓰기](workout-online-write.md)다.
-Frontend·운동 세션·InitialPlan 생성·IndexedDB·오프라인 쓰기·일정은 이번 구현 범위에 없다.
+Backend 세션은 같은 표준 계약으로 전환했다. Frontend/IndexedDB는 아직 이전 계약이며 후속3단계 연동이 필요하다.
 
 ## HTTP 및 인증
 
@@ -20,7 +20,7 @@ Frontend·운동 세션·InitialPlan 생성·IndexedDB·오프라인 쓰기·일
 
 UUID는 하이픈을 포함한 완전한 UUID 문자열이다. UUID 대소문자는 허용하되 응답은 정규형이다. dataGeneration·version·expectedVersion은 `0` 또는 선행 0 없는 양의 long 십진 문자열이며 상한은 9223372036854775807이다.
 이름은 비공백·NUL 없음·유효 Unicode를 검사하고 원래 공백과 Unicode를 보존한다. 루틴 이름 중복을 허용하며 임의 길이 제한·trim·이름 UNIQUE는 없다. 유산소 이름은 기존 Java/JS UTF-16 길이 100 이하도 검사한다.
-JSON 중복 키·미지원 필드·필수 필드 누락·부적절한 타입·null을 거부한다. 명시적으로 nullable인 유산소 선택값과 응답 deletedAt은 예외다.
+JSON 중복 키·미지원 필드·필수 필드 누락·부적절한 타입·null을 거부한다. 명시적으로 nullable인 manufacturerId/loadType·유산소 선택값·응답 deletedAt은 예외다.
 
 ## 요청 DTO
 
@@ -28,7 +28,7 @@ POST의 필수 필드:
 
 ```text
 {id, dataGeneration, name, weightPlacements: WeightNew[], cardioPlacements: CardioNew[]}
-WeightNew = {id, exerciseDefinitionId, setCount, minReps, maxReps, initialWeightKg}
+WeightNew = {id, standardExerciseId, manufacturerId:UUID|null, loadType:LoadType|null, setCount, minReps, maxReps, initialWeightKg}
 CardioNew = {id, plan: CardioPlan}
 ```
 
@@ -39,7 +39,7 @@ PUT의 필수 필드:
  cardioPlacements: CardioInput[], weightApprovals: Approval[]}
 
 WeightInput NEW = {mode:"NEW", ...WeightNew}
-WeightInput EXISTING/RESTORE = {mode:"EXISTING"|"RESTORE", id, setCount, minReps, maxReps}
+WeightInput EXISTING/RESTORE = {mode:"EXISTING"|"RESTORE", id, manufacturerId:UUID|null, loadType:LoadType|null, setCount, minReps, maxReps}
 CardioInput = {mode:"NEW"|"EXISTING"|"RESTORE", id, plan: CardioPlan}
 Approval = {placementId, nextApprovedWeightKg, occurredAt}
 ```
@@ -48,8 +48,8 @@ DELETE: `{dataGeneration, expectedVersion}`.
 
 두 구성 배열과 승인 배열의 누락·null은 400이다. 빈 배열은 명시 입력이다. 최종 웨이트+유산소가 최소 하나 있어야 한다.
 배열 순서가 저장 순서이며 position을 입력받지 않는다. 제출된 전체 구성에서 빠진 기존 활성 배치는 논리 삭제한다.
-배치 ID는 요청의 두 배열 전체에서 중복될 수 없다. 같은 종목 정의를 여러 번 배치할 수 있으며 각 배치 ID·승인 계보는 독립이다.
-EXISTING/RESTORE에는 종목 정의 ID·최초 중량·현재 승인 중량을 입력할 수 없다. 종목 교체는 제거+NEW다.
+배치 ID는 요청의 두 배열 전체에서 중복될 수 없다. 같은 표준 운동을 여러 번 배치할 수 있으며 각 배치 ID·승인 계보는 독립이다.
+EXISTING/RESTORE에는 표준 운동 ID·최초 중량·현재 승인 중량을 입력할 수 없다. 종목 교체는 제거+NEW다.
 RESTORE는 같은 사용자·세대·루틴의 지정된 삭제 ID만 허용한다. 활성 ID를 RESTORE로 보내거나 삭제 ID를 EXISTING으로 보내면409다.
 복원 시 계획 세트/목표 또는 유산소 계획은 명시 입력대로 적용하되 최초·승인 중량은 보존한다.
 
@@ -64,6 +64,14 @@ CardioPlan의 모든 필드:
  targetDistanceKm:Decimal|null, intensity:{mode:"SPEED"|"PACE",value:Decimal}|null,
  inclinePercent:Decimal|null, resistance:Decimal|null}
 ```
+
+## 장비 선택과 보존
+
+LoadType은 PLATE/STACK/DUMBBELL/BODYWEIGHT 또는 JSON null만 허용한다. manufacturerId/loadType은 NEW·EXISTING·RESTORE 모두 필수 nullable 키다. 표준 UUID는 공용 카탈로그를 참조하며 개인 정의 UUID를 받지 않는다. NEW는 활성 표준 운동만 선택할 수 있다. 비활성 표준을 참조하는 기존 배치의 편집·RESTORE·START는 허용한다.
+
+제조사 신규 선택은 활성 카탈로그 ID만 허용한다. 현재 배치에 보존된 제조사 ID는 비활성화 후에도 동일 값 저장·복원을 허용한다. 없는/새로 선택한 비활성 제조사는400 INVALID_REQUEST다. 장비 변경은 배치 UUID·최초/승인 중량을 유지하며 승인 사건을 생성하지 않는다. 실제 변경만 routine.version을1회 올리고 동일 값 재저장은 기존 no-op이다. 표준 운동 변경은 제거+NEW를 사용한다. RESTORE는 저장한 장비를 기본값으로 명시 전송한다.
+
+장비 편집으로 달라진 routine.version에도 기존 세션 승인 경합 규칙을 적용한다. 장비가 달라졌다는 이유로 승인값 초기화·TODAY_ONLY 강제·공식 평가 비교 키 확장은 하지 않는다.
 
 ## 수치 계약 — 이번 사용자 승인으로 확정
 
@@ -89,7 +97,7 @@ API에서 먼저 범위·scale을 검증하여 DB NUMERIC의 암묵적 반올림
 
 목록: `{userId,dataGeneration,routines:[{id,name,version}]}`, UUID 오름차순.
 상세/삭제 후보: `{userId,dataGeneration,id,version,name,weightPlacements,cardioPlacements}`.
-웨이트 항목은 `{id,exerciseDefinitionId,exerciseName,setCount,minReps,maxReps,initialWeightKg,approvedWeightKg,deletedAt}`다.
+웨이트 항목은 `{id,standardExerciseId,exerciseName,manufacturerId,loadType,setCount,minReps,maxReps,initialWeightKg,approvedWeightKg,deletedAt}`다.
 유산소 항목은 `{id,plan:CardioPlan,deletedAt}`다. 정상 상세의 deletedAt은null이다.
 두 배열은 position·UUID 오름차순이다. 삭제 후보에는 보존된 계획·중량·삭제 시각을 반환하며 이름으로 후보를 자동 선택하지 않는다.
 승인값은 서버 응답으로 확인한다. 응답은 Entity가 아닌 DTO이며 decimal·counter의 문자열 정밀도를 유지한다.
@@ -117,7 +125,7 @@ API에서 먼저 범위·scale을 검증하여 DB NUMERIC의 암묵적 반올림
 루틴 삭제는 부모 deleted_at만 설정하며 자식·승인 사건은 보존한다. 활성 여부에는 부모 삭제도 포함한다.
 FK에는 기록 삭제 cascade가 없다. 승인 사건은 Hibernate Immutable 및 모든 필드 updatable=false이며 update/delete API가 없다.
 출처 UUID·최초/승인 중량은 유지한다. 미래 세션은 새 세션 종목 ID와 출처 배치 ID를 구분하고 시작 당시 전체 계획을 복사해야 한다.
-START는 같은 users→routine 잠금 순서와 routine FOR SHARE, REPEATABLE_READ 쓰기 트랜잭션에서 읽기·InitialPlan·세션 생성을 원자 처리한다. 경합 직렬화 실패는 전체 실패로 처리한다. 구현 범위는 [세션 1단계 계약](workout-sessions.md)을 따른다. 기존 루틴 API 요청·응답은 변경하지 않는다.
+START는 같은 users→routine 잠금 순서와 routine FOR SHARE, REPEATABLE_READ 쓰기 트랜잭션에서 읽기·InitialPlan·세션 생성을 원자 처리한다. 경합 직렬화 실패는 전체 실패로 처리한다. 구현 범위는 [세션 1단계 계약](workout-sessions.md)을 따른다. 루틴과 세션 모두 V17 단일 표준 계약을 사용한다.
 루틴 version을 공식 비교 계보에 추가하거나 이름/순서 변경으로 과거 수행을 수정하지 않는다. 일정은 미구현이며 도입 시 루틴 삭제와 일정 정리를 원자 처리한다.
 
 ## 오류

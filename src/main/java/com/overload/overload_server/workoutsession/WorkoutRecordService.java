@@ -36,7 +36,7 @@ public class WorkoutRecordService {
             var sets=index(data.sets(id),s->s.id);var cardio=index(data.cardio(id),c->c.id);
             for(var correction:input.setCorrections()) {
                 var row=present(sets,correction.id());alive(row.deletedAt);
-                var before=row.value();var after=new SetValue(row.id,row.exerciseId,row.ordinal,correction.weightKg(),correction.reps(),row.completedAt,before.weightContext());
+                var before=row.value();var after=new SetValue(row.id,row.exerciseId,row.ordinal,correction.weightKg(),correction.reps(),row.completedAt,before.weightContext(),row.manufacturerId,row.loadType);
                 if(!before.equals(after)) {
                     audit(session,"SET",row.id,"CORRECTED",before,after,null,events);row.apply(after);
                 }
@@ -67,6 +67,7 @@ public class WorkoutRecordService {
     WorkoutRecordData.Ack recover(UUID owner,UUID id,Recovery input) {
         return writes.execute(tx->{
             var session=lock(owner,id,input.scope());var events=new ArrayList<UUID>();var added=new ArrayList<UUID>();var existing=new ArrayList<UUID>();
+            data.validateManufacturers(input.performedSets().stream().map(SetValue::manufacturerId).toList());
             long epoch=Long.parseLong(input.origin().writerEpoch());
             if(epoch>session.writerEpoch||epoch==0&&!input.origin().editorDeviceId().equals(session.startedDeviceId)
                     ||epoch==session.writerEpoch&&!input.origin().editorDeviceId().equals(session.editorDeviceId))throw failure(INVALID_RECOVERY_ORIGIN);
@@ -84,7 +85,7 @@ public class WorkoutRecordService {
                 if(old!=null) {
                     alive(old.deletedAt);
                     var claim=recoveredClaims.getOrDefault(old.id,old.value().weightContext());
-                    var expected=new SetValue(old.id,old.exerciseId,old.ordinal,decimal(old.weight),old.reps,old.completedAt,claim);
+                    var expected=new SetValue(old.id,old.exerciseId,old.ordinal,decimal(old.weight),old.reps,old.completedAt,claim,old.manufacturerId,old.loadType);
                     if(!expected.equals(value))throw failure(RECORD_ID_CONFLICT);
                     existing.add(old.id);continue;
                 }

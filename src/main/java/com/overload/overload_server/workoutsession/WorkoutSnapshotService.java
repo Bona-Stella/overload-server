@@ -84,14 +84,14 @@ public class WorkoutSnapshotService {
     }
 
     private record Locked(WorkoutSession session, RoutineRepository.ApprovalScope scope,
-            Map<UUID,com.overload.overload_server.exercise.ExerciseDefinition> definitions) { }
+            Map<UUID,com.overload.overload_server.catalog.StandardExercise> definitions) { }
 
     private Locked lock(UUID owner,UUID id,Save input) {
         owner(owner,input.dataGeneration());
         UUID source=data.source(owner,input.dataGeneration(),id);
         var scope=input.snapshot().approvalRequests().isEmpty()?null:routines.lockForWorkoutApproval(owner,input.dataGeneration(),source);
         var definitions=data.definitions(owner,input.dataGeneration(),input.snapshot().sessionExercises().stream()
-                .filter(e->e.kind().equals("WEIGHT")).map(Exercise::exerciseDefinitionId).distinct().toList());
+                .filter(e->e.kind().equals("WEIGHT")).map(Exercise::standardExerciseId).distinct().toList());
         return new Locked(find(owner,input.dataGeneration(),id),scope,definitions);
     }
 
@@ -102,7 +102,7 @@ public class WorkoutSnapshotService {
     }
 
     private boolean applySnapshot(WorkoutSession session,Save input,
-            Map<UUID,com.overload.overload_server.exercise.ExerciseDefinition> definitions,RoutineRepository.ApprovalScope scope) {
+            Map<UUID,com.overload.overload_server.catalog.StandardExercise> definitions,RoutineRepository.ApprovalScope scope) {
         UUID id=session.id;
         String hash = hash(input);
         if (input.localRevision()<session.localRevision)throw failure(REVISION_STALE);
@@ -111,6 +111,9 @@ public class WorkoutSnapshotService {
             return true;
         }
         incrementable(session);
+        data.validateManufacturers(java.util.stream.Stream.concat(
+                input.snapshot().appliedPlan().weightExercises().stream().map(WeightPlan::manufacturerId),
+                input.snapshot().performedSets().stream().map(SetValue::manufacturerId)).toList());
         var items = index(data.exercises(id), e -> e.id);
         for (var item:input.snapshot().sessionExercises()) {
             var old = items.get(item.id());
@@ -121,8 +124,8 @@ public class WorkoutSnapshotService {
                 available("session_exercises", item.id());
                 String name = null;
                 if (item.kind().equals("WEIGHT")) {
-                    var definition = definitions.get(item.exerciseDefinitionId());
-                    if (definition==null||definition.getDeletedAt()!=null)throw failure(EXERCISE_NOT_FOUND);
+                    var definition = definitions.get(item.standardExerciseId());
+                    if (definition==null||!definition.isActive())throw failure(EXERCISE_NOT_FOUND);
                     name = definition.getName();
                 }
                 var added = new SessionExercise(session, item, name);
@@ -347,7 +350,8 @@ public class WorkoutSnapshotService {
                 if (row.deletedAt!=null)throw failure(RECORD_DELETED);
                 var old = row.value();
                 if (!old.sessionExerciseId().equals(input.sessionExerciseId())||old.ordinal()!=input.ordinal()
-                    ||!old.completedAt().equals(input.completedAt())||!old.weightContext().equals(input.weightContext()))throw failure(IMMUTABLE_RECORD_CONTEXT);
+                    ||!old.completedAt().equals(input.completedAt())||!old.weightContext().equals(input.weightContext())
+                    ||!Objects.equals(old.manufacturerId(), input.manufacturerId())||!Objects.equals(old.loadType(), input.loadType()))throw failure(IMMUTABLE_RECORD_CONTEXT);
                 if (!old.equals(input)) {
                     audit(session, "SET", row.id, old, input);
                     row.apply(input);

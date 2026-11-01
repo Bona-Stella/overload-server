@@ -56,12 +56,12 @@ class V9MigrationCompatibilityTests {
 		assertThat(jdbc.queryForList("SELECT version FROM exercise_definitions WHERE user_id=?", Long.class, owner)).containsOnly(0L);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions WHERE user_id=? AND deleted_at IS NOT NULL", Integer.class, owner)).isZero();
 		try (var app = new SpringApplicationBuilder(OverloadServerApplication.class).web(WebApplicationType.NONE)
-				.run("--spring.profiles.active=integration", "--spring.flyway.target=16", "--spring.datasource.url=" + postgres.getJdbcUrl(),
+				.run("--spring.profiles.active=integration", "--spring.datasource.url=" + postgres.getJdbcUrl(),
 						"--spring.datasource.username=" + postgres.getUsername(), "--spring.datasource.password=" + postgres.getPassword(),
 						"--GOOGLE_OIDC_ENABLED=false", "--OTP_EMAIL_ENABLED=false", "--logging.level.root=WARN", "--spring.main.banner-mode=off")) {
 			MixedPersistenceAssertions.verify(app);
 			var flyway = app.getBean(Flyway.class);
-			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("16");
+			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("17");
 			assertThat(Arrays.stream(flyway.info().applied()).limit(8).map(value -> value.getChecksum()).toList()).isEqualTo(checksums);
 			assertThat(jdbc.queryForList("SELECT * FROM users ORDER BY id")).isEqualTo(users);
 			assertThat(jdbc.queryForList("SELECT * FROM auth_identities ORDER BY id")).isEqualTo(identities);
@@ -78,8 +78,8 @@ class V9MigrationCompatibilityTests {
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions WHERE user_id=?", Integer.class, owner)).isEqualTo(2);
 			var fresh = provisioning.provision(VerifiedIdentity.email("v9-fresh@example.test"), null);
 			assertThat(jdbc.queryForList("SELECT name FROM exercise_definitions WHERE user_id=?", String.class, fresh.id()))
-					.hasSize(20).containsExactlyInAnyOrderElementsOf(AccountSeed.WEIGHT_EXERCISE_NAMES);
-			assertThat(jdbc.queryForList("SELECT version FROM exercise_definitions WHERE user_id=?", Long.class, fresh.id())).containsOnly(0L);
+					.isEmpty();
+			assertThat(jdbc.queryForList("SELECT version FROM exercise_definitions WHERE user_id=?", Long.class, fresh.id())).isEmpty();
 			var freshSettings = app.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(fresh.id(), 0).orElseThrow();
 			assertThat(java.util.List.of(freshSettings.getRestLowSeconds(), freshSettings.getRestMediumSeconds(), freshSettings.getRestHighSeconds())).containsExactly(180, 120, 90);
 			assertThat(flyway.migrate().migrationsExecuted).isZero();

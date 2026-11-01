@@ -27,22 +27,22 @@ final class WorkoutSnapshotRequests {
         fields(s, "sessionExercises", "appliedPlan", "performedSets", "cardioResults", "deletedPerformedSetIds", "deletedCardioResultIds", "approvalRequests");
         var identities = new ArrayList<Exercise>();
         for (var p:array(s, "sessionExercises")) {
-            fields(p, "id", "kind", "exerciseDefinitionId");
+            fields(p, "id", "kind", "standardExerciseId");
             String kind = text(p, "kind");
-            UUID definition = nullableUuid(p, "exerciseDefinitionId");
+            UUID definition = nullableUuid(p, "standardExerciseId");
             if (!Set.of("WEIGHT", "CARDIO").contains(kind)||(kind.equals("WEIGHT")!=(definition!=null))) throw invalid();
             identities.add(new Exercise(uuid(p, "id"), kind, definition));
         }
         var plan = s.get("appliedPlan");
         fields(plan, "schemaVersion", "weightExercises", "cardioActivities");
-        if (count(plan, "schemaVersion")!=1) throw invalid();
+        if (count(plan, "schemaVersion")!=2) throw invalid();
         var weights = new ArrayList<WeightPlan>();
         var cardioPlans = new ArrayList<CardioPlan>();
         for (var p:array(plan, "weightExercises")) {
-            fields(p, "sessionExerciseId", "setCount", "minReps", "maxReps");
+            fields(p, "sessionExerciseId", "setCount", "minReps", "maxReps", "manufacturerId", "loadType");
             int min = count(p, "minReps"), max = count(p, "maxReps");
             if (min>max) throw invalid();
-            weights.add(new WeightPlan(uuid(p, "sessionExerciseId"), count(p, "setCount"), min, max));
+            weights.add(new WeightPlan(uuid(p, "sessionExerciseId"), count(p, "setCount"), min, max, nullableUuid(p, "manufacturerId"), loadType(p)));
         }
         for (var p:array(plan, "cardioActivities")) {
             fields(p, "sessionActivityId", "plan");
@@ -68,17 +68,17 @@ final class WorkoutSnapshotRequests {
         cardio.sort(Comparator.comparing(p -> p.id().toString()));
         approvals.sort(Comparator.comparing((Approval p) -> p.sessionExerciseId().toString()).thenComparingLong(Approval::sequence));
         return new Save(counter(body, "dataGeneration"), uuid(body, "editorDeviceId"), counter(body, "writerEpoch"), revision,
-            new State(List.copyOf(identities), new Plan(1, List.copyOf(weights), List.copyOf(cardioPlans)), List.copyOf(sets), List.copyOf(cardio), ids(s, "deletedPerformedSetIds"), ids(s, "deletedCardioResultIds"), List.copyOf(approvals)));
+            new State(List.copyOf(identities), new Plan(2, List.copyOf(weights), List.copyOf(cardioPlans)), List.copyOf(sets), List.copyOf(cardio), ids(s, "deletedPerformedSetIds"), ids(s, "deletedCardioResultIds"), List.copyOf(approvals)));
     }
 
     static SetValue set(JsonNode p,boolean recovery) {
-        fields(p, "id", "sessionExerciseId", "ordinal", "weightKg", "reps", "completedAt", "weightContext");
+        fields(p, "id", "sessionExerciseId", "ordinal", "weightKg", "reps", "completedAt", "weightContext", "manufacturerId", "loadType");
         var context = p.get("weightContext");
         fields(context, "kind", "requestId");
         String kind = text(context, "kind");
         UUID request = nullableUuid(context, "requestId");
         if (!(Set.of("INITIAL_APPROVED", "APPROVAL_REQUEST", "TODAY_ONLY").contains(kind)||recovery&&kind.equals("UNVERIFIED"))||(kind.equals("APPROVAL_REQUEST")!=(request!=null))) throw invalid();
-        return new SetValue(uuid(p, "id"), uuid(p, "sessionExerciseId"), count(p, "ordinal"), decimal(p, "weightKg"), count(p, "reps"), time(p, "completedAt"), new Context(kind, request));
+        return new SetValue(uuid(p, "id"), uuid(p, "sessionExerciseId"), count(p, "ordinal"), decimal(p, "weightKg"), count(p, "reps"), time(p, "completedAt"), new Context(kind, request), nullableUuid(p, "manufacturerId"), loadType(p));
     }
     static Cardio cardio(JsonNode p) {
         fields(p, "id", "sessionActivityId", "status", "startedAt", "occurredAt", "result");
@@ -167,6 +167,15 @@ final class WorkoutSnapshotRequests {
 
     static UUID uuid(JsonNode p, String n) {
         return WorkoutSessionRequests.uuid(text(p, n));
+    }
+
+    static String loadType(JsonNode p) {
+        var value = p.get("loadType");
+        if (value == null) throw invalid();
+        if (value.isNull()) return null;
+        String code = text(p, "loadType");
+        if (!Set.of("PLATE", "STACK", "DUMBBELL", "BODYWEIGHT").contains(code)) throw invalid();
+        return code;
     }
 
     static UUID nullableUuid(JsonNode p, String n) {

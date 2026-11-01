@@ -23,6 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.json.JsonMapper;
 
+import org.springframework.http.ResponseEntity;
 import java.net.*;
 import java.net.http.*;
 import java.sql.SQLException;
@@ -51,7 +52,7 @@ class WorkoutWriteIntegrationTests {
 	@BeforeAll static void start() {
 		assertThat(POSTGRES.getMappedPort(5432)).isNotIn(5432, 5433);
 		var key = new byte[32]; new java.security.SecureRandom().nextBytes(key);
-		app = new SpringApplicationBuilder(OverloadServerApplication.class, EmailOtpFixtures.class, WorkoutReadFixtures.class)
+		app = new SpringApplicationBuilder(OverloadServerApplication.class, EmailOtpFixtures.class, WorkoutReadFixtures.class, PersonalDomainHarness.class)
 				.web(WebApplicationType.SERVLET).run("--spring.profiles.active=local,integration",
 						"--spring.datasource.url=" + POSTGRES.getJdbcUrl(), "--spring.datasource.username=" + POSTGRES.getUsername(),
 						"--spring.datasource.password=" + POSTGRES.getPassword(), "--server.address=127.0.0.1", "--server.port=0",
@@ -68,6 +69,7 @@ class WorkoutWriteIntegrationTests {
 		jdbc.update("DELETE FROM email_otp_rate_limits");
 		String email = UUID.randomUUID() + "@example.test";
 		owner = app.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email(email), null);
+		com.overload.testfixture.CatalogFixtures.personalExercises(jdbc, owner.id());
 		exercise = jdbc.queryForObject("SELECT id FROM exercise_definitions WHERE user_id=? ORDER BY id LIMIT 1", UUID.class, owner.id());
 		browser = new Browser(); browser.login(email); csrf = browser.csrf();
 	}
@@ -157,6 +159,7 @@ class WorkoutWriteIntegrationTests {
 
 	@Test void foreignMissingAndDeletedExerciseIdsCannotBeRenamedOrOverwritten() throws Exception {
 		var foreign = app.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email(UUID.randomUUID()+"@example.test"), null);
+		com.overload.testfixture.CatalogFixtures.personalExercises(jdbc,foreign.id());
 		UUID id = jdbc.queryForObject("SELECT id FROM exercise_definitions WHERE user_id=? LIMIT 1", UUID.class, foreign.id());
 		var before = snapshot(foreign.id());
 		error(send("rename", id, "attack"), 404, "EXERCISE_NOT_FOUND");
@@ -298,7 +301,7 @@ class WorkoutWriteIntegrationTests {
 
 	HttpResponse<String> send(String kind, UUID id, String name) throws Exception { return browser.send(method(kind),path(kind,id),payload(kind,id,name),csrf); }
 	static String method(String kind) { return kind.equals("create") ? "POST" : "PATCH"; }
-	static String path(String kind, UUID id) { return kind.equals("settings") ? "/api/v1/workout-settings" : "/api/v1/exercises"+(kind.equals("rename") ? "/"+id : ""); }
+	static String path(String kind, UUID id) { return kind.equals("settings") ? "/api/v1/workout-settings" : "/__personal_domain_test/exercises"+(kind.equals("rename") ? "/"+id : ""); }
 	static String payload(String kind, UUID id, String name) {
 		return kind.equals("settings") ? rest("0",31,47,59) : JSON.writeValueAsString(kind.equals("create")
 				? Map.of("id",id,"dataGeneration","0","name",name) : Map.of("dataGeneration","0","name",name));
@@ -315,7 +318,33 @@ class WorkoutWriteIntegrationTests {
 	static void error(HttpResponse<String> response, int status, String code) { assertThat(response.statusCode()).isEqualTo(status); headers(response); assertThat(JSON.readTree(response.body())).isEqualTo(JSON.readTree(JSON.writeValueAsString(Map.of("code",code)))); }
 	static void headers(HttpResponse<String> response) { WorkoutReadIntegrationTests.headers(response); }
 
-	static final class Browser implements AutoCloseable {
+	// Test-only aliases preserve validation/transaction regression coverage for retained internal CRUD.
+    // Production URLs are independently asserted to return 403 below.
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods=false)
+    @org.springframework.web.bind.annotation.RestController
+    static class PersonalDomainHarness extends WorkoutWriteController {
+        PersonalDomainHarness(WorkoutWriteService service) { super(service); }
+        @Override @org.springframework.web.bind.annotation.PostMapping("/__personal_domain_test/exercises")
+        ResponseEntity<ExerciseWriteResponse> create(@org.springframework.security.core.annotation.AuthenticationPrincipal com.overload.overload_server.security.SessionPrincipal p,
+                @org.springframework.web.bind.annotation.RequestBody WorkoutWriteRequests.CreateExercise body, jakarta.servlet.http.HttpServletRequest request) { return super.create(p,body,request); }
+        @Override @org.springframework.web.bind.annotation.PatchMapping("/__personal_domain_test/exercises/{id}")
+        ResponseEntity<ExerciseWriteResponse> rename(@org.springframework.security.core.annotation.AuthenticationPrincipal com.overload.overload_server.security.SessionPrincipal p,
+                @org.springframework.web.bind.annotation.PathVariable UUID id, @org.springframework.web.bind.annotation.RequestBody WorkoutWriteRequests.RenameExercise body, jakarta.servlet.http.HttpServletRequest request) { return super.rename(p,id,body,request); }
+        @Override @org.springframework.web.bind.annotation.PatchMapping("/__personal_domain_test/settings")
+        ResponseEntity<WorkoutSettingsResponse> settings(@org.springframework.security.core.annotation.AuthenticationPrincipal com.overload.overload_server.security.SessionPrincipal p,
+                @org.springframework.web.bind.annotation.RequestBody WorkoutWriteRequests.ChangeRest body, jakarta.servlet.http.HttpServletRequest request) { return super.settings(p,body,request); }
+    }
+
+    @Test void productionPersonalWriteUrlsDenyAuthenticatedRequestsBeforeValidationAndNeverWrite() throws Exception {
+        var before=snapshot(owner.id());
+        for (String body:List.of(payload("create",UUID.randomUUID(),"test"),"{bad","{}"))
+            error(browser.send("POST","/api/v1/exercises",body,csrf),403,"ACCESS_DENIED");
+        for (UUID id:List.of(exercise,UUID.randomUUID()))
+            error(browser.send("PATCH","/api/v1/exercises/"+id,payload("rename",id,"test"),csrf),403,"ACCESS_DENIED");
+        assertThat(snapshot(owner.id())).isEqualTo(before);
+    }
+
+    static final class Browser implements AutoCloseable {
 		final HttpClient client = HttpClient.newBuilder().cookieHandler(new CookieManager(null,CookiePolicy.ACCEPT_ALL)).connectTimeout(Duration.ofSeconds(5)).build();
 		void login(String email) throws Exception {
 			String token=csrf(); var issued=send("POST","/api/v1/auth/email-otp/request",JSON.writeValueAsString(Map.of("email",email)),token);

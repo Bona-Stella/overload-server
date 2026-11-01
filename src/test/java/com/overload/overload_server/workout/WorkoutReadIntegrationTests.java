@@ -83,6 +83,7 @@ class WorkoutReadIntegrationTests {
 		jdbc.update("DELETE FROM email_otp_rate_limits");
 		email = UUID.randomUUID() + "@example.test";
 		owner = app.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email(email), null);
+		com.overload.testfixture.CatalogFixtures.personalExercises(jdbc, owner.id());
 		browser = new Browser(); browser.login(email);
 	}
 
@@ -297,7 +298,7 @@ class WorkoutReadIntegrationTests {
 		var result = browser.send("PUT", EXERCISES, "{}", token);
 		assertThat(result.statusCode()).isEqualTo(405);
 		headers(result);
-		error(browser.send("POST", EXERCISES, "{}", token), 400, "INVALID_REQUEST");
+		error(browser.send("POST", EXERCISES, "{}", token), 403, "ACCESS_DENIED");
 	}
 
 	Object snapshot() {

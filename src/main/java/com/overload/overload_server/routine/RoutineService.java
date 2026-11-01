@@ -1,6 +1,6 @@
 package com.overload.overload_server.routine;
 
-import com.overload.overload_server.exercise.ExerciseDefinition;
+import com.overload.overload_server.catalog.StandardExercise;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -101,9 +101,9 @@ public class RoutineService {
 			var input = weights.get(i); var old = weightById.get(input.id());
 			placement(input.mode(), old == null, old != null && old.deletedAt != null);
 			if (input.mode() == RoutineRequests.Mode.NEW) {
-				available(input.id()); definitions.add(input.exerciseDefinitionId()); changedWeights.add(input.id());
+				available(input.id()); definitions.add(input.standardExerciseId()); changedWeights.add(input.id());
 			} else {
-				definitions.add(old.exerciseDefinitionId);
+				definitions.add(old.standardExerciseId);
 				if (old.differs(input, i)) changedWeights.add(input.id());
 			}
 		}
@@ -114,7 +114,12 @@ public class RoutineService {
 			else if (old.differs(input, i)) changedCardio.add(input.id());
 		}
 		var exercises = repository.exercises(routine.userId, routine.dataGeneration, definitions, true);
-		if (definitions.stream().anyMatch(id -> !exercises.containsKey(id) || exercises.get(id).getDeletedAt() != null)) throw new RoutineFailure(EXERCISE_NOT_FOUND);
+		if (definitions.stream().anyMatch(id -> !exercises.containsKey(id))) throw new RoutineFailure(EXERCISE_NOT_FOUND);
+		for (var input : weights) {
+			if (input.mode() == RoutineRequests.Mode.NEW && !exercises.get(input.standardExerciseId()).isActive()) throw new RoutineFailure(EXERCISE_NOT_FOUND);
+			var old = weightById.get(input.id());
+			if (input.manufacturerId() != null && !repository.manufacturerAvailable(input.manufacturerId(), old != null && input.manufacturerId().equals(old.manufacturerId))) throw new RoutineFailure(INVALID_REQUEST);
+		}
 		var weightIds = weights.stream().map(RoutineRequests.Weight::id).collect(Collectors.toSet());
 		var cardioIds = cardio.stream().map(RoutineRequests.Cardio::id).collect(Collectors.toSet());
 		boolean removed = false;
@@ -142,7 +147,7 @@ public class RoutineService {
 			var value = weightById.get(approval.placementId());
 			if (value == null || value.deletedAt != null || !weightIds.contains(value.id)) throw new RoutineFailure(PLACEMENT_NOT_FOUND);
 			if (value.approvedWeight.compareTo(approval.nextApprovedWeightKg()) != 0) {
-				repository.insert(ProgressChangeEvent.create(routine, value, exercises.get(value.exerciseDefinitionId).getName(), approval, now));
+				repository.insert(ProgressChangeEvent.create(routine, value, exercises.get(value.standardExerciseId).getName(), approval, now));
 				value.approvedWeight = approval.nextApprovedWeightKg(); value.updatedAt = now; changed = true;
 			}
 		}
@@ -176,10 +181,10 @@ public class RoutineService {
 	private RoutineResponses.Detail response(Routine routine, boolean removed) {
 		var weights = repository.weights(routine).stream().filter(value -> (value.deletedAt != null) == removed).toList();
 		var cardio = repository.cardio(routine).stream().filter(value -> (value.deletedAt != null) == removed).toList();
-		var ids = weights.stream().map(value -> value.exerciseDefinitionId).collect(Collectors.toSet());
-		Map<UUID, ExerciseDefinition> definitions = repository.exercises(routine.userId, routine.dataGeneration, ids, false);
-		var weightResponses = weights.stream().map(value -> new RoutineResponses.Weight(value.id, value.exerciseDefinitionId,
-				definitions.get(value.exerciseDefinitionId).getName(), value.setCount, value.minReps, value.maxReps,
+		var ids = weights.stream().map(value -> value.standardExerciseId).collect(Collectors.toSet());
+		Map<UUID, StandardExercise> definitions = repository.exercises(routine.userId, routine.dataGeneration, ids, false);
+		var weightResponses = weights.stream().map(value -> new RoutineResponses.Weight(value.id, value.standardExerciseId,
+				definitions.get(value.standardExerciseId).getName(), value.manufacturerId, value.loadType, value.setCount, value.minReps, value.maxReps,
 				RoutineResponses.decimal(value.initialWeight), RoutineResponses.decimal(value.approvedWeight), value.deletedAt)).toList();
 		return new RoutineResponses.Detail(routine.userId, Long.toString(routine.dataGeneration), routine.id, Long.toString(routine.version),
 				routine.name, weightResponses, cardio.stream().map(RoutineResponses::cardio).toList());

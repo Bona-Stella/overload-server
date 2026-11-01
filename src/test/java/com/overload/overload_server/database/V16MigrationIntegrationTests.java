@@ -30,7 +30,7 @@ class V16MigrationIntegrationTests {
             if (!table.equals("flyway_schema_history")) assertThat(jdbc.queryForObject("SELECT count(*) FROM " + table, Integer.class)).isZero();
         }
 
-        var latest = Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()).load();
+        var latest = Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()).target("16").load();
         assertThat(latest.migrate().migrationsExecuted).isEqualTo(1);
         latest.validate();
         assertThat(latest.info().current().getVersion().toString()).isEqualTo("16");

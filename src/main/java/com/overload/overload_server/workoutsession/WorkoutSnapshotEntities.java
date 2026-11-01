@@ -13,7 +13,7 @@ class SessionExercise {
     @Column(name = "user_id", updatable = false) UUID userId;
     @Column(name = "data_generation", updatable = false) long dataGeneration;
     @Column(updatable = false, columnDefinition = "text") String kind;
-    @Column(name = "exercise_definition_id", updatable = false) UUID definitionId;
+    @Column(name = "standard_exercise_id", updatable = false) UUID standardExerciseId;
     @Column(name = "name_at_addition", updatable = false, columnDefinition = "text") String nameAtAddition;
     protected SessionExercise() {
     }
@@ -23,11 +23,11 @@ class SessionExercise {
         userId = session.userId;
         dataGeneration = session.dataGeneration;
         kind = input.kind();
-        definitionId = input.exerciseDefinitionId();
+        standardExerciseId = input.standardExerciseId();
         nameAtAddition = name;
     }
     WorkoutSnapshotData.Exercise value() {
-        return new WorkoutSnapshotData.Exercise(id, kind, definitionId);
+        return new WorkoutSnapshotData.Exercise(id, kind, standardExerciseId);
     }
 }
 @Entity @Table(name = "session_weight_approval_requests")
@@ -78,6 +78,8 @@ class PerformedSet {
     @Column(name = "session_exercise_id", updatable = false) UUID exerciseId;
     @Column(updatable = false, columnDefinition = "text") String kind = "WEIGHT";
     @Column(updatable = false) int ordinal;
+    @Column(name = "manufacturer_id", updatable = false) UUID manufacturerId;
+    @Column(name = "load_type", updatable = false, columnDefinition = "text") String loadType;
     @Column(precision = 20, scale = 6) BigDecimal weight;
     int reps;
     @Column(name = "completed_at", updatable = false) Instant completedAt;
@@ -93,6 +95,8 @@ class PerformedSet {
         sessionId = session;
         exerciseId = input.sessionExerciseId();
         ordinal = input.ordinal();
+        manufacturerId = input.manufacturerId();
+        loadType = input.loadType();
         completedAt = input.completedAt();
         contextKind = input.weightContext().kind();
         approvalRequestId = input.weightContext().requestId();
@@ -104,7 +108,7 @@ class PerformedSet {
     }
     WorkoutSnapshotData.SetValue value() {
         return new WorkoutSnapshotData.SetValue(id, exerciseId, ordinal, WorkoutSnapshotData.decimal(weight), reps,
-            completedAt, new WorkoutSnapshotData.Context(contextKind, approvalRequestId));
+            completedAt, new WorkoutSnapshotData.Context(contextKind, approvalRequestId), manufacturerId, loadType);
     }
 }
 @Entity @Table(name = "cardio_results")

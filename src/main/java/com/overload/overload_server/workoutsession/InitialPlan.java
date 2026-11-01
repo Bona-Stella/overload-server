@@ -8,14 +8,14 @@ import java.util.*;
 public record InitialPlan(int schemaVersion, UUID routineId, String routineName, String routineVersion,
                           List<Weight> weightExercises, List<Cardio> cardioActivities) {
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    public record Weight(UUID sessionExerciseId, UUID sourcePlacementId, UUID exerciseDefinitionId, String exerciseName,
+    public record Weight(UUID sessionExerciseId, UUID sourcePlacementId, UUID standardExerciseId, String exerciseName, UUID manufacturerId, String loadType,
                          int setCount, int minReps, int maxReps, String initialWeightKg, String approvedWeightKg) { }
     public record Cardio(UUID sessionActivityId, UUID sourcePlacementId, RoutineResponses.Plan plan) { }
 
     static InitialPlan copy(RoutineResponses.Detail routine) {
-        return new InitialPlan(1, routine.id(), routine.name(), routine.version(),
-                routine.weightPlacements().stream().map(p -> new Weight(UUID.randomUUID(), p.id(), p.exerciseDefinitionId(),
-                        p.exerciseName(), p.setCount(), p.minReps(), p.maxReps(), p.initialWeightKg(), p.approvedWeightKg())).toList(),
+        return new InitialPlan(2, routine.id(), routine.name(), routine.version(),
+                routine.weightPlacements().stream().map(p -> new Weight(UUID.randomUUID(), p.id(), p.standardExerciseId(),
+                        p.exerciseName(), p.manufacturerId(), p.loadType(), p.setCount(), p.minReps(), p.maxReps(), p.initialWeightKg(), p.approvedWeightKg())).toList(),
                 routine.cardioPlacements().stream().map(p -> new Cardio(UUID.randomUUID(), p.id(), p.plan())).toList());
     }
     String json() { return JSON.writeValueAsString(this); }

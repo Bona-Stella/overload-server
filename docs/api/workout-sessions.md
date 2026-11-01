@@ -1,7 +1,9 @@
-# 운동 세션 API — Task 009 1~4단계
+# 운동 세션 API — Task 009 / 표준 운동 V17
 
 상태: START·조회·takeover·snapshot·승인 요청/해결, FINISH·최초 평가 봉인·24시간 AUTO_CLOSED, 종료 후 수행 정정·삭제·명시 복구·현재 평가·승인 해결 구현. V12~V15 격리 검증 후 2026-11-01 사용자 명시 승인으로 개인 개발 DB도 V1~V15 신규 구성을 완료했다. [실제 재구성 보고서](../tasks/task-009-dev-v15-rebuild-report.md)를 따르며 다른 DB·후속 파괴적 작업에는 별도 승인이 필요하다.
 기준: [현행 설계와 후속 승인 보완](../tasks/task-009-redesign-v1.0.md), [루틴 계약](routine-management.md), 기존 인증·CSRF·Task 008 영속성 경계.
+
+V17 Backend는 [표준 운동 설계](../tasks/standard-exercise-catalog-design-analysis.md)의 단일 UUID·장비 계약을 구현한다. 아래 문서의 운동 계획/평가 schemaVersion은2다. 개인 DB V17 적용과 Frontend/IndexedDB3 연결은 수행하지 않았다. 기존 Frontend5D/5E 구현은 이전 계약이며 후속3단계 전환이 필요하다.
 
 ## 현재 제공 범위
 
@@ -66,9 +68,9 @@ takeover는 lastWorkoutSyncedAt을 갱신하지 않는다. 별도 heartbeat·주
 {userId,dataGeneration,id,status:"ACTIVE"|"FINISHED"|"AUTO_CLOSED",version,startedAt,workoutDate,startedTimeZone,
  editorDeviceId,writerEpoch,localRevision,lastWorkoutSyncedAt,initialPlan,lastSnapshotSavedAt,snapshot,
  endedAt:Instant|null,closedAt:Instant|null,completionAssessment:CompletionAssessment|null,deletedAt:Instant|null}
-initialPlan = {schemaVersion:1,routineId,routineName,routineVersion,
- weightExercises:[{sessionExerciseId,sourcePlacementId,exerciseDefinitionId,exerciseName,
-   setCount,minReps,maxReps,initialWeightKg,approvedWeightKg}],
+initialPlan = {schemaVersion:2,routineId,routineName,routineVersion,
+ weightExercises:[{sessionExerciseId,sourcePlacementId,standardExerciseId,exerciseName,
+   manufacturerId:UUID|null,loadType:LoadType|null,setCount,minReps,maxReps,initialWeightKg,approvedWeightKg}],
  cardioActivities:[{sessionActivityId,sourcePlacementId,plan:CardioPlan}]}
 ```
 
@@ -112,7 +114,7 @@ START는 workoutTransactionManager의 REPEATABLE_READ 쓰기 트랜잭션 하나
 |---|---|
 | workout_sessions.applied_plan_snapshot | 현재 적용 목표·순서의 유일 원본 JSONB. InitialPlan과 별개의 변경 가능한 계획 |
 | workout_sessions.last_snapshot_hash/saved_at | 현재 epoch의 마지막 수락 revision의 정규 요청 hash와 ACK 시각. 요청별 영수증 아님 |
-| session_exercises | 세션 종목/활동 UUID와 종류·정의 ID. 목표·승인값·원래 순서를 복제하지 않음 |
+| session_exercises | 세션 종목/활동 UUID와 종류·표준 운동 ID. 목표·승인값·원래 순서를 복제하지 않음 |
 | performed_sets | 실제 완료 세트와 최초 저장 당시 승인 문맥, 명시 삭제 tombstone |
 | cardio_results | completed/skipped 확정 결과와 원본 타이머·허용 정정값·tombstone |
 | session_weight_approval_requests | 불변 승인 의도·종목별 sequence·선행 의존성과 적용/해결 사실 |
@@ -121,9 +123,23 @@ START는 workoutTransactionManager의 REPEATABLE_READ 쓰기 트랜잭션 하나
 
 V12→V13은 기존 모든 컬럼값을 유지하고 InitialPlan에서 현재 계획과 종목 ID registry만 초기화한다. 초기 수행/승인 행을 만들지 않는다.
 InitialPlan은 계속 유일한 최초 계획 원본이며 관계형 registry는 그 계획의 두 번째 사본이 아니다.
-현재 AppliedPlan에는 목표와 순서만, 실제 중량·반복·시간은 수행 테이블에만 저장한다.
-새 WEIGHT 종목은 현재 세대의 본인 활성 정의를 참조해야 한다. 기존 종목의 정의 삭제는 과거 registry/수행을 지우지 않는다.
+현재 AppliedPlan에는 목표·순서와 장비만, 실제 중량·반복·시간은 수행 테이블에만 저장한다.
+새 WEIGHT 종목은 활성 공용 표준 운동을 참조해야 한다. 기존 registry의 표준 운동이 비활성화되어도 START 재확인·snapshot·복구를 거절하지 않는다.
 새 세션 종목에는 출처 배치 입력 필드가 없다. InitialPlan에 출처가 있는 최초 종목만 원래 루틴 배치로 승인할 수 있다.
+
+## 표준 운동·장비 단일 계약
+
+InitialPlan/AppliedPlan/CompletionAssessment는 schemaVersion=2만 사용한다. 평가 ruleVersion은 기존 task009-completion-v1을 유지한다. /api/v1 경로와 외부 메타·writerEpoch/localRevision 계약은 유지하며 구 JSON codec은 없다.
+
+InitialPlan.weightExercises의 각 항목은 기존 목표·출처·중량에 manufacturerId:UUID|null, loadType:LoadType|null을 포함한다. START가 루틴 값을 자동 복사하며 재선택 입력은 없다. AppliedPlan.weightExercises는 {sessionExerciseId,setCount,minReps,maxReps,manufacturerId,loadType}다. 모든 장비 키는 필수 nullable이며 LoadType은 PLATE/STACK/DUMBBELL/BODYWEIGHT만 허용한다.
+
+진행 중 장비 변경은 AppliedPlan만 바꾼다. 루틴·InitialPlan·기존 완료 세트는 유지한다. performedSets/복구 SetValue에도 manufacturerId/loadType을 필수로 전송한다. 새 세트에는 완료 당시 값을 넣는다. 전체 snapshot에는 변경 전후 장비 세트가 함께 올 수 있으므로 현재 AppliedPlan과 일치를 강제하지 않는다. 서버는 존재하는 제조사 UUID를 검증하고, 저장된 세트의 장비 변경은422 IMMUTABLE_RECORD_CONTEXT로 거절한다. 없는 제조사는422 INVALID_SNAPSHOT이며 전체 요청을 롤백한다. 보존/미송신 완료 사실은 제조사 비활성만으로 거절하지 않는다. PostgreSQL도 수행 장비 불변 trigger를 적용한다.
+
+장비 필드는 canonical snapshot hash·계획 동등성에 포함한다. 같은 revision의 장비 차이는409 REVISION_PAYLOAD_MISMATCH다. 장비 계획의 실제 변경은 lastWorkoutSyncedAt을 갱신하고 높은 revision의 동일 내용은 연장하지 않는다.
+
+공식 비교 Context에서는 운동 필드만 standardExerciseId로 교체한다. 제조사/부하는 비교 키·승인 조건에 추가하지 않는다. 장비만 바뀐 루틴 편집은 기존 version 경합 규칙상 PENDING/ROUTINE_CHANGED가 될 수 있지만 승인 중량을 초기화하지 않는다.
+
+사후 일반 정정은 장비를 입력받지 않고 원본을 유지한다. 복구에는 원본 장비를 포함하며 동일 UUID 내용 비교·감사 before/after에도 포함한다. UNVERIFIED 복구 역시 장비를 보존한다. 최초 계획·봉인 계획·최초 평가·FINISH 재확인은 변경하지 않는다. record-change-events.changeContext의 schemaVersion은 감사 문맥 자체의 기존1로서 계획 schema2와 별개다.
 
 ## snapshot 정확한 요청 계약
 
@@ -137,15 +153,15 @@ InitialPlan은 계속 유일한 최초 계획 원본이며 관계형 registry는
   "localRevision": "1",
   "snapshot": {
     "sessionExercises": [
-      {"id": "22222222-2222-4222-8222-222222222222", "kind": "WEIGHT", "exerciseDefinitionId": "33333333-3333-4333-8333-333333333333"}
+      {"id": "22222222-2222-4222-8222-222222222222", "kind": "WEIGHT", "standardExerciseId": "33333333-3333-4333-8333-333333333333"}
     ],
     "appliedPlan": {
-      "schemaVersion": 1,
-      "weightExercises": [{"sessionExerciseId": "22222222-2222-4222-8222-222222222222", "setCount": 3, "minReps": 6, "maxReps": 10}],
+      "schemaVersion": 2,
+      "weightExercises": [{"sessionExerciseId": "22222222-2222-4222-8222-222222222222", "setCount": 3, "minReps": 6, "maxReps": 10, "manufacturerId": null, "loadType": null}],
       "cardioActivities": []
     },
     "performedSets": [
-      {"id": "44444444-4444-4444-8444-444444444444", "sessionExerciseId": "22222222-2222-4222-8222-222222222222", "ordinal": 1, "weightKg": "62.5", "reps": 8, "completedAt": "2026-10-31T16:02:00Z", "weightContext": {"kind": "APPROVAL_REQUEST", "requestId": "55555555-5555-4555-8555-555555555555"}}
+      {"id": "44444444-4444-4444-8444-444444444444", "sessionExerciseId": "22222222-2222-4222-8222-222222222222", "ordinal": 1, "weightKg": "62.5", "reps": 8, "completedAt": "2026-10-31T16:02:00Z", "weightContext": {"kind": "APPROVAL_REQUEST", "requestId": "55555555-5555-4555-8555-555555555555"}, "manufacturerId": null, "loadType": null}
     ],
     "cardioResults": [],
     "deletedPerformedSetIds": [],
@@ -157,7 +173,7 @@ InitialPlan은 계속 유일한 최초 계획 원본이며 관계형 registry는
 }
 ```
 
-`sessionExercises.kind`: WEIGHT는 definition UUID 필수, CARDIO는 null이다. ID·종류·정의는 불변이며 누락된 기존 registry를 삭제하지 않는다.
+`sessionExercises.kind`: WEIGHT는 standardExerciseId UUID 필수, CARDIO는 null이다. ID·종류·표준 운동은 불변이며 누락된 기존 registry를 삭제하지 않는다.
 AppliedPlan의 배열 순서가 현재 계획 순서다. CARDIO 항목은 `{sessionActivityId,plan}`이며 plan은 기존 [루틴 CardioPlan](routine-management.md)의 키·제약을 그대로 사용한다.
 setCount/반복 목표/ordinal/reps는 1..2147483647 JSON 정수이고 minReps≤maxReps다. ordinal은 계획 세트 수를 초과해도 허용한다.
 중량은 0 이상, 정수부 최대14자리·소수 최대6자리의 기존 정규 문자열(불필요한 소수 끝0 없음)이다. 시각은 START와 같은 UTC 밀리초 이하 형식이다.
@@ -188,7 +204,7 @@ sequence가 뒤인 승인 시각이 선행 보존 요청보다 앞서면 CLOCK_C
 - 기존 유효 수행을 active 배열과 삭제 배열 양쪽에서 누락하면422 SNAPSHOT_INCOMPLETE다. 누락을 삭제 의도로 해석하지 않는다.
 - 명시 삭제는 deleted_at과 before audit를 남긴다. 이미 삭제한 ID 재확인은 무변경이다. 일반 snapshot은 삭제한 UUID를 부활시키지 않는다.
 - 같은 ordinal/활동의 교체는 이전 UUID를 명시 삭제하고 새 UUID로 완료 사실을 추가한다. 기존 삭제 UUID의 재사용은 금지한다.
-- 기존 세트 UUID·종목·ordinal·완료 시각·승인 참조/최초 승인 문맥은 불변이다. 중량·반복만 정정하며 before/after audit를 남긴다.
+- 기존 세트 UUID·종목·ordinal·완료 시각·승인 참조/최초 승인 문맥·제조사·부하는 불변이다. 중량·반복만 정정하며 before/after audit를 남긴다.
 - 유산소 UUID·활동·status·시작/완료 시각·timerMs는 불변이다. activeMs/정정 플래그/거리/BPM만 허용 범위 안에서 정정한다.
 - 승인 요청·처리 결과와 registry는 서버 보존 사실이다. 후속 입력에서 빠져도 삭제/재적용하지 않는다.
 - 원래 미완료 종목을 빼도 InitialPlan은 유지된다. 현재 계획 축소를 원계획 완료로 해석하지 않으며, 최초 종료 평가에서도 원계획 완료 여부를 별도로 확인한다.
@@ -251,7 +267,7 @@ REAPPROVE는 `decision:"REAPPROVE"`, `newApprovalRequest:{id:새UUID,sequence:�
 
 ## snapshot 트랜잭션과 추가 오류
 
-하나의 workoutTransactionManager READ_COMMITTED 트랜잭션에서 users FOR SHARE → 승인 포함 시 source routine FOR UPDATE → 정의 UUID순 공유 잠금 → 본인 세션 FOR UPDATE → 하위 저장 순서다.
+하나의 workoutTransactionManager READ_COMMITTED 트랜잭션에서 users FOR SHARE → 승인 포함 시 source routine FOR UPDATE → 표준 운동 UUID순 공유 잠금 → 본인 세션 FOR UPDATE → 하위 저장 순서다.
 세션 출처 사전 조회는 스칼라 JDBC만 사용하고, 잠금 전에 JPA 세션을 캐시하지 않는다. routine PUT/DELETE와 같은 잠금 순서이며 takeover는 세션 잠금에서 직렬화한다.
 수행·승인 요청·실제 변화 사건·정정 이력·계획·버전·ACK 메타는 하나의 커밋이다. 중간 SQL 오류/overflow/불변 문맥 위반은 전체 롤백한다.
 CSRF·소유권·세대·편집 기기·epoch 검증은 중복 ACK와 해결 재확인에도 우회하지 않는다.
@@ -286,8 +302,8 @@ routineName은 불변 InitialPlan의 시작 당시 이름이다. Counter는 정�
   "localRevision": "1",
   "endedAt": "2026-10-31T16:10:00Z",
   "snapshot": {
-    "sessionExercises": [{"id":"22222222-2222-4222-8222-222222222222","kind":"WEIGHT","exerciseDefinitionId":"33333333-3333-4333-8333-333333333333"}],
-    "appliedPlan": {"schemaVersion":1,"weightExercises":[{"sessionExerciseId":"22222222-2222-4222-8222-222222222222","setCount":3,"minReps":6,"maxReps":10}],"cardioActivities":[]},
+    "sessionExercises": [{"id":"22222222-2222-4222-8222-222222222222","kind":"WEIGHT","standardExerciseId":"33333333-3333-4333-8333-333333333333"}],
+    "appliedPlan": {"schemaVersion":2,"weightExercises":[{"sessionExerciseId":"22222222-2222-4222-8222-222222222222","setCount":3,"minReps":6,"maxReps":10,"manufacturerId":null,"loadType":null}],"cardioActivities":[]},
     "performedSets": [],
     "cardioResults": [],
     "deletedPerformedSetIds": [],
@@ -307,12 +323,12 @@ routineName은 불변 InitialPlan의 시작 당시 이름이다. Counter는 정�
 {userId,dataGeneration,sessionId,status:"FINISHED",writerEpoch,acceptedLocalRevision,version,currentVersion,deletedAt:Instant|null,
  snapshotSavedAt,lastWorkoutSyncedAt,endedAt,closedAt,duplicate,approvalResults:[ApprovalResult],
  completionAssessment:CompletionAssessment}
-CompletionAssessment = {schemaVersion:1,ruleVersion:"task009-completion-v1",assessedAt,sessionVersion,
+CompletionAssessment = {schemaVersion:2,ruleVersion:"task009-completion-v1",assessedAt,sessionVersion,
  overallWeightPlanComplete:Boolean|null,exercises:[ExerciseAssessment]}
 ExerciseAssessment = {sessionExerciseId,eligible,reasonCodes:[String],comparisonContext:ComparisonContext|null,
  evaluatedPerformedSetIds:[UUID],evaluatedReps:[Count],repsSum:Counter,benchmarkEvidence:Benchmark|null,
  advice:"INCREASE"|"DECREASE"|"MAINTAIN"|"UNAVAILABLE",adviceReason:String}
-ComparisonContext = {routineId,sourcePlacementId,exerciseDefinitionId,plannedSetCount,minReps,maxReps,approvedWeightKg,unit:"KG"}
+ComparisonContext = {routineId,sourcePlacementId,standardExerciseId,plannedSetCount,minReps,maxReps,approvedWeightKg,unit:"KG"}
 Benchmark = {sessionId,sessionVersion,endedAt,performedSetIds:[UUID],reps:[Count],repsSum:Counter,ruleVersion}
 ```
 
@@ -399,7 +415,7 @@ POST recoveries의 정확한 필드:
 }
 ```
 
-위 배열은 기존 V13 SetValue/Cardio 구조이며, 적어도 하나의 실제 완료 수행을 선택한다. 유산소는 COMPLETED만 허용하고 미완료/SKIPPED를 새로 만들지 않는다. 서버에 이미 등록된 같은 세션 종목만 대상으로 한다. 정의/원본 루틴이 나중에 삭제돼도 기존 registry와 보존 계획을 사용한다. 유산소 계획이 InitialPlan·봉인 AppliedPlan 어디에도 없어 검증할 수 없다면422 RECOVERY_CONTEXT_UNAVAILABLE다. 새 계획이나 종목을 받아 보완하지 않는다.
+위 배열은 위에서 정의한 V17 SetValue(장비2필드 포함)/기존 Cardio 구조이며, 적어도 하나의 실제 완료 수행을 선택한다. 유산소는 COMPLETED만 허용하고 미완료/SKIPPED를 새로 만들지 않는다. 서버에 이미 등록된 같은 세션 종목만 대상으로 한다. 표준 운동이 비활성화되거나 원본 루틴이 논리 삭제돼도 기존 registry와 보존 계획을 사용한다. 유산소 계획이 InitialPlan·봉인 AppliedPlan 어디에도 없어 검증할 수 없다면422 RECOVERY_CONTEXT_UNAVAILABLE다. 새 계획이나 종목을 받아 보완하지 않는다.
 confirm=true는 명시적 사용자 선택이다. origin은 원래 로컬 문맥을 보존하는 이력이며 인증·편집권 증명이 아니다. source epoch가 마지막 epoch보다 크거나, 알려진 최초/마지막 epoch의 기기와 모순되면422 INVALID_RECOVERY_ORIGIN이다. 중간 epoch의 기기 이력을 가지고 있다고 주장하지 않는다. 이전 epoch를 현재 epoch로 재태깅하거나 localRevision을 서버에 적용하지 않는다.
 
 FINISHED는 `startedAt <= completedAt/occurredAt <= endedAt`을 요구한다. AUTO_CLOSED는 시작 이후와 타이머·시각 선후 관계만 검사하며 closedAt 뒤의 실제 완료라는 이유만으로 거절하지 않는다. 클라이언트 원래 시각을 유지하고 서버 시각으로 보정하지 않는다. AUTO_CLOSED 상태·endedAt=null·completionAssessment=null은 그대로다.
@@ -448,5 +464,5 @@ AUTO_CLOSED/삭제 세션은 EXCLUDED, 이유 AUTO_CLOSED/SESSION_DELETED, advic
 ### 동시성·롤백·응답 유실
 
 실제 변경 트랜잭션당 세션 version/updatedAt만 한 번 갱신한다. InitialPlan·봉인 AppliedPlan·최초 평가·종료 시각·writerEpoch·localRevision·hash·lastSnapshotSavedAt·lastWorkoutSyncedAt은 변경하지 않는다. stale expectedVersion은 무변경/동일 재요청에도409 SESSION_VERSION_CONFLICT다. ACK 유실 시 상세·이력·승인 해결 사실을 재조회하고 사용자 확인 없이 새 version을 붙여 재적용하지 않는다. 새 영구 요청 영수증은 없다.
-일반 정정/복구/삭제는 users FOR SHARE→session FOR UPDATE, 재승인은 users→routine FOR UPDATE→session 순서다. 기존 정의 잠금이 필요한 ACTIVE/루틴 경로의 UUID순 규칙은 유지하며 세션을 잠근 뒤 루틴을 잠그지 않는다. JPA/JDBC workoutTransactionManager 하나에서 수행·이력·승인·version을 원자 처리한다. DB 실패는 전체 롤백하며 PENDING으로 위장하지 않는다.
+일반 정정/복구/삭제는 users FOR SHARE→session FOR UPDATE, 재승인은 users→routine FOR UPDATE→session 순서다. 표준 운동 잠금이 필요한 ACTIVE/루틴 경로의 UUID순 규칙은 유지하며 세션을 잠근 뒤 루틴을 잠그지 않는다. JPA/JDBC workoutTransactionManager 하나에서 수행·이력·승인·version을 원자 처리한다. DB 실패는 전체 롤백하며 PENDING으로 위장하지 않는다.
 추가 오류는409 SESSION_NOT_CLOSED/SESSION_DELETED/SESSION_VERSION_CONFLICT/RECORD_SLOT_CONFLICT와422 RECOVERY_CONTEXT_UNAVAILABLE/INVALID_RECOVERY_ORIGIN이다. 기존404 RECORD_NOT_FOUND·409 SOURCE_NOT_APPROVABLE/RESOLUTION_CONFLICT·422 RECORD_DELETED/CLOCK_CONTEXT_INVALID 및 인증·CSRF·소유권·세대·503 경계를 유지한다.

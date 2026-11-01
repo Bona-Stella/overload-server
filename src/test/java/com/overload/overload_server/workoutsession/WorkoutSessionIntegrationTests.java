@@ -55,7 +55,7 @@ class WorkoutSessionIntegrationTests {
         jdbc.update("DELETE FROM email_otp_rate_limits");
         email = UUID.randomUUID() + "@example.test";
         owner = app.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email(email), null);
-        exercise = jdbc.queryForObject("SELECT id FROM exercise_definitions WHERE user_id=? ORDER BY id LIMIT 1", UUID.class, owner.id());
+        exercise = CatalogFixtures.exercise(jdbc);
         routine = UUID.randomUUID(); placement = UUID.randomUUID(); cardio = UUID.randomUUID(); session = UUID.randomUUID(); device = UUID.randomUUID();
         browser = new Browser(); browser.login(email); csrf = browser.csrf();
         assertThat(browser.send("POST", "/api/v1/routines", json(routineBody()), csrf).statusCode()).isEqualTo(201);
@@ -121,7 +121,7 @@ class WorkoutSessionIntegrationTests {
         var update = updateRoutine(); update.put("name", "changed");
         update.put("weightApprovals", List.of(Map.of("placementId", placement, "nextApprovedWeightKg", "65", "occurredAt", "2026-10-31T10:00:00Z")));
         assertThat(browser.send("PUT", routinePath(), json(update), csrf).statusCode()).isEqualTo(200);
-        assertThat(browser.send("PATCH", "/api/v1/exercises/" + exercise, json(Map.of("dataGeneration", "0", "name", "renamed")), csrf).statusCode()).isEqualTo(200);
+        jdbc.update("UPDATE standard_exercise SET name='renamed' WHERE id=?", exercise);
         assertThat(browser.send("DELETE", routinePath(), json(Map.of("dataGeneration", "0", "expectedVersion", "1")), csrf).statusCode()).isEqualTo(204);
         assertThat(node(browser.get(path())).get("initialPlan")).isEqualTo(original);
         assertThat(node(start(startBody())).get("initialPlan")).isEqualTo(original);
@@ -298,7 +298,7 @@ class WorkoutSessionIntegrationTests {
         error(browser.get(path()), 404, "SESSION_NOT_FOUND");
         String generation = "9007199254740993";
         exercise = UUID.randomUUID(); routine = UUID.randomUUID(); placement = UUID.randomUUID(); cardio = UUID.randomUUID(); session = UUID.randomUUID();
-        jdbc.update("INSERT INTO exercise_definitions(id,user_id,data_generation,name) VALUES (?,?,?,'new generation')", exercise, owner.id(), Long.parseLong(generation));
+        exercise = CatalogFixtures.exercise(jdbc);
         var source = routineBody(); source.put("dataGeneration", generation);
         assertThat(browser.send("POST", "/api/v1/routines", json(source), csrf).statusCode()).isEqualTo(201);
         var input = startBody(); input.put("dataGeneration", generation);
@@ -309,8 +309,8 @@ class WorkoutSessionIntegrationTests {
 
     @Test void startSharesOneRepeatableReadJpaJdbcTransactionWithoutMaterializingPlannedSets() throws Exception {
         var update = updateRoutine();
-        update.put("weightPlacements", List.of(Map.of("mode", "EXISTING", "id", placement, "setCount", Integer.MAX_VALUE,
-                "minReps", Integer.MAX_VALUE, "maxReps", Integer.MAX_VALUE)));
+        update.put("weightPlacements", List.of(equipment(Map.of("mode", "EXISTING", "id", placement, "setCount", Integer.MAX_VALUE,
+                "minReps", Integer.MAX_VALUE, "maxReps", Integer.MAX_VALUE))));
         assertThat(browser.send("PUT", routinePath(), json(update), csrf).statusCode()).isEqualTo(200);
         var backends = new HashSet<Integer>(); var transactions = new HashSet<Long>();
         WorkoutReadFixtures.observer = event -> {
@@ -394,7 +394,7 @@ class WorkoutSessionIntegrationTests {
         var detail = node(browser.get(path())); assertThat(detail.get("initialPlan")).isEqualTo(initial);
         assertThat(detail.get("snapshot").get("state").get("performedSets").get(0).get("ordinal").asInt()).isEqualTo(4);
         assertThat(detail.get("snapshot").get("recordedContexts").get(0).get("approvedWeightKgAtRecording").asString()).isEqualTo("60");
-        var changed = new SetValue(set.id(), set.sessionExerciseId(), 4, "61.25", 11, set.completedAt(), set.weightContext());
+        var changed = new SetValue(set.id(), set.sessionExerciseId(), 4, "61.25", 11, set.completedAt(), set.weightContext(),null,null);
         var corrected = new Cardio(result.id(), result.sessionActivityId(), result.status(), result.startedAt(), result.occurredAt(), new CardioValue(60000L, 55000L, true, "0.5", 125));
         node(save(3, state(base, List.of(changed), List.of(corrected), List.of(), List.of(), List.of())));
         assertThat(count("record_change_events")).isEqualTo(2);
@@ -407,7 +407,7 @@ class WorkoutSessionIntegrationTests {
         var cardioResult = completedCardio(base, UUID.randomUUID());
         var full = state(base, List.of(set), List.of(cardioResult), List.of(), List.of(), List.of()); node(save(1, full));
         var before = row(); error(save(2, base), 422, "SNAPSHOT_INCOMPLETE"); assertThat(row()).isEqualTo(before);
-        var removedPlan = new Plan(1, List.of(), base.appliedPlan().cardioActivities());
+        var removedPlan = new Plan(2, List.of(), base.appliedPlan().cardioActivities());
         var stillPerformed = new State(base.sessionExercises(), removedPlan, List.of(set), List.of(cardioResult), List.of(), List.of(), List.of());
         error(save(2, stillPerformed), 422, "PERFORMED_EXERCISE_IN_USE");
         var deleted = new State(base.sessionExercises(), removedPlan, List.of(), List.of(), List.of(set.id()), List.of(cardioResult.id()), List.of());
@@ -424,12 +424,12 @@ class WorkoutSessionIntegrationTests {
     @Test void snapshotCannotChangeCompletionOrdinalOrApprovalContextAndRejectsClockContradictions() throws Exception {
         var base = initialState(); var set = set(base, UUID.randomUUID(), 1, "60", 8, new Context("INITIAL_APPROVED", null));
         node(save(1, state(base, List.of(set), List.of(), List.of(), List.of(), List.of())));
-        for (var changed : List.of(new SetValue(set.id(), set.sessionExerciseId(), 2, "60", 8, set.completedAt(), set.weightContext()),
-                new SetValue(set.id(), set.sessionExerciseId(), 1, "60", 8, set.completedAt().plusSeconds(1), set.weightContext()),
-                new SetValue(set.id(), set.sessionExerciseId(), 1, "60", 8, set.completedAt(), new Context("TODAY_ONLY", null)))) {
+        for (var changed : List.of(new SetValue(set.id(), set.sessionExerciseId(), 2, "60", 8, set.completedAt(), set.weightContext(),null,null),
+                new SetValue(set.id(), set.sessionExerciseId(), 1, "60", 8, set.completedAt().plusSeconds(1), set.weightContext(),null,null),
+                new SetValue(set.id(), set.sessionExerciseId(), 1, "60", 8, set.completedAt(), new Context("TODAY_ONLY", null),null,null))) {
             error(save(2, state(base, List.of(changed), List.of(), List.of(), List.of(), List.of())), 422, "IMMUTABLE_RECORD_CONTEXT");
         }
-        var early = new SetValue(UUID.randomUUID(), set.sessionExerciseId(), 2, "60", 8, java.time.Instant.parse("2026-10-31T15:59:59Z"), set.weightContext());
+        var early = new SetValue(UUID.randomUUID(), set.sessionExerciseId(), 2, "60", 8, java.time.Instant.parse("2026-10-31T15:59:59Z"), set.weightContext(),null,null);
         error(save(2, state(base, List.of(set, early), List.of(), List.of(), List.of(), List.of())), 422, "CLOCK_CONTEXT_INVALID");
         var c = completedCardio(base, UUID.randomUUID());
         var impossible = new Cardio(c.id(), c.sessionActivityId(), c.status(), c.occurredAt(), c.startedAt(), c.result());
@@ -512,10 +512,10 @@ class WorkoutSessionIntegrationTests {
     @Test void newSessionExerciseWithoutRoutinePlacementPreservesPerformanceAndNeverChangesRoutineApproval() throws Exception {
         var base = initialState(); UUID added = UUID.randomUUID();
         var items = new ArrayList<>(base.sessionExercises()); items.add(new Exercise(added, "WEIGHT", exercise));
-        var weights = new ArrayList<>(base.appliedPlan().weightExercises()); weights.add(new WeightPlan(added, 1, 6, 10));
-        base = new State(items, new Plan(1, weights, base.appliedPlan().cardioActivities()), List.of(), List.of(), List.of(), List.of(), List.of());
+        var weights = new ArrayList<>(base.appliedPlan().weightExercises()); weights.add(new WeightPlan(added, 1, 6, 10,null,null));
+        base = new State(items, new Plan(2, weights, base.appliedPlan().cardioActivities()), List.of(), List.of(), List.of(), List.of(), List.of());
         var request = new Approval(UUID.randomUUID(), added, 1, null, 0, "60", "65", java.time.Instant.parse("2026-10-31T16:01:00Z"));
-        var set = new SetValue(UUID.randomUUID(), added, 1, "65", 8, java.time.Instant.parse("2026-10-31T16:02:00Z"), new Context("APPROVAL_REQUEST", request.id()));
+        var set = new SetValue(UUID.randomUUID(), added, 1, "65", 8, java.time.Instant.parse("2026-10-31T16:02:00Z"), new Context("APPROVAL_REQUEST", request.id()),null,null);
         var result = node(save(1, state(base, List.of(set), List.of(), List.of(), List.of(), List.of(request))));
         assertThat(result.get("approvalResults").get(0).get("reason").asString()).isEqualTo("NO_SOURCE_PLACEMENT");
         assertThat(count("performed_sets")).isEqualTo(1); assertThat(routineVersion()).isZero(); assertThat(eventCount()).isZero();
@@ -565,7 +565,7 @@ class WorkoutSessionIntegrationTests {
         var base = initialState();
         var existing = set(base, UUID.randomUUID(), 1, "60", 8, new Context("INITIAL_APPROVED", null));
         node(save(1, state(base, List.of(existing), List.of(), List.of(), List.of(), List.of())));
-        var corrected = new SetValue(existing.id(), existing.sessionExerciseId(), 1, "61", 10, existing.completedAt(), existing.weightContext());
+        var corrected = new SetValue(existing.id(), existing.sessionExerciseId(), 1, "61", 10, existing.completedAt(), existing.weightContext(),null,null);
         var original = row(); long version = routineVersion();
         var request = approval(base, 1, null, 0, "60", "65");
         var set = set(base, UUID.randomUUID(), 2, "65", 8, new Context("APPROVAL_REQUEST", request.id()));
@@ -750,7 +750,7 @@ class WorkoutSessionIntegrationTests {
     @Test void finishApprovesSequentialRequestsAtomicallyAndPreservesEachPerformedContext() throws Exception {
         var base=initialState();var a=approval(base,1,null,0,"60","62.5");var b=approval(base,2,a.id(),0,"62.5","65");
         var value=confirmed(base,new int[]{8,8,8},new Context("APPROVAL_REQUEST",b.id()));
-        var sets=value.performedSets().stream().map(s->new SetValue(s.id(),s.sessionExerciseId(),s.ordinal(),"65",s.reps(),s.completedAt(),s.weightContext())).toList();
+        var sets=value.performedSets().stream().map(s->new SetValue(s.id(),s.sessionExerciseId(),s.ordinal(),"65",s.reps(),s.completedAt(),s.weightContext(),null,null)).toList();
         value=state(base,sets,List.of(),List.of(),List.of(),List.of(a,b));
         var result=node(finish(1,value));assertThat(eventCount()).isEqualTo(2);assertThat(routineVersion()).isEqualTo(1);
         assertThat(result.get("completionAssessment").get("exercises").get(0).get("comparisonContext").get("approvedWeightKg").asString()).isEqualTo("65");
@@ -765,7 +765,7 @@ class WorkoutSessionIntegrationTests {
         node(save(1,state(base,List.of(old),List.of(),List.of(),List.of(),List.of())));
         var request=new Approval(UUID.randomUUID(),old.sessionExerciseId(),1,null,0,"60","62.5",java.time.Instant.parse("2026-10-31T16:03:00Z"));
         var sets=new ArrayList<SetValue>();for(int i=1;i<=3;i++)sets.add(new SetValue(UUID.randomUUID(),old.sessionExerciseId(),i,"62.5",8,
-                java.time.Instant.parse("2026-10-31T16:04:00Z").plusSeconds(i),new Context("APPROVAL_REQUEST",request.id())));
+                java.time.Instant.parse("2026-10-31T16:04:00Z").plusSeconds(i),new Context("APPROVAL_REQUEST",request.id()),null,null));
         var result=node(finish(2,state(base,sets,List.of(),List.of(old.id()),List.of(),List.of(request))));
         var exerciseAssessment=result.get("completionAssessment").get("exercises").get(0);
         assertThat(exerciseAssessment.get("eligible").asBoolean()).isTrue();
@@ -1004,13 +1004,16 @@ class WorkoutSessionIntegrationTests {
 
     @Test void unknownApprovalClaimIsStoredUnverifiedAndNeverUpgradedByLaterRequests() throws Exception {
         var base=initialState();node(finish(1,confirmed(base,new int[]{8,8},new Context("INITIAL_APPROVED",null))));
-        UUID unknown=UUID.randomUUID();var missing=set(base,UUID.randomUUID(),3,"60",8,new Context("APPROVAL_REQUEST",unknown));node(recover(List.of(missing),List.of()));
+        UUID unknown=UUID.randomUUID(),manufacturer=CatalogFixtures.manufacturer(jdbc);
+        var missing=equipmentSet(set(base,UUID.randomUUID(),3,"60",8,new Context("APPROVAL_REQUEST",unknown)),manufacturer,"PLATE");node(recover(List.of(missing),List.of()));
         var detail=node(browser.get(path())).get("snapshot");var context=detail.get("recordedContexts");
         assertThat(context.toString()).contains("UNVERIFIED");assertThat(currentExercise().get("eligible").asBoolean()).isFalse();
         var history=node(browser.get(path()+"/record-change-events")).get("events").get(0).get("changeContext").get("claimedWeightContext");
         assertThat(history.get("requestId").asString()).isEqualTo(unknown.toString());
         assertThat(jdbc.queryForObject("SELECT approval_request_id FROM performed_sets WHERE id=?",UUID.class,missing.id())).isNull();
         var repeated=node(recover(List.of(missing),List.of()));assertThat(repeated.get("changed").asBoolean()).isFalse();assertThat(count("record_change_events")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT manufacturer_id FROM performed_sets WHERE id=?",UUID.class,missing.id())).isEqualTo(manufacturer);
+        assertThat(jdbc.queryForObject("SELECT load_type FROM performed_sets WHERE id=?",String.class,missing.id())).isEqualTo("PLATE");
     }
 
     @Test void recoveryUsesStoredActiveApprovalInsteadOfCurrentRoutineWeight() throws Exception {
@@ -1025,7 +1028,7 @@ class WorkoutSessionIntegrationTests {
     @Test void autoClosedRecoveryAcceptsActualCompletionAfterServerClosureWithoutCreatingFinish() throws Exception {
         var base=initialState();close("AUTO_CLOSED",base);var sealed=closureFacts();
         var at=((java.sql.Timestamp)row().get("closed_at")).toInstant().plusSeconds(120);
-        var one=new SetValue(UUID.randomUUID(),base.appliedPlan().weightExercises().getFirst().sessionExerciseId(),1,"60",8,at,new Context("INITIAL_APPROVED",null));
+        var one=new SetValue(UUID.randomUUID(),base.appliedPlan().weightExercises().getFirst().sessionExerciseId(),1,"60",8,at,new Context("INITIAL_APPROVED",null),null,null);
         var result=new Cardio(UUID.randomUUID(),base.appliedPlan().cardioActivities().getFirst().sessionActivityId(),"COMPLETED",at.minusSeconds(60),at,new CardioValue(60000L,60000L,false,null,null));
         node(recover(List.of(one),List.of(result)));assertThat(closureFacts()).isEqualTo(sealed);
         assertThat(row().get("ended_at")).isNull();assertThat(row().get("completion_assessment_snapshot")).isNull();assertThat(row().get("status")).isEqualTo("AUTO_CLOSED");
@@ -1059,7 +1062,7 @@ class WorkoutSessionIntegrationTests {
         var occurred=EmailOtpFixtures.CLOCK.instant().plusSeconds(120);body.put("occurredAt",occurred.toString());
         node(browser.send("POST",path()+"/closed-approval-resolutions",json(body),csrf));assertThat(eventCount()).isEqualTo(1);assertThat(routineVersion()).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT created_after_closure FROM session_weight_approval_requests WHERE id=?",Boolean.class,fresh)).isTrue();
-        var claim=new SetValue(UUID.randomUUID(),base.appliedPlan().weightExercises().getFirst().sessionExerciseId(),2,"65",8,occurred.plusSeconds(60),new Context("APPROVAL_REQUEST",fresh));
+        var claim=new SetValue(UUID.randomUUID(),base.appliedPlan().weightExercises().getFirst().sessionExerciseId(),2,"65",8,occurred.plusSeconds(60),new Context("APPROVAL_REQUEST",fresh),null,null);
         node(recover(List.of(claim),List.of()));
         assertThat(jdbc.queryForObject("SELECT approval_state_at_recording FROM performed_sets WHERE id=?",String.class,claim.id())).isEqualTo("UNVERIFIED");
         assertThat(jdbc.queryForObject("SELECT approval_state_at_recording FROM performed_sets WHERE ordinal=1 AND session_id=?",String.class,session)).isEqualTo("PENDING");
@@ -1096,11 +1099,11 @@ class WorkoutSessionIntegrationTests {
         int status=409;String code="RECORD_SLOT_CONFLICT";
         switch(conflict) {
             case "tombstone"->{node(patchRecords(List.of(),List.of(),List.of(first.id()),List.of()));candidate=first;status=422;code="RECORD_DELETED";}
-            case "different-body"->{candidate=new SetValue(first.id(),first.sessionExerciseId(),first.ordinal(),"65",9,first.completedAt(),first.weightContext());code="RECORD_ID_CONFLICT";}
+            case "different-body"->{candidate=new SetValue(first.id(),first.sessionExerciseId(),first.ordinal(),"65",9,first.completedAt(),first.weightContext(),null,null);code="RECORD_ID_CONFLICT";}
             case "ordinal"->candidate=set(base,UUID.randomUUID(),1,"60",8,new Context("INITIAL_APPROVED",null));
-            case "new-exercise"->{candidate=new SetValue(UUID.randomUUID(),UUID.randomUUID(),2,"60",8,first.completedAt(),first.weightContext());status=422;code="INVALID_SNAPSHOT";}
-            case "before-start"->{candidate=new SetValue(UUID.randomUUID(),first.sessionExerciseId(),2,"60",8,java.time.Instant.parse("2026-10-31T15:00:00Z"),first.weightContext());status=422;code="CLOCK_CONTEXT_INVALID";}
-            case "after-end"->{candidate=new SetValue(UUID.randomUUID(),first.sessionExerciseId(),2,"60",8,java.time.Instant.parse("2026-10-31T17:00:00Z"),first.weightContext());status=422;code="CLOCK_CONTEXT_INVALID";}
+            case "new-exercise"->{candidate=new SetValue(UUID.randomUUID(),UUID.randomUUID(),2,"60",8,first.completedAt(),first.weightContext(),null,null);status=422;code="INVALID_SNAPSHOT";}
+            case "before-start"->{candidate=new SetValue(UUID.randomUUID(),first.sessionExerciseId(),2,"60",8,java.time.Instant.parse("2026-10-31T15:00:00Z"),first.weightContext(),null,null);status=422;code="CLOCK_CONTEXT_INVALID";}
+            case "after-end"->{candidate=new SetValue(UUID.randomUUID(),first.sessionExerciseId(),2,"60",8,java.time.Instant.parse("2026-10-31T17:00:00Z"),first.weightContext(),null,null);status=422;code="CLOCK_CONTEXT_INVALID";}
             case "cardio-slot"->cardio.add(completedCardio(base,UUID.randomUUID()));
             case "cardio-clock"->{var c=completedCardio(base,UUID.randomUUID());cardio.add(new Cardio(c.id(),c.sessionActivityId(),c.status(),c.startedAt(),c.occurredAt(),new CardioValue(60001L,60001L,false,null,null)));status=422;code="CLOCK_CONTEXT_INVALID";}
             case "future-epoch"->{status=422;code="INVALID_RECOVERY_ORIGIN";}
@@ -1190,6 +1193,112 @@ class WorkoutSessionIntegrationTests {
         assertThat(node(browser.get(path()+"/record-change-events")).get("events").get(0).get("changeContext").get("origin").get("writerEpoch").asString()).isEqualTo("0");
     }
 
+    @Test void startCopiesRoutineEquipmentOnceAndInactiveCatalogReferencesRemainUsable() throws Exception {
+        UUID manufacturer=CatalogFixtures.manufacturer(jdbc);routineEquipment(manufacturer,"PLATE",0);
+        jdbc.update("UPDATE standard_exercise SET is_active=false WHERE id=?",exercise);
+        jdbc.update("UPDATE manufacturer SET is_active=false WHERE id=?",manufacturer);
+        var result=node(start(startBody()));var initial=result.get("initialPlan");
+        assertThat(initial.get("schemaVersion").asInt()).isEqualTo(2);
+        var weight=initial.get("weightExercises").get(0);
+        assertThat(weight.get("standardExerciseId").asString()).isEqualTo(exercise.toString());
+        assertThat(weight.get("manufacturerId").asString()).isEqualTo(manufacturer.toString());assertThat(weight.get("loadType").asString()).isEqualTo("PLATE");
+        var base=JSON.treeToValue(result.get("snapshot").get("state"),State.class);
+        assertThat(base.appliedPlan().schemaVersion()).isEqualTo(2);assertThat(base.appliedPlan().weightExercises().getFirst().manufacturerId()).isEqualTo(manufacturer);
+        assertThat(node(start(startBody())).get("initialPlan")).isEqualTo(initial);
+        assertThat(save(1,base).statusCode()).isEqualTo(200);var saved=row();
+        assertThat(node(save(1,base)).get("duplicate").asBoolean()).isTrue();assertThat(row()).isEqualTo(saved);
+        var added=UUID.randomUUID();var identities=new ArrayList<>(base.sessionExercises());identities.add(new Exercise(added,"WEIGHT",exercise));
+        var plan=new ArrayList<>(base.appliedPlan().weightExercises());plan.add(new WeightPlan(added,1,6,10,null,null));
+        var attempted=new State(identities,new Plan(2,plan,base.appliedPlan().cardioActivities()),List.of(),List.of(),List.of(),List.of(),List.of());
+        error(save(2,attempted),404,"EXERCISE_NOT_FOUND");assertThat(row()).isEqualTo(saved);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions WHERE user_id=?",Integer.class,owner.id())).isZero();
+    }
+
+    @Test void equipmentSnapshotPreservesMixedCompletedFactsHashAndOfficialEligibility() throws Exception {
+        UUID a=CatalogFixtures.manufacturer(jdbc),b=CatalogFixtures.manufacturer(jdbc);routineEquipment(a,"PLATE",0);
+        var base=initialState();var initial=row().get("initial_plan_snapshot");var original=confirmed(base,new int[]{10,10,10},new Context("INITIAL_APPROVED",null)).performedSets();
+        var first=equipmentSet(original.get(0),a,"PLATE");var second=equipmentSet(original.get(1),a,"PLATE");var third=equipmentSet(original.get(2),b,"STACK");
+        var value=state(planEquipment(base,b,"STACK"),List.of(first,second,third),List.of(),List.of(),List.of(),List.of());
+        EmailOtpFixtures.CLOCK.advance(Duration.ofSeconds(10));node(save(1,value));var saved=row();
+        assertThat(node(save(1,value)).get("duplicate").asBoolean()).isTrue();assertThat(row()).isEqualTo(saved);
+        error(save(1,planEquipment(value,a,"PLATE")),409,"REVISION_PAYLOAD_MISMATCH");assertThat(row()).isEqualTo(saved);
+        var invalid=state(value,List.of(equipmentSet(first,b,"STACK"),second,third),List.of(),List.of(),List.of(),List.of());
+        error(save(2,invalid),422,"IMMUTABLE_RECORD_CONTEXT");assertThat(row()).isEqualTo(saved);
+        EmailOtpFixtures.CLOCK.advance(Duration.ofSeconds(10));node(save(2,value));
+        assertThat(row().get("last_workout_synced_at")).isEqualTo(saved.get("last_workout_synced_at"));
+        assertThat(row().get("initial_plan_snapshot")).isEqualTo(initial);assertThat(routineVersion()).isEqualTo(1);assertThat(eventCount()).isZero();
+        assertThat(jdbc.queryForObject("SELECT manufacturer_id FROM routine_weight_placements WHERE id=?",UUID.class,placement)).isEqualTo(a);
+        var finished=node(finish(3,value));var assessment=finished.get("completionAssessment");
+        assertThat(assessment.get("schemaVersion").asInt()).isEqualTo(2);var evaluation=assessment.get("exercises").get(0);
+        assertThat(evaluation.get("eligible").asBoolean()).isTrue();assertThat(evaluation.get("advice").asString()).isEqualTo("INCREASE");
+        assertThat(evaluation.get("comparisonContext").get("standardExerciseId").asString()).isEqualTo(exercise.toString());
+        assertThat(evaluation.get("comparisonContext").has("manufacturerId")).isFalse();
+        var detail=JSON.treeToValue(node(browser.get(path())).get("snapshot").get("state"),State.class);
+        assertThat(detail.performedSets()).containsExactlyInAnyOrder(first,second,third);
+        assertThat(node(finish(3,value)).get("completionAssessment")).isEqualTo(assessment);
+        UUID past=session;session=UUID.randomUUID();base=initialStateAt("2026-10-31T17:00:00Z");
+        var next=confirmed(planEquipment(base,null,"BODYWEIGHT"),new int[]{8,8,8},new Context("INITIAL_APPROVED",null));
+        var body=finishBody(1,next);body.put("endedAt","2026-10-31T17:10:00Z");
+        var compared=node(sendFinish(body)).get("completionAssessment").get("exercises").get(0);
+        assertThat(compared.get("benchmarkEvidence").get("sessionId").asString()).isEqualTo(past.toString());
+    }
+
+    @ParameterizedTest @ValueSource(strings={"FINISHED","AUTO_CLOSED"})
+    void closedRecordEquipmentSurvivesCorrectionDeletionRecoveryAndIdentityChecks(String status) throws Exception {
+        UUID a=CatalogFixtures.manufacturer(jdbc),b=CatalogFixtures.manufacturer(jdbc);routineEquipment(a,"PLATE",0);
+        var base=initialState();var first=equipmentSet(set(base,UUID.randomUUID(),1,"60",8,new Context("INITIAL_APPROVED",null)),a,"PLATE");
+        var value=state(base,List.of(first),List.of(),List.of(),List.of(),List.of());close(status,value);var frozen=closureFacts();
+        var missing=equipmentSet(set(base,UUID.randomUUID(),2,"60",8,new Context("INITIAL_APPROVED",null)),b,"DUMBBELL");
+        jdbc.update("UPDATE manufacturer SET is_active=false WHERE id=?",b);
+        assertThat(node(recover(List.of(missing),List.of())).get("recoveredIds").size()).isEqualTo(1);
+        var before=row();error(recover(List.of(equipmentSet(missing,a,"PLATE")),List.of()),409,"RECORD_ID_CONFLICT");assertThat(row()).isEqualTo(before);
+        assertThat(node(recover(List.of(missing),List.of())).get("changed").asBoolean()).isFalse();
+        node(patchRecords(List.of(new WorkoutRecordData.SetCorrection(first.id(),"61",9)),List.of(),List.of(),List.of()));
+        assertThat(jdbc.queryForObject("SELECT manufacturer_id FROM performed_sets WHERE id=?",UUID.class,first.id())).isEqualTo(a);
+        assertThat(jdbc.queryForObject("SELECT load_type FROM performed_sets WHERE id=?",String.class,first.id())).isEqualTo("PLATE");
+        var events=node(browser.get(path()+"/record-change-events")).get("events");
+        assertThat(events.toString()).contains(a.toString(),b.toString(),"DUMBBELL","PLATE");
+        node(patchRecords(List.of(),List.of(),List.of(first.id()),List.of()));
+        error(recover(List.of(first),List.of()),422,"RECORD_DELETED");
+        assertThat(jdbc.queryForObject("SELECT manufacturer_id FROM performed_sets WHERE id=?",UUID.class,first.id())).isEqualTo(a);
+        assertThat(closureFacts()).isEqualTo(frozen);
+    }
+
+    @Test void routineEquipmentEditUsesExistingApprovalRaceWhileSessionEquipmentDoesNotChangeRoutine() throws Exception {
+        UUID a=CatalogFixtures.manufacturer(jdbc),b=CatalogFixtures.manufacturer(jdbc);routineEquipment(a,"PLATE",0);var base=initialState();
+        var before=row().get("last_workout_synced_at");EmailOtpFixtures.CLOCK.advance(Duration.ofSeconds(10));
+        var local=planEquipment(base,b,"STACK");node(save(1,local));assertThat(routineVersion()).isEqualTo(1);
+        assertThat(row().get("last_workout_synced_at")).isNotEqualTo(before);
+        routineEquipment(b,"STACK",1);var approval=approval(base,1,null,1,"60","65");
+        var value=state(local,List.of(equipmentSet(set(base,UUID.randomUUID(),1,"60",8,new Context("INITIAL_APPROVED",null)),a,"PLATE")),List.of(),List.of(),List.of(),List.of(approval));
+        var saved=node(save(2,value));assertThat(saved.get("approvalResults").get(0).get("reason").asString()).isEqualTo("ROUTINE_CHANGED");
+        assertThat(eventCount()).isZero();assertThat(count("performed_sets")).isEqualTo(1);assertThat(routineVersion()).isEqualTo(2);
+    }
+
+    @Test void unknownManufacturerRejectsCompleteSnapshotAndRecoveryWithoutPartialWrites() throws Exception {
+        var base=initialState();var original=row();var unknown=UUID.randomUUID();
+        var fact=set(base,UUID.randomUUID(),1,"60",8,new Context("INITIAL_APPROVED",null));
+        error(save(1,state(planEquipment(base,unknown,"STACK"),List.of(fact),List.of(),List.of(),List.of(),List.of())),422,"INVALID_SNAPSHOT");
+        assertThat(row()).isEqualTo(original);assertThat(count("performed_sets")).isZero();
+        error(save(1,state(base,List.of(equipmentSet(fact,unknown,"STACK")),List.of(),List.of(),List.of(),List.of())),422,"INVALID_SNAPSHOT");
+        assertThat(row()).isEqualTo(original);node(finish(1,base));var frozen=row();
+        error(recover(List.of(equipmentSet(fact,unknown,"STACK")),List.of()),422,"INVALID_SNAPSHOT");assertThat(row()).isEqualTo(frozen);assertThat(count("record_change_events")).isZero();
+    }
+
+    void routineEquipment(UUID manufacturer,String load,long version) throws Exception {
+        var input=updateRoutine();input.put("expectedVersion",Long.toString(version));input.put("name","session source");
+        var weight=equipment(Map.of("mode","EXISTING","id",placement,"setCount",3,"minReps",6,"maxReps",10));
+        weight.put("manufacturerId",manufacturer);weight.put("loadType",load);input.put("weightPlacements",List.of(weight));
+        assertThat(browser.send("PUT",routinePath(),json(input),csrf).statusCode()).isEqualTo(200);
+    }
+    static State planEquipment(State value,UUID manufacturer,String load) {
+        var weights=value.appliedPlan().weightExercises().stream().map(p->new WeightPlan(p.sessionExerciseId(),p.setCount(),p.minReps(),p.maxReps(),manufacturer,load)).toList();
+        return new State(value.sessionExercises(),new Plan(2,weights,value.appliedPlan().cardioActivities()),value.performedSets(),value.cardioResults(),value.deletedPerformedSetIds(),value.deletedCardioResultIds(),value.approvalRequests());
+    }
+    static SetValue equipmentSet(SetValue value,UUID manufacturer,String load) {
+        return new SetValue(value.id(),value.sessionExerciseId(),value.ordinal(),value.weightKg(),value.reps(),value.completedAt(),value.weightContext(),manufacturer,load);
+    }
+
     Map<String,Object> closedResolutionBody(State base,List<UUID> pending,String decision,Object next) {
         var body=resolutionBody(base,pending,decision,next);body.remove("editorDeviceId");body.remove("writerEpoch");body.remove("expectedLocalRevision");body.put("expectedVersion",body.remove("expectedSessionVersion"));return body;
     }
@@ -1215,7 +1324,7 @@ class WorkoutSessionIntegrationTests {
     State initialStateAt(String started) throws Exception {var body=startBody();body.put("startedAt",started);return JSON.treeToValue(node(start(body)).get("snapshot").get("state"),State.class);}
     State confirmed(State base,int[] reps,Context context) {
         var values=new ArrayList<SetValue>();var started=((java.sql.Timestamp)row().get("started_at")).toInstant();
-        for(int i=0;i<reps.length;i++) values.add(new SetValue(UUID.randomUUID(),base.appliedPlan().weightExercises().getFirst().sessionExerciseId(),i+1,"60",reps[i],started.plusSeconds(120+i),context));
+        for(int i=0;i<reps.length;i++) values.add(new SetValue(UUID.randomUUID(),base.appliedPlan().weightExercises().getFirst().sessionExerciseId(),i+1,"60",reps[i],started.plusSeconds(120+i),context,null,null));
         return state(base,values,List.of(),List.of(),List.of(),List.of());
     }
     Map<String,Object> finishBody(long revision,State state) {var body=saveBody(revision,state);body.put("endedAt","2026-10-31T16:10:00Z");return body;}
@@ -1226,7 +1335,7 @@ class WorkoutSessionIntegrationTests {
     static State state(State base,List<SetValue> sets,List<Cardio> cardio,List<UUID> deletedSets,List<UUID> deletedCardio,List<Approval> approvals) {
         return new State(base.sessionExercises(),base.appliedPlan(),sets,cardio,deletedSets,deletedCardio,approvals);
     }
-    static SetValue set(State base,UUID id,int ordinal,String weight,int reps,Context context) { return new SetValue(id,base.appliedPlan().weightExercises().getFirst().sessionExerciseId(),ordinal,weight,reps,java.time.Instant.parse("2026-10-31T16:02:00Z"),context); }
+    static SetValue set(State base,UUID id,int ordinal,String weight,int reps,Context context) { return new SetValue(id,base.appliedPlan().weightExercises().getFirst().sessionExerciseId(),ordinal,weight,reps,java.time.Instant.parse("2026-10-31T16:02:00Z"),context,null,null); }
     static Cardio completedCardio(State base,UUID id) { return new Cardio(id,base.appliedPlan().cardioActivities().getFirst().sessionActivityId(),"COMPLETED",java.time.Instant.parse("2026-10-31T16:01:00Z"),java.time.Instant.parse("2026-10-31T16:02:00Z"),new CardioValue(60000L,60000L,false,null,null)); }
     static Approval approval(State base,long sequence,UUID previous,long version,String oldWeight,String newWeight) { return new Approval(UUID.randomUUID(),base.appliedPlan().weightExercises().getFirst().sessionExerciseId(),sequence,previous,version,oldWeight,newWeight,java.time.Instant.parse("2026-10-31T16:01:00Z").plusMillis(sequence)); }
     Map<String,Object> saveBody(long revision,State value) { return new LinkedHashMap<>(Map.of("dataGeneration","0","editorDeviceId",device,"writerEpoch","0","localRevision",Long.toString(revision),"snapshot",value)); }
@@ -1245,14 +1354,15 @@ class WorkoutSessionIntegrationTests {
     }
     Map<String, Object> routineBody() {
         return new LinkedHashMap<>(Map.of("id", routine, "dataGeneration", "0", "name", "session source", "weightPlacements",
-                List.of(Map.of("id", placement, "exerciseDefinitionId", exercise, "setCount", 3, "minReps", 6, "maxReps", 10, "initialWeightKg", "60")),
+                List.of(equipment(Map.of("id", placement, "standardExerciseId", exercise, "setCount", 3, "minReps", 6, "maxReps", 10, "initialWeightKg", "60"))),
                 "cardioPlacements", List.of(Map.of("id", cardio, "plan", cardioPlan()))));
     }
     Map<String, Object> updateRoutine() {
         return new LinkedHashMap<>(Map.of("dataGeneration", "0", "expectedVersion", "0", "name", "updated source", "weightPlacements",
-                List.of(Map.of("mode", "EXISTING", "id", placement, "setCount", 4, "minReps", 6, "maxReps", 10)),
+                List.of(equipment(Map.of("mode", "EXISTING", "id", placement, "setCount", 4, "minReps", 6, "maxReps", 10))),
                 "cardioPlacements", List.of(Map.of("mode", "EXISTING", "id", cardio, "plan", cardioPlan())), "weightApprovals", List.of()));
     }
+    static Map<String,Object> equipment(Map<String,?> input) { var value=new LinkedHashMap<String,Object>(input); value.put("manufacturerId",null); value.put("loadType",null); return value; }
     static Map<String, Object> cardioPlan() {
         var result = new LinkedHashMap<String, Object>();
         result.put("kind", "TREADMILL"); result.put("name", "run"); result.put("targetSeconds", 600);

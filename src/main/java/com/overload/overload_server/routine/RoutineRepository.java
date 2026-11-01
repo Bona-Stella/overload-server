@@ -1,6 +1,6 @@
 package com.overload.overload_server.routine;
 
-import com.overload.overload_server.exercise.ExerciseDefinition;
+import com.overload.overload_server.catalog.StandardExercise;
 import jakarta.persistence.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -45,12 +45,11 @@ public class RoutineRepository {
 		var routine = source.get();
 		var weights = weights(routine).stream().filter(p -> p.deletedAt == null).toList();
 		var cardio = cardio(routine).stream().filter(p -> p.deletedAt == null).toList();
-		var ids = new HashSet<UUID>(); weights.forEach(p -> ids.add(p.exerciseDefinitionId));
+		var ids = new HashSet<UUID>(); weights.forEach(p -> ids.add(p.standardExerciseId));
 		var definitions = exercises(owner, generation, ids, true);
-		if (weights.stream().anyMatch(p -> !definitions.containsKey(p.exerciseDefinitionId)
-				|| definitions.get(p.exerciseDefinitionId).getDeletedAt() != null)) return Optional.empty();
-		var result = weights.stream().map(p -> new RoutineResponses.Weight(p.id, p.exerciseDefinitionId,
-				definitions.get(p.exerciseDefinitionId).getName(), p.setCount, p.minReps, p.maxReps,
+		if (weights.stream().anyMatch(p -> !definitions.containsKey(p.standardExerciseId))) return Optional.empty();
+		var result = weights.stream().map(p -> new RoutineResponses.Weight(p.id, p.standardExerciseId,
+				definitions.get(p.standardExerciseId).getName(), p.manufacturerId, p.loadType, p.setCount, p.minReps, p.maxReps,
 				RoutineResponses.decimal(p.initialWeight), RoutineResponses.decimal(p.approvedWeight), null)).toList();
 		return Optional.of(new RoutineResponses.Detail(owner, Long.toString(generation), id, Long.toString(routine.version),
 				routine.name, result, cardio.stream().map(RoutineResponses::cardio).toList()));
@@ -84,15 +83,19 @@ public class RoutineRepository {
 		return entityManager.createQuery("select p from RoutineCardioPlacement p where p.userId=:owner and p.dataGeneration=:generation and p.routineId=:id order by p.position,p.id", RoutineCardioPlacement.class)
 				.setParameter("owner", routine.userId).setParameter("generation", routine.dataGeneration).setParameter("id", routine.id).getResultList();
 	}
-	Map<UUID, ExerciseDefinition> exercises(UUID owner, long generation, Set<UUID> ids, boolean lock) {
+	Map<UUID, StandardExercise> exercises(UUID owner, long generation, Set<UUID> ids, boolean lock) {
 		if (ids.isEmpty()) return Map.of();
-		var query = entityManager.createQuery("select e from ExerciseDefinition e where e.userId=:owner and e.dataGeneration=:generation and e.id in :ids order by e.id", ExerciseDefinition.class)
-				.setParameter("owner", owner).setParameter("generation", generation).setParameter("ids", ids);
+		var query = entityManager.createQuery("select e from StandardExercise e where e.id in :ids order by e.id", StandardExercise.class)
+				.setParameter("ids", ids);
 		if (lock) query.setLockMode(LockModeType.PESSIMISTIC_READ);
-		var result = new HashMap<UUID, ExerciseDefinition>();
+		var result = new HashMap<UUID, StandardExercise>();
 		query.getResultList().forEach(value -> result.put(value.getId(), value));
 		return result;
 	}
 	void insert(Object value) { entityManager.persist(value); }
+	boolean manufacturerAvailable(UUID id, boolean preserved) {
+		var value = entityManager.find(com.overload.overload_server.catalog.Manufacturer.class, id, LockModeType.PESSIMISTIC_READ);
+		return value != null && (preserved || value.isActive());
+	}
 	void flush() { entityManager.flush(); }
 }

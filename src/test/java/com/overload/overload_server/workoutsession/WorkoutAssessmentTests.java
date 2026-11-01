@@ -11,10 +11,10 @@ import static com.overload.overload_server.workoutsession.WorkoutSnapshotData.*;
 
 class WorkoutAssessmentTests {
     final UUID item=UUID.randomUUID(),placement=UUID.randomUUID(),definition=UUID.randomUUID(),routine=UUID.randomUUID();
-    InitialPlan initial() { return new InitialPlan(1,routine,"test","0",List.of(new InitialPlan.Weight(item,placement,definition,"test",3,6,10,"60","60")),List.of()); }
-    Plan plan(int count) { return new Plan(1,List.of(new WeightPlan(item,count,6,10)),List.of()); }
+    InitialPlan initial() { return new InitialPlan(2,routine,"test","0",List.of(new InitialPlan.Weight(item,placement,definition,"test",null,null,3,6,10,"60","60")),List.of()); }
+    Plan plan(int count) { return new Plan(2,List.of(new WeightPlan(item,count,6,10,null,null)),List.of()); }
     PerformedSet set(int ordinal,int reps) {
-        var set=new PerformedSet(UUID.randomUUID(),new SetValue(UUID.randomUUID(),item,ordinal,"60",reps,Instant.parse("2026-10-31T10:00:00Z"),new Context("INITIAL_APPROVED",null)));
+        var set=new PerformedSet(UUID.randomUUID(),new SetValue(UUID.randomUUID(),item,ordinal,"60",reps,Instant.parse("2026-10-31T10:00:00Z"),new Context("INITIAL_APPROVED",null),null,null));
         set.approvalState="INITIAL_APPROVED";set.approvedWeight=new BigDecimal("60");return set;
     }
     @ParameterizedTest @CsvSource({"5,8,8,DECREASE","6,6,6,MAINTAIN","10,10,9,MAINTAIN","10,10,10,INCREASE","11,12,10,INCREASE","15,8,8,MAINTAIN"})
@@ -45,7 +45,7 @@ class WorkoutAssessmentTests {
         var sets=List.of(set(1,8),set(2,8),set(3,8));
         assertThat(WorkoutAssessment.evaluate(initial(),plan(4),sets).exercises().getFirst().reasonCodes()).contains("SET_COUNT_MISMATCH");
         assertThat(WorkoutAssessment.evaluate(initial(),plan(3),sets).exercises().getFirst().eligible()).isTrue();
-        var removed=new InitialPlan(1,routine,"test","0",List.of(initial().weightExercises().getFirst(),new InitialPlan.Weight(UUID.randomUUID(),UUID.randomUUID(),definition,"second",1,6,10,"60","60")),List.of());
+        var removed=new InitialPlan(2,routine,"test","0",List.of(initial().weightExercises().getFirst(),new InitialPlan.Weight(UUID.randomUUID(),UUID.randomUUID(),definition,"second",null,null,1,6,10,"60","60")),List.of());
         assertThat(WorkoutAssessment.evaluate(removed,plan(3),sets).exercises().getFirst().reasonCodes()).contains("INCOMPLETE_INITIAL_WEIGHT_PLAN");
     }
     @Test void tiesUseUnsignedUuidOrderAfterRepsAndActualEndedAt() {

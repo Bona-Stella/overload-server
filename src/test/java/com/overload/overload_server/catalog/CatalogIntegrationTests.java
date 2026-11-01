@@ -55,7 +55,7 @@ class CatalogIntegrationTests {
         MixedPersistenceAssertions.verify(app);
         assertThat(app.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         app.getBean(Flyway.class).validate();
-        assertThat(app.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("16");
+        assertThat(app.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("17");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM standard_exercise", Integer.class)).isZero();
     }
 
@@ -72,7 +72,9 @@ class CatalogIntegrationTests {
     @AfterAll static void stop() { if (app != null) app.close(); }
 
     @Test void emptyCatalogRespondsWithoutSeedingOrMixingPersonalExercises() throws Exception {
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions", Integer.class)).isPositive();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions", Integer.class)).isZero();
+        var owner=jdbc.queryForObject("SELECT id FROM users LIMIT 1",UUID.class);
+        CatalogFixtures.personalExercises(jdbc,owner);
         assertThat(success(browser.get(SEARCH))).isEqualTo(JSON.readTree("{\"schemaVersion\":1,\"exercises\":[]}"));
         assertThat(success(browser.get(MANUFACTURERS))).isEqualTo(JSON.readTree("{\"manufacturers\":[]}"));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM standard_exercise", Integer.class)).isZero();

@@ -9,7 +9,7 @@ public final class RoutineResponses {
 	private RoutineResponses() { }
 	public record Summary(UUID id, String name, String version) { }
 	public record Listing(UUID userId, String dataGeneration, List<Summary> routines) { }
-	public record Weight(UUID id, UUID exerciseDefinitionId, String exerciseName, int setCount, int minReps,
+	public record Weight(UUID id, UUID standardExerciseId, String exerciseName, UUID manufacturerId, String loadType, int setCount, int minReps,
 			int maxReps, String initialWeightKg, String approvedWeightKg, Instant deletedAt) { }
 	public record Intensity(String mode, String value) { }
 	public record Plan(String kind, String name, int targetSeconds, String targetDistanceKm, Intensity intensity,

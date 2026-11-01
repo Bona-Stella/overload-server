@@ -126,7 +126,7 @@ class EmailOtpIntegrationTests {
 		var verified = post("verify", verification(message), csrf);
 		assertThat(verified.statusCode()).isEqualTo(204);
 		assertThat(cookie()).isNotEqualTo(anonymousId);
-		assertCounts(1, 1, 20, 1);
+		assertCounts(1, 1, 0, 1);
 		assertThat(get("/__otp_test__/me").statusCode()).isEqualTo(200);
 		assertThat(jdbc.queryForObject("SELECT principal_name IS NOT NULL FROM spring_session", Boolean.class)).isTrue();
 		assertThat(send("POST", "/__otp_test__/mutate", Map.of(), csrf, null).statusCode()).isEqualTo(403);
@@ -165,7 +165,7 @@ class EmailOtpIntegrationTests {
 		assertThat(jdbc.queryForObject("SELECT id FROM exercise_definitions WHERE user_id = ?", UUID.class, email.id())).isEqualTo(definition);
 		assertThat(jdbc.queryForObject("SELECT rest_low_seconds FROM user_workout_settings WHERE user_id = ?", Integer.class, email.id()))
 				.isEqualTo(77);
-		assertCounts(2, 2, 21, 2);
+		assertCounts(2, 2, 1, 2);
 	}
 
 	@Test
@@ -178,7 +178,7 @@ class EmailOtpIntegrationTests {
 		CLOCK.advance(Duration.ofMinutes(5));
 		assertInvalid(() -> verify(second, "ip", "browser-b"));
 		assertInvalid(() -> verify(second, "ip", "browser-b"));
-		assertCounts(1, 1, 20, 1);
+		assertCounts(1, 1, 0, 1);
 	}
 
 	@Test
@@ -306,7 +306,7 @@ class EmailOtpIntegrationTests {
 				assertThat(browser.send(HttpRequest.newBuilder(uri("/__otp_test__/me")).header("Cookie", "SESSION=" + anonymous).GET().build(),
 						HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(401);
 			}
-			assertCounts(1, 1, 20, 1);
+			assertCounts(1, 1, 0, 1);
 		}
 	}
 
@@ -405,7 +405,7 @@ class EmailOtpIntegrationTests {
 		var retry = post("request", Map.of("email", "a@example.com"), csrf);
 		var fresh = sender.messages.get(UUID.fromString(JSON.readTree(retry.body()).get("challengeId").asString()));
 		assertThat(post("verify", verification(fresh), csrf).statusCode()).isEqualTo(204);
-		assertCounts(1, 1, 20, 1);
+		assertCounts(1, 1, 0, 1);
 	}
 
 	@Test
@@ -420,13 +420,13 @@ class EmailOtpIntegrationTests {
 					.isGreaterThanOrEqualTo(500);
 		}
 		finally { jdbc.execute("DROP TRIGGER otp_test_fail ON spring_session_attributes"); }
-		assertCounts(1, 1, 20, 1);
+		assertCounts(1, 1, 0, 1);
 		assertThat(get("/__otp_test__/me").statusCode()).isEqualTo(401);
 		CLOCK.advance(Duration.ofSeconds(60));
 		var newCsrf = token(); var retry = post("request", Map.of("email", "a@example.com"), newCsrf);
 		var fresh = sender.messages.get(UUID.fromString(JSON.readTree(retry.body()).get("challengeId").asString()));
 		assertThat(post("verify", verification(fresh), newCsrf).statusCode()).isEqualTo(204);
-		assertCounts(1, 1, 20, 1);
+		assertCounts(1, 1, 0, 1);
 	}
 
 	@Test
@@ -456,7 +456,7 @@ class EmailOtpIntegrationTests {
 		assertThat(message.code().length()).isEqualTo(6);
 		assertThat(message.code().startsWith("00000")).isTrue();
 		assertThat(leading.verify(message.recipient(), id, message.code(), "ip", "browser").id()).isNotNull();
-		assertCounts(1, 1, 20, 1);
+		assertCounts(1, 1, 0, 1);
 	}
 
 	@Test
@@ -469,7 +469,7 @@ class EmailOtpIntegrationTests {
 		assertLimited(() -> verify(another, "ip", "browser"));
 		CLOCK.advance(Duration.ofMinutes(14));
 		assertInvalid(() -> verify(another, "ip", "browser"));
-		assertCounts(1, 1, 20, 1);
+		assertCounts(1, 1, 0, 1);
 	}
 
 	@Test
@@ -494,7 +494,7 @@ class EmailOtpIntegrationTests {
 		var freshCsrf = token(); var retry = post("request", Map.of("email", "a@example.com"), freshCsrf);
 		var fresh = sender.messages.get(UUID.fromString(JSON.readTree(retry.body()).get("challengeId").asString()));
 		assertThat(post("verify", verification(fresh), freshCsrf).statusCode()).isEqualTo(204);
-		assertCounts(1, 1, 20, 1);
+		assertCounts(1, 1, 0, 1);
 	}
 
 	@Test
@@ -512,13 +512,13 @@ class EmailOtpIntegrationTests {
 				}));
 			}
 			gate.countDown(); for (var future : futures) { future.get(15, TimeUnit.SECONDS); }
-			assertThat(successes.get()).isEqualTo(1); assertCounts(1, 1, 20, 1);
+			assertThat(successes.get()).isEqualTo(1); assertCounts(1, 1, 0, 1);
 		}
 	}
 
 	@Test
 	void schemaHasDurableConstraintsAndIndexesAndMigrationIsNotRepeated() {
-		assertThat(application.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("16");
+		assertThat(application.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("17");
 		assertThat(application.getBean(Flyway.class).migrate().migrationsExecuted).isZero();
 		assertThat(jdbc.queryForList("SELECT indexname FROM pg_indexes WHERE tablename = 'email_otp_challenges'", String.class))
 				.contains("email_otp_challenges_pkey", "email_otp_challenges_expiry_index");

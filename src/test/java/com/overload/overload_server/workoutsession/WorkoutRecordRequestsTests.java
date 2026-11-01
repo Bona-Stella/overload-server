@@ -33,7 +33,7 @@ class WorkoutRecordRequestsTests {
                 {"dataGeneration":"0","expectedVersion":"7","confirm":true,
                  "origin":{"editorDeviceId":"%s","writerEpoch":"0","localRevision":"12"},
                  "performedSets":[{"id":"%s","sessionExerciseId":"%s","ordinal":4,"weightKg":"60","reps":8,
-                  "completedAt":"2026-10-31T16:03:00Z","weightContext":{"kind":"UNVERIFIED","requestId":null}}],"cardioResults":[]}
+                  "completedAt":"2026-10-31T16:03:00Z","weightContext":{"kind":"UNVERIFIED","requestId":null},"manufacturerId":null,"loadType":null}],"cardioResults":[]}
                 """.formatted(ID,ID,ID);
         assertThat(WorkoutRecordRequests.recover(body).origin().localRevision()).isEqualTo("12");
         assertThatThrownBy(()->WorkoutRecordRequests.recover(body.replace("\"confirm\":true","\"confirm\":false"))).isInstanceOf(WorkoutSessionFailure.class);

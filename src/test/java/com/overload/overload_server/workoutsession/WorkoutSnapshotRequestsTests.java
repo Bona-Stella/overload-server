@@ -7,11 +7,35 @@ import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 
 class WorkoutSnapshotRequestsTests {
+    @Test void schemaTwoHasRequiredNullableEquipmentAndRejectsPreviousContract() {
+        String valid=body("\"1\"","3");
+        for(String invalid:List.of(valid.replace("\"schemaVersion\":2","\"schemaVersion\":1"),
+                valid.replace(",\"manufacturerId\":null",""),valid.replace(",\"loadType\":null",""),
+                valid.replace("\"loadType\":null","\"loadType\":\"WEIGHT_STACK\""),
+                valid.replace("\"manufacturerId\":null","\"manufacturerId\":12"))) {
+            assertThatThrownBy(()->WorkoutSnapshotRequests.save(invalid)).isInstanceOf(WorkoutSessionFailure.class);
+        }
+        for(String code:List.of("PLATE","STACK","DUMBBELL","BODYWEIGHT")) {
+            assertThat(WorkoutSnapshotRequests.save(valid.replace("\"loadType\":null","\"loadType\":\""+code+"\""))
+                    .snapshot().appliedPlan().weightExercises().getFirst().loadType()).isEqualTo(code);
+        }
+    }
     static final String ID="11111111-1111-4111-8111-111111111111";
+    @Test void standardIdentityAndPerformedEquipmentHaveOneStrictContract() {
+        String valid=body("\"1\"","3").replace("\"sessionExercises\":[]",
+                "\"sessionExercises\":[{\"id\":\""+ID+"\",\"kind\":\"WEIGHT\",\"standardExerciseId\":\""+ID+"\"}]")
+                .replace("\"performedSets\":[]","\"performedSets\":[{\"id\":\""+ID+"\",\"sessionExerciseId\":\""+ID+"\",\"ordinal\":1,\"weightKg\":\"60\",\"reps\":8,\"completedAt\":\"2026-10-31T16:02:00Z\",\"weightContext\":{\"kind\":\"INITIAL_APPROVED\",\"requestId\":null},\"manufacturerId\":null,\"loadType\":null}]");
+        assertThat(WorkoutSnapshotRequests.save(valid).snapshot().sessionExercises().getFirst().standardExerciseId()).isEqualTo(UUID.fromString(ID));
+        for(String invalid:List.of(valid.replace("standardExerciseId","exerciseDefinitionId"),
+                valid.replace("\"kind\":\"WEIGHT\"","\"kind\":\"CARDIO\""),
+                valid.replace(",\"manufacturerId\":null", ""),valid.replace("\"loadType\":null","\"loadType\":\"UNKNOWN\""))) {
+            assertThatThrownBy(()->WorkoutSnapshotRequests.save(invalid)).isInstanceOf(WorkoutSessionFailure.class);
+        }
+    }
     static String body(String revision,String count) {
         return """
                 {"dataGeneration":"0","editorDeviceId":"%s","writerEpoch":"0","localRevision":%s,
-                "snapshot":{"sessionExercises":[],"appliedPlan":{"schemaVersion":1,"weightExercises":[{"sessionExerciseId":"%s","setCount":%s,"minReps":6,"maxReps":10}],"cardioActivities":[]},
+                "snapshot":{"sessionExercises":[],"appliedPlan":{"schemaVersion":2,"weightExercises":[{"sessionExerciseId":"%s","setCount":%s,"minReps":6,"maxReps":10,"manufacturerId":null,"loadType":null}],"cardioActivities":[]},
                 "performedSets":[],"cardioResults":[],"deletedPerformedSetIds":[],"deletedCardioResultIds":[],"approvalRequests":[]}}
                 """.formatted(ID,revision,ID,count);
     }

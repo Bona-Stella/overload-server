@@ -17,7 +17,7 @@ public class WorkoutAssessment {
         this.sessions=sessions;this.records=records;
     }
 
-    public record Context(UUID routineId,UUID sourcePlacementId,UUID exerciseDefinitionId,int plannedSetCount,
+    public record Context(UUID routineId,UUID sourcePlacementId,UUID standardExerciseId,int plannedSetCount,
             int minReps,int maxReps,String approvedWeightKg,String unit) { }
     public record Benchmark(UUID sessionId,String sessionVersion,Instant endedAt,List<UUID> performedSetIds,
             List<Integer> reps,String repsSum,String ruleVersion) { }
@@ -49,7 +49,7 @@ public class WorkoutAssessment {
             exercises.add(new ExerciseResult(item.sessionExerciseId(),item.eligible(),item.reasonCodes(),item.comparisonContext(),
                     item.evaluatedPerformedSetIds(),item.evaluatedReps(),item.repsSum(),benchmark,item.advice(),item.adviceReason()));
         }
-        return new Result(1,RULE_VERSION,assessedAt,Long.toString(session.version),current.complete(),List.copyOf(exercises));
+        return new Result(2,RULE_VERSION,assessedAt,Long.toString(session.version),current.complete(),List.copyOf(exercises));
     }
 
     static int benchmarkOrder(Benchmark a,Benchmark b) {
@@ -95,7 +95,7 @@ public class WorkoutAssessment {
                 else if (reps.stream().allMatch(r->r>=original.maxReps())) { advice="INCREASE";adviceReason="ALL_AT_OR_ABOVE_MAX_REPS"; }
                 else { advice="MAINTAIN";adviceReason="TARGET_NOT_EXCEEDED_BY_ALL_SETS"; }
             }
-            Context context=eligible?new Context(initial.routineId(),original.sourcePlacementId(),original.exerciseDefinitionId(),
+            Context context=eligible?new Context(initial.routineId(),original.sourcePlacementId(),original.standardExerciseId(),
                     original.setCount(),original.minReps(),original.maxReps(),decimal(weight),"KG"):null;
             results.add(new ExerciseResult(original.sessionExerciseId(),eligible,List.copyOf(reasons),context,
                     selected.stream().map(s->s.id).toList(),reps,Long.toString(reps.stream().mapToLong(Integer::longValue).sum()),null,advice,adviceReason));

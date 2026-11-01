@@ -1,6 +1,6 @@
 # 표준 운동 카탈로그 조회 API — Backend 1단계
 
-상태: 신규 V16 카탈로그5표·조회만 구현. [최종 연결 설계](../tasks/standard-exercise-catalog-design-analysis.md)의 루틴/세션 전환은 후속2단계다. V1~V15·기존 개인 정의/20개 seed·루틴 FK·세션 JSONB/승인/평가·Frontend는 유지한다.
+상태: V16 카탈로그5표·조회와 V17 루틴/세션 단일 표준 UUID 연결을 구현했다. 가입 개인20개 seed는 중단하고 개인 POST/PATCH는403으로 차단한다. 루틴/세션은 [루틴 계약](routine-management.md)·[세션 계약](workout-sessions.md)을 따른다. 검색 DTO schemaVersion=1은 계획/평가 schemaVersion=2와 별개다. 개인 DB 적용·Frontend/IndexedDB 전환은 아직 수행하지 않았다.
 
 ## 인증·HTTP
 
@@ -39,7 +39,7 @@ GET만 제공하며 query와 GET body는400 INVALID_REQUEST로 거부한다. 검
 }
 ```
 
-활성 제조사만 UUID 오름차순으로 id/name을 반환한다. 운동 등록 여부와 독립적이다. 비면 `{"manufacturers":[]}`다. 단일 JPA 조회이며 장비 선택/루틴 연결은 아직 없다.
+활성 제조사만 UUID 오름차순으로 id/name을 반환한다. 운동 등록 여부와 독립적이다. 비면 `{"manufacturers":[]}`다. 단일 JPA 조회이며 루틴/진행 계획에서 선택할 nullable 제조사 ID를 제공한다.
 
 ## 오류
 

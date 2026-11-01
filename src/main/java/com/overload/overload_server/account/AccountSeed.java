@@ -2,7 +2,7 @@ package com.overload.overload_server.account;
 
 import java.util.List;
 
-/** Approved operational defaults shared by account creation and a future reset implementation. */
+/** Operational rest defaults. Historical personal names are retained for internal fixtures, never provisioned. */
 public final class AccountSeed {
 
 	public static final List<String> WEIGHT_EXERCISE_NAMES = List.of(

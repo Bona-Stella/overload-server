@@ -52,7 +52,7 @@ class RoutineIntegrationTests {
 		jdbc.update("DELETE FROM email_otp_rate_limits");
 		String email = UUID.randomUUID() + "@example.test";
 		owner = app.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email(email), null);
-		exercise = jdbc.queryForObject("SELECT id FROM exercise_definitions WHERE user_id=? ORDER BY id LIMIT 1", UUID.class, owner.id());
+		exercise = CatalogFixtures.exercise(jdbc);
 		routine = UUID.randomUUID(); first = UUID.randomUUID(); second = UUID.randomUUID(); cardio = UUID.randomUUID(); otherCardio = UUID.randomUUID();
 		browser = new Browser(); browser.login(email); csrf = browser.csrf();
 	}
@@ -61,7 +61,7 @@ class RoutineIntegrationTests {
 
 	@Test void emptyAccountHasNoRoutinesAndMixedCreateAllowsDuplicateNamesAndRepeatedExercise() throws Exception {
 		assertThat(node(browser.get("/api/v1/routines")).get("routines").size()).isZero();
-		var oldExercise = jdbc.queryForMap("SELECT * FROM exercise_definitions WHERE id=?", exercise);
+		var oldExercise = jdbc.queryForMap("SELECT * FROM standard_exercise WHERE id=?", exercise);
 		var response = create(); assertThat(response.statusCode()).isEqualTo(201); headers(response);
 		assertThat(response.headers().firstValue("Location").orElseThrow()).isEqualTo(path());
 		var result = node(response); assertThat(result.get("name").asString()).isEqualTo("  同名 루틴 Ω  ");
@@ -78,7 +78,7 @@ class RoutineIntegrationTests {
 		duplicateName.put("cardioPlacements", List.of());
 		assertThat(browser.send("POST", "/api/v1/routines", json(duplicateName), csrf).statusCode()).isEqualTo(201);
 		assertThat(node(browser.get("/api/v1/routines")).get("routines").size()).isEqualTo(2);
-		assertThat(jdbc.queryForMap("SELECT * FROM exercise_definitions WHERE id=?", exercise)).isEqualTo(oldExercise);
+		assertThat(jdbc.queryForMap("SELECT * FROM standard_exercise WHERE id=?", exercise)).isEqualTo(oldExercise);
 		assertThat(browser.get("/api/v1/exercises").statusCode()).isEqualTo(200);
 		assertThat(browser.get("/api/v1/workout-settings").statusCode()).isEqualTo(200);
 	}
@@ -213,8 +213,8 @@ class RoutineIntegrationTests {
 		input = updateBody(0); input.put("weightPlacements", List.of(weight(first, "RESTORE", 3))); error(put(input), 409, "PLACEMENT_STATE_CONFLICT");
 		input.put("weightPlacements", List.of(weight(UUID.randomUUID(), "EXISTING", 3))); error(put(input), 404, "PLACEMENT_NOT_FOUND");
 		var foreign = app.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email(UUID.randomUUID() + "@example.test"), null);
-		var foreignExercise = jdbc.queryForObject("SELECT id FROM exercise_definitions WHERE user_id=? LIMIT 1", UUID.class, foreign.id());
-		var foreignWeight = newWeight(UUID.randomUUID(), "1"); foreignWeight.put("exerciseDefinitionId", foreignExercise);
+		var foreignExercise = UUID.randomUUID();
+		var foreignWeight = newWeight(UUID.randomUUID(), "1"); foreignWeight.put("standardExerciseId", foreignExercise);
 		input = updateBody(0); foreignWeight.put("mode", "NEW"); input.put("weightPlacements", List.of(foreignWeight));
 		error(put(input), 404, "EXERCISE_NOT_FOUND"); assertThat(snapshot()).isEqualTo(before);
 		try (var other = new Browser()) {
@@ -223,13 +223,15 @@ class RoutineIntegrationTests {
 			error(other.send("PUT", path(), json(updateBody(0)), other.csrf()), 404, "ROUTINE_NOT_FOUND");
 			error(other.send("DELETE", path(), json(Map.of("dataGeneration", "0", "expectedVersion", "0")), other.csrf()), 404, "ROUTINE_NOT_FOUND");
 		}
-		jdbc.update("UPDATE exercise_definitions SET deleted_at=current_timestamp WHERE id=?", exercise);
-		error(put(updateBody(0)), 404, "EXERCISE_NOT_FOUND");
+		jdbc.update("UPDATE standard_exercise SET is_active=false WHERE id=?", exercise);
+		assertThat(put(updateBody(0)).statusCode()).isEqualTo(200);
+		var inactive = newWeight(UUID.randomUUID(), "1"); inactive.put("mode", "NEW");
+		input = updateBody(0); input.put("weightPlacements", List.of(inactive));
+		error(put(input), 404, "EXERCISE_NOT_FOUND");
 	}
 	@Test void largeGenerationIsExactAndOldGenerationCannotWrite() throws Exception {
 		jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", owner.id()); jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", owner.id());
 		long generation = 9007199254740993L; jdbc.update("UPDATE users SET data_generation=? WHERE id=?", generation, owner.id());
-		jdbc.update("INSERT INTO exercise_definitions(id,user_id,data_generation,name) VALUES (?,?,?,'large generation')", exercise, owner.id(), generation);
 		error(create(), 409, "DATA_GENERATION_MISMATCH");
 		var body = createBody(); body.put("dataGeneration", Long.toString(generation));
 		assertThat(node(browser.send("POST", "/api/v1/routines", json(body), csrf)).get("dataGeneration").asString()).isEqualTo(Long.toString(generation));
@@ -304,11 +306,47 @@ class RoutineIntegrationTests {
 		var reused = newWeight(first, "65"); reused.put("mode", "NEW"); input.put("weightPlacements", List.of(reused)); error(put(input), 409, "PLACEMENT_ID_CONFLICT");
 		assertThat(weightRow(first).get("approved_weight").toString()).isEqualTo("60.000000"); assertThat(events()).isEmpty();
 	}
+	@Test void equipmentChangesKeepPlacementAndWeightsAndOnlyActualChangesAdvanceRoutineVersion() throws Exception {
+		create(); var input=updateBody(0); input.put("weightApprovals",List.of(approval(first,"65"))); put(input);
+		UUID manufacturer=CatalogFixtures.manufacturer(jdbc);var facts=events();
+		var weight=weight(first,"EXISTING",3);weight.put("manufacturerId",manufacturer);weight.put("loadType","PLATE");
+		input=updateBody(1);input.put("weightPlacements",List.of(weight,weight(second,"EXISTING",3)));
+		var updated=node(put(input));assertThat(updated.get("version").asString()).isEqualTo("2");
+		var row=weightRow(first);assertThat(row).containsEntry("id",first).containsEntry("standard_exercise_id",exercise).containsEntry("manufacturer_id",manufacturer).containsEntry("load_type","PLATE");
+		assertThat(row.get("initial_weight").toString()).isEqualTo("60.000000");assertThat(row.get("approved_weight").toString()).isEqualTo("65.000000");assertThat(events()).isEqualTo(facts);
+		input.put("expectedVersion","2");var before=snapshot();assertThat(node(put(input)).get("version").asString()).isEqualTo("2");assertThat(snapshot()).isEqualTo(before);
+		jdbc.update("UPDATE manufacturer SET is_active=false WHERE id=?",manufacturer);
+		assertThat(node(put(input)).get("version").asString()).isEqualTo("2");
+		weight.put("manufacturerId",null);weight.put("loadType","BODYWEIGHT");
+		assertThat(node(put(input)).get("version").asString()).isEqualTo("3");assertThat(events()).isEqualTo(facts);
+		assertThat(weightRow(first).get("approved_weight").toString()).isEqualTo("65.000000");
+	}
+	@Test void personalDefinitionCannotIdentifyNewRoutineAndInvalidEquipmentRollsBackWholeEdit() throws Exception {
+		create();var before=snapshot();var input=updateBody(0);var weight=weight(first,"EXISTING",3);weight.put("manufacturerId",UUID.randomUUID());
+		input.put("name","must roll back");input.put("weightPlacements",List.of(weight));error(put(input),400,"INVALID_REQUEST");assertThat(snapshot()).isEqualTo(before);
+		UUID inactive=CatalogFixtures.manufacturer(jdbc);jdbc.update("UPDATE manufacturer SET is_active=false WHERE id=?",inactive);weight.put("manufacturerId",inactive);
+		error(put(input),400,"INVALID_REQUEST");assertThat(snapshot()).isEqualTo(before);
+		CatalogFixtures.personalExercises(jdbc,owner.id());UUID personal=jdbc.queryForObject("SELECT id FROM exercise_definitions WHERE user_id=? LIMIT 1",UUID.class,owner.id());
+		var fresh=newWeight(UUID.randomUUID(),"1");fresh.put("mode","NEW");fresh.put("standardExerciseId",personal);input.put("weightPlacements",List.of(fresh));
+		error(put(input),404,"EXERCISE_NOT_FOUND");assertThat(snapshot()).isEqualTo(before);
+	}
+	@Test void sharedStandardExerciseDoesNotShareRoutineOwnershipOrApprovedWeights() throws Exception {
+		create();String email=UUID.randomUUID()+"@example.test";UUID otherRoutine=UUID.randomUUID(),otherPlacement=UUID.randomUUID();
+		try(var other=new Browser()) {
+			other.login(email);var body=createBody();body.put("id",otherRoutine);body.put("weightPlacements",List.of(newWeight(otherPlacement,"10")));body.put("cardioPlacements",List.of());
+			var result=node(other.send("POST","/api/v1/routines",json(body),other.csrf()));
+			assertThat(result.get("weightPlacements").get(0).get("standardExerciseId").asString()).isEqualTo(exercise.toString());
+			error(other.get(path()),404,"ROUTINE_NOT_FOUND");
+		}
+		var input=updateBody(0);input.put("weightApprovals",List.of(approval(first,"65")));put(input);
+		assertThat(weightRow(otherPlacement).get("approved_weight").toString()).isEqualTo("10.000000");
+		assertThat(jdbc.queryForObject("SELECT version FROM routines WHERE id=?",Long.class,otherRoutine)).isZero();
+	}
 	@Test void approvalFactsKeepNamesAndValuesAfterLaterRoutineAndDefinitionEdits() throws Exception {
-		create(); var oldName = jdbc.queryForObject("SELECT name FROM exercise_definitions WHERE id=?", String.class, exercise);
+		create(); var oldName = jdbc.queryForObject("SELECT name FROM standard_exercise WHERE id=?", String.class, exercise);
 		var input = updateBody(0); input.put("weightApprovals", List.of(approval(first, "65"))); put(input); var facts = events();
 		assertThat(facts.getFirst()).contains(oldName, "ROUTINE_EDITOR");
-		assertThat(browser.send("PATCH", "/api/v1/exercises/" + exercise, json(Map.of("dataGeneration", "0", "name", "later name")), csrf).statusCode()).isEqualTo(200);
+		jdbc.update("UPDATE standard_exercise SET name='later name' WHERE id=?", exercise);
 		input = updateBody(1); input.put("name", "later routine"); put(input);
 		assertThat(events()).isEqualTo(facts);
 		assertThat(weightRow(first).get("initial_weight").toString()).isEqualTo("60.000000");
@@ -317,8 +355,9 @@ class RoutineIntegrationTests {
 	Map<String, Object> createBody() { return new LinkedHashMap<>(Map.of("id", routine, "dataGeneration", "0", "name", "  同名 루틴 Ω  ", "weightPlacements", List.of(newWeight(first, "60"), newWeight(second, "0")), "cardioPlacements", List.of(cardio(cardio, null), cardio(otherCardio, null)))); }
 	Map<String, Object> updateBody(long version) { return new LinkedHashMap<>(Map.of("dataGeneration", "0", "expectedVersion", Long.toString(version), "name", "  同名 루틴 Ω  ", "weightPlacements", List.of(weight(first, "EXISTING", 3), weight(second, "EXISTING", 3)), "cardioPlacements", List.of(cardio(cardio, "EXISTING"), cardio(otherCardio, "EXISTING")), "weightApprovals", List.of())); }
 	Map<String, Object> updateBodyWithCount(long version, int count) { var value = updateBody(version); value.put("weightPlacements", List.of(weight(first, "EXISTING", count), weight(second, "EXISTING", 3))); return value; }
-	Map<String, Object> newWeight(UUID id, String initial) { return new LinkedHashMap<>(Map.of("id", id, "exerciseDefinitionId", exercise, "setCount", 3, "minReps", 6, "maxReps", 10, "initialWeightKg", initial)); }
-	static Map<String, Object> weight(UUID id, String mode, int count) { return new LinkedHashMap<>(Map.of("mode", mode, "id", id, "setCount", count, "minReps", 6, "maxReps", 10)); }
+	Map<String, Object> newWeight(UUID id, String initial) { return equipment(new LinkedHashMap<>(Map.of("id", id, "standardExerciseId", exercise, "setCount", 3, "minReps", 6, "maxReps", 10, "initialWeightKg", initial))); }
+	static Map<String, Object> weight(UUID id, String mode, int count) { return equipment(new LinkedHashMap<>(Map.of("mode", mode, "id", id, "setCount", count, "minReps", 6, "maxReps", 10))); }
+	static Map<String,Object> equipment(Map<String,Object> value) { value.put("manufacturerId", null); value.put("loadType", null); return value; }
 	static Map<String, Object> cardio(UUID id, String mode) {
 		var plan = new LinkedHashMap<String, Object>(); plan.put("kind", "TREADMILL"); plan.put("name", "러닝머신"); plan.put("targetSeconds", 600);
 		plan.put("targetDistanceKm", "0.001"); plan.put("intensity", Map.of("mode", "SPEED", "value", "6.5")); plan.put("inclinePercent", "0"); plan.put("resistance", null);

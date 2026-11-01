@@ -70,7 +70,7 @@ class V10MigrationIntegrationTests {
         return new SpringApplicationBuilder(OverloadServerApplication.class).web(WebApplicationType.NONE)
                 .run("--spring.profiles.active=integration", "--spring.datasource.url=" + postgres.getJdbcUrl(),
                         "--spring.datasource.username=" + postgres.getUsername(), "--spring.datasource.password=" + postgres.getPassword(),
-                        "--spring.flyway.target=16",
+                        "--spring.flyway.target=17",
                         "--GOOGLE_OIDC_ENABLED=false", "--OTP_EMAIL_ENABLED=false", "--logging.level.root=WARN", "--spring.main.banner-mode=off");
     }
 
@@ -84,7 +84,7 @@ class V10MigrationIntegrationTests {
             MixedPersistenceAssertions.verify(context);
             var account = context.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email("fresh-v10@example.test"), null);
             var read = context.getBean(WorkoutReadService.class);
-            assertThat(read.exercises(account.id()).exercises()).hasSize(20);
+            assertThat(read.exercises(account.id()).exercises()).isEmpty();
             assertThat(read.settings(account.id()).restLowSeconds()).isEqualTo(180);
         }
         assertThat(flyway.migrate().migrationsExecuted).isZero();
