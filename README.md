@@ -20,7 +20,7 @@
   <img src="https://img.shields.io/badge/Status-Initial_Setup-6B7280?style=flat-square" alt="Status">
 </div>
 
-> **개인 개발 DB V15 재구성 완료:** 2026-11-01 사용자 명시 승인으로 `127.0.0.1:5433/overload_dev`의 기존 테스트 데이터를 폐기하고 V1~V15를 신규 적용했습니다. Flyway/Hibernate 검증과 기본 조회를 통과했으며 업무 데이터는 비어 있습니다. [실제 재구성 보고서](docs/tasks/task-009-dev-v15-rebuild-report.md)를 확인하세요. 다른 DB·후속 파괴적 작업은 별도 승인이 필요합니다.
+> **개인 개발 DB V17 적용·실제 앱 통합 검증 완료:** 2026-11-02 승인된 `127.0.0.1:5433/overload_dev`의 빈 V15를 확인한 뒤 기존 이력을 보존하며 V16·V17을 적용했습니다. 개발용 운동5개와 소량의 별칭·제조사·근육 예시를 등록하고 실제 OTP·루틴·장비·오프라인·종료/복구를 검증했습니다. [4단계 보고서](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)를 따릅니다. [이전 V15 재구성](docs/tasks/task-009-dev-v15-rebuild-report.md)은 역사적 기록이며 현재 DB에는 이번 검증용 계정·루틴·종료 기록이 있습니다. 다른 DB·후속 파괴적 작업은 별도 승인입니다.
 
 ---
 
@@ -361,7 +361,7 @@ Google 클라이언트 준비·정확한 localhost 콜백·활성화·세션 상
 V11은 루틴 관련 네 테이블만 추가합니다. 개인 로컬 V11 적용·기존 데이터 보존은 후속 사용자 확인 사항입니다.
 세션 [START·조회·takeover·snapshot·승인 해결·FINISH·자동 종료 및 종료 후 정정·복구](docs/api/workout-sessions.md)는 V12~V15를 사용합니다. InitialPlan은 불변 JSONB 하나에 보존하고 ACTIVE는 세대와 무관하게 사용자당 하나입니다. 수행은 관계형 저장하며 승인 충돌이 유효 수행 저장을 막지 않습니다. 명시 종료는 최초 평가·AppliedPlan을 봉인하고 AUTO_CLOSED는 마지막 서버 기록만 보존합니다. 종료 후 정정·명시 복구·논리 삭제와 현재 평가는 봉인 사실과 분리하며, 확인 불가 복구 승인 주장은 UNVERIFIED로 보존합니다.
 **V12~V15 격리 검증 후, 2026-11-01 개인 개발 DB의 승인된 V15 신규 구성도 완료했습니다.** [재구성 보고서](docs/tasks/task-009-dev-v15-rebuild-report.md)를 따릅니다. 앱 시작 시 대기 migration이 자동 적용되므로 다른 DB·후속 파괴적 작업에는 별도 승인이 필요합니다.
-Frontend/IndexedDB 연결·설치형 PWA는 미구현입니다. 조회·takeover·중복·무변경 snapshot·승인 해결은 운동 동기화 시각을 연장하지 않습니다. 기존 인증·계정 seed·Task 008 조회는 유지합니다.
+현재는 V17 표준 UUID·장비 계약과 Frontend/IndexedDB3·설치형 PWA를 연결했고 [실제 개발 환경 검증](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)도 완료했습니다. 조회·takeover·중복·무변경 snapshot·승인 해결은 운동 동기화 시각을 연장하지 않습니다. 기존 인증·휴식 기본값은 유지하며 개인 운동 가입 seed는 중단했습니다.
 V1~V9 Flyway 이력은 변경하지 않았습니다. 정식 V10은 폐기 stamp·receipt/feed 구조만 제거하며 기존 데이터·version/deleted_at을 보존합니다.
 V10 전체 회귀·실제 V8 백업의 격리 복원/업그레이드·승인된 개인 로컬 DB V8→V9→V10 적용 결과는 [V10 최종 보고서](docs/tasks/task-009-v10-local-application-report.md)를 참고하세요.
 삭제 목록·DB 의존성과 검증 결과는 [1차 구조 정리 보고서](docs/tasks/task-009-phase-1-cleanup-report.md)를 참고하세요.

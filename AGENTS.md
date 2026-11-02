@@ -106,8 +106,8 @@ Required:
 V17부터 신규 루틴·세션은 standardExerciseId 단일 계약과 계획/평가 schemaVersion=2를 사용합니다.
 장비 변경은 승인 중량·공식 비교 키를 바꾸지 않으며 완료 세트의 장비는 불변입니다.
 개인 운동 seed는 중단하고 일반 개인 POST/PATCH는403으로 차단합니다.
-V17의 격리 검증과 실제 개인 DB 적용은 구분하며 개인 DB는 이번에 변경하지 않습니다.
-Frontend/IndexedDB의 표준 계약 전환은 후속3단계입니다.
+V17의 격리 검증과 개인 DB 적용은 구분합니다. 2026-11-02 사용자 승인으로 기존 `127.0.0.1:5433/overload_dev`에 V16·V17을 정상 적용하고 개발용 카탈로그를 등록했습니다. [4단계 실제 적용·통합 검증 보고서](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)를 따릅니다. 기존 migration/이력·볼륨은 보존했으며 다른 DB나 후속 파괴적 변경은 별도 승인이 필요합니다.
+Frontend/IndexedDB3·schema2 전환과 실제 앱 연동을 확인했습니다. 오프라인 접근 허용은 갱신을 직렬화하고 동일 계정·세대의 이미 허용된 nonce를 유지하며, 로그아웃·계정/세대 변경은 계속 즉시 차단합니다.
 
 Task 009 및 이후 운동 쓰기·진행 세션·복구 작업 시 필수:
 - [Task 009 현행 설계 v1.0](docs/tasks/task-009-redesign-v1.0.md)
@@ -117,7 +117,7 @@ Task 009 및 이후 운동 쓰기·진행 세션·복구 작업 시 필수:
 일반 온라인 종목 생성·이름 변경·휴식 설정 변경은 [온라인 쓰기 API 계약](docs/api/workout-online-write.md)을 따릅니다.
 루틴 관리 API는 [루틴 온라인 계약](docs/api/routine-management.md)을 따릅니다. 개인 개발 DB는 2026-11-01 사용자 승인으로 기존 테스트 데이터를 폐기하고 V15까지 재구성했습니다. [실제 재구성 보고서](docs/tasks/task-009-dev-v15-rebuild-report.md)를 따릅니다.
 세션 START·조회·takeover(V12), snapshot·승인 요청/해결(V13), FINISH·최초 평가·AUTO_CLOSED(V14), 종료 후 정정·명시 복구·논리 삭제·현재 평가·승인 해결(V15)은 [세션 계약](docs/api/workout-sessions.md)을 따릅니다. V12~V15의 격리 검증과 개인 개발 DB의 승인된 V15 신규 구성을 완료했습니다. 다른 DB나 후속 파괴적 변경은 별도 승인이 필요합니다.
-Frontend/IndexedDB 연결은 후속 미구현 범위입니다. 조회·중복·takeover·실제 무변경 snapshot·승인 해결은 마지막 운동 동기화 시각을 연장하지 않습니다. 종료 후 쓰기는 expectedVersion으로 분리하고, 봉인 계획/평가와 최초 수행 승인 문맥을 유지합니다. 확인 불가 복구 주장은 UNVERIFIED입니다.
+Frontend/IndexedDB/PWA 연결은 구현되어 있습니다. 조회·중복·takeover·실제 무변경 snapshot·승인 해결은 마지막 운동 동기화 시각을 연장하지 않습니다. 종료 후 쓰기는 expectedVersion으로 분리하고, 봉인 계획/평가와 최초 수행 승인 문맥을 유지합니다. 확인 불가 복구 주장은 UNVERIFIED입니다.
 2026-10-31 사용자 승인으로 개인 로컬 `127.0.0.1:5433/overload_dev`에 V9/V10을 적용하고 기존 데이터를 보존했습니다.
 근거는 [실제 적용 보고서](docs/tasks/task-009-v10-local-application-report.md)를 따릅니다. 다른 DB나 후속 파괴적 마이그레이션은 이 승인에 포함되지 않습니다.
 Task 006의 운동·인증 정책은 v1.0에서 명시적으로 바꾼 부분을 제외하고 유지합니다.

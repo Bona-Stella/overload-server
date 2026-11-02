@@ -1,6 +1,6 @@
 # 표준 운동 카탈로그 조회 API — Backend 1단계
 
-상태: V16 카탈로그5표·조회와 V17 루틴/세션 단일 표준 UUID 연결을 구현했다. 가입 개인20개 seed는 중단하고 개인 POST/PATCH는403으로 차단한다. 루틴/세션은 [루틴 계약](routine-management.md)·[세션 계약](workout-sessions.md)을 따른다. 검색 DTO schemaVersion=1은 계획/평가 schemaVersion=2와 별개다. 개인 DB 적용·Frontend/IndexedDB 전환은 아직 수행하지 않았다.
+상태: V16 카탈로그5표·조회와 V17 루틴/세션 단일 표준 UUID 연결을 구현했다. 가입 개인20개 seed는 중단하고 개인 POST/PATCH는403으로 차단한다. 루틴/세션은 [루틴 계약](routine-management.md)·[세션 계약](workout-sessions.md)을 따른다. 검색 DTO schemaVersion=1은 계획/평가 schemaVersion=2와 별개다. 2026-11-02 개인 개발 DB V17 적용과 Frontend/IndexedDB3 실제 연동을 확인했다. [4단계 보고서](../tasks/standard-exercise-catalog-dev-phase-4-report.md)와 [개발용 등록 SQL](../dev-data/standard-exercise-catalog.sql)을 따른다. 개발 예시는 운영 카탈로그 확정 데이터가 아니다.
 
 ## 인증·HTTP
 
