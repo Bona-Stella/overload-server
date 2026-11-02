@@ -87,7 +87,7 @@ final class WorkoutSnapshotRequests {
         CardioValue result = null;
         var r = p.get("result");
         if (status.equals("COMPLETED")) {
-            fields(r, "timerMs", "activeMs", "corrected", "distanceKm", "averageBpm");
+            optionalFields(r,"measurement", "timerMs", "activeMs", "corrected", "distanceKm", "averageBpm");
             if (started==null) throw invalid();
             result=cardioNumbers(r,duration(r,"timerMs",0,9007199254740991L));
         }
@@ -100,10 +100,14 @@ final class WorkoutSnapshotRequests {
         boolean corrected = r.get("corrected").asBoolean();
         if (timer!=null&&!corrected&&timer!=active) throw invalid();
         String distance = r.get("distanceKm").isNull()?null:decimal(r, "distanceKm");
-        if (distance!=null&&(new BigDecimal(distance).compareTo(new BigDecimal("0.001"))<0||new BigDecimal(distance).compareTo(new BigDecimal("1000"))>0)) throw invalid();
         Integer bpm = r.get("averageBpm").isNull()?null:count(r, "averageBpm");
         if (bpm!=null&&(bpm<20||bpm>300)) throw invalid();
-        return new CardioValue(timer, active, corrected, distance, bpm);
+        CardioMeasurement measurement=null;
+        if(r.has("measurement")&&!r.get("measurement").isNull()){
+            var m=r.get("measurement");fields(m,"actualSpeedKmh","distanceSource");
+            measurement=new CardioMeasurement(m.get("actualSpeedKmh").isNull()?null:decimal(m,"actualSpeedKmh"),m.get("distanceSource").isNull()?null:text(m,"distanceSource"));
+        }
+        return CardioMeasurements.normalize(new CardioValue(timer, active, corrected, distance, bpm,measurement));
     }
 
     static Resolve resolve(String raw) {
@@ -151,6 +155,9 @@ final class WorkoutSnapshotRequests {
         if (p==null||!p.isObject()||p.size()!=names.length)throw invalid();
         var allowed = Set.of(names);
         for (String n:p.propertyNames())if (!allowed.contains(n))throw invalid();
+    }
+    static void optionalFields(JsonNode p,String optional,String... required){
+        var fields=new ArrayList<>(Arrays.asList(required));if(p!=null&&p.has(optional))fields.add(optional);fields(p,fields.toArray(String[]::new));
     }
 
     static Iterable<JsonNode> array(JsonNode p, String n) {

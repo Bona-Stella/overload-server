@@ -101,6 +101,8 @@ Required:
 
 ### Task 009 Current Design
 
+유산소 실제 측정 2D는 [보고서](docs/tasks/statistics-tracking-phase-2d-report.md)와 [DB/API·오프라인 계약](docs/api/cardio-actual-measurements.md)을 따릅니다. 실제 속도와 활동 시간만으로 거리를 계산하며 직접 입력/정정 거리가 우선입니다. 선택 measurement와 V21은 기존5필드 JSON·고정 요청·미확인 과거 출처를 보존합니다. IndexedDB3/schema2를 변경하지 않고 다른 종류 거리를 하나의 총 km로 합산하지 않습니다. 개인 DB V18~V21 미적용·운영 분류 검증 미완료·디로딩3단계 연결 전 상태를 유지합니다.
+
 승인 중량 성장 2C는 [진행 보고서](docs/tasks/statistics-tracking-phase-2c-report.md)와 [조회 계약](docs/api/approved-weight-growth.md)을 따릅니다. 기존 승인 사건을 routineId+placementId별로 분리하고 과거 수행/승인 이름을 검색하며, 초기/현재 중량으로 과거 점을 생성하지 않습니다. 연결 근거가 없는 점은 선으로 잇지 않습니다. 디로딩 식별/일반 승인 차단의 실제 연결은 후속3단계이며 혼재 검증 완료로 표시하지 않습니다. 개인 DB V18~V20 미적용을 유지합니다.
 
 통계 2B는 [진행 보고서](docs/tasks/statistics-tracking-phase-2b-report.md), [주간 일정 계약](docs/api/weekly-schedule.md), [통계 overview](docs/api/statistics.md)를 따릅니다. 최신 제품 정책은 [Statistics and Tracking v1.3](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md)입니다. 일정 최초 등록은 당일부터 즉시 적용하며 첫 주는 등록일~일요일 예정일만 분모에 포함하고, 기존 요일·빈도 변경은 다음 월요일, 동일 예정일은 최고 단일 세션 InitialPlan 달성률을 사용합니다. V19는 이력2표, V20은 최초 version의 평일 적용 제약만 보완하며 과거 일정 백필은 없습니다. 개인 DB V18·V19·V20 미적용·운영 분류 미검증 상태를 유지합니다. 이력 없는 날짜·실제 유산소 목표 증거 부족은 null/확인 불가이며 추정하지 않습니다. 2A endpoint 계약은 그대로 유지합니다.

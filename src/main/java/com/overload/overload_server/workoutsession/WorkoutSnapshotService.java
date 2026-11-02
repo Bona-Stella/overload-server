@@ -375,6 +375,7 @@ public class WorkoutSnapshotService {
             if (row!=null) {
                 if (row.deletedAt!=null)throw failure(RECORD_DELETED);
                 var old = row.value();
+                if(input.result()!=null){input=new Cardio(input.id(),input.sessionActivityId(),input.status(),input.startedAt(),input.occurredAt(),CardioMeasurements.preserveOmitted(old.result(),input.result()));validateCardio(session,input,plannedCardio.get(input.sessionActivityId()).plan());}
                 if (!old.sessionActivityId().equals(input.sessionActivityId())||!old.status().equals(input.status())||!Objects.equals(old.startedAt(), input.startedAt())
                     ||!old.occurredAt().equals(input.occurredAt())||!Objects.equals(old.result()==null?null:old.result().timerMs(), input.result()==null?null:input.result().timerMs()))throw failure(IMMUTABLE_RECORD_CONTEXT);
                 if (!old.equals(input)) {
@@ -401,6 +402,7 @@ public class WorkoutSnapshotService {
         if(input.result()!=null) {
             if(input.result().timerMs()>Duration.between(input.startedAt(),input.occurredAt()).toMillis())throw failure(CLOCK_CONTEXT_INVALID);
             if(input.result().distanceKm()!=null&&!Set.of("TREADMILL","BIKE","OUTDOOR").contains(plan.get("kind").asString()))throw failure(INVALID_SNAPSHOT);
+            if(input.result().measurement()!=null&&input.result().measurement().actualSpeedKmh()!=null&&!Set.of("TREADMILL","BIKE","OUTDOOR").contains(plan.get("kind").asString()))throw failure(INVALID_SNAPSHOT);
         }
     }
 

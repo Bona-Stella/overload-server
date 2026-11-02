@@ -32,8 +32,8 @@ class StatisticsRepository {
                 JOIN standard_exercise e ON e.id=se.standard_exercise_id
                 WHERE ps.deleted_at IS NULL AND ps.kind='WEIGHT' AND
                 """ + SCOPE + " ORDER BY ps.id", (r, i) -> new SetFact(r.getObject(1, UUID.class), r.getObject(2, UUID.class), r.getObject(3, UUID.class), r.getObject(4, UUID.class), r.getString(5), r.getBigDecimal(6), r.getInt(7), r.getString(8)), args);
-        var cardio = jdbc.query("SELECT c.session_id,c.session_activity_id,c.active_ms,c.distance FROM workout_sessions ws JOIN cardio_results c ON c.session_id=ws.id WHERE c.deleted_at IS NULL AND c.status='COMPLETED' AND " + SCOPE + " ORDER BY c.id",
-                (r, i) -> new CardioFact(r.getObject(1, UUID.class), r.getObject(2, UUID.class), r.getLong(3), r.getBigDecimal(4)), args);
+        var cardio = jdbc.query("SELECT c.session_id,c.session_activity_id,c.active_ms,c.distance,(c.measurement->>'actualSpeedKmh')::numeric,c.measurement->>'distanceSource' FROM workout_sessions ws JOIN cardio_results c ON c.session_id=ws.id WHERE c.deleted_at IS NULL AND c.status='COMPLETED' AND " + SCOPE + " ORDER BY c.id",
+                (r, i) -> new CardioFact(r.getObject(1, UUID.class), r.getObject(2, UUID.class), r.getLong(3), r.getBigDecimal(4),r.getBigDecimal(5),r.getString(6)), args);
         var mappings = jdbc.query("SELECT em.standard_exercise_id,m.id,m.name,m.group_code,em.role FROM exercise_muscle em JOIN muscle m ON m.id=em.muscle_id WHERE m.is_active ORDER BY em.standard_exercise_id,m.id",
                 (r, i) -> new Mapping(r.getObject(1, UUID.class), r.getObject(2, UUID.class), r.getString(3), r.getString(4), r.getString(5)));
         var recent = jdbc.query("""

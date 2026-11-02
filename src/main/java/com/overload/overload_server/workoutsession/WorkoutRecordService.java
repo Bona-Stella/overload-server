@@ -46,7 +46,7 @@ public class WorkoutRecordService {
                 if(!row.status.equals("COMPLETED"))throw failure(INVALID_SNAPSHOT);
                 if(!correction.corrected()&&correction.activeMs()!=row.timerMs)throw failure(INVALID_SNAPSHOT);
                 var before=row.value();var after=new Cardio(row.id,row.activityId,row.status,row.startedAt,row.occurredAt,
-                        new CardioValue(row.timerMs,correction.activeMs(),correction.corrected(),correction.distanceKm(),correction.averageBpm()));
+                        CardioMeasurements.preserveOmitted(before.result(),new CardioValue(row.timerMs,correction.activeMs(),correction.corrected(),correction.distanceKm(),correction.averageBpm(),correction.measurement())));
                 WorkoutSnapshotService.validateCardio(session,after,cardioPlan(session,row.activityId));
                 if(!before.equals(after)) {
                     audit(session,"CARDIO",row.id,"CORRECTED",before,after,null,events);row.apply(after);

@@ -18,10 +18,10 @@ final class WorkoutRecordRequests {
             fields(p,"id","weightKg","reps");sets.add(new SetCorrection(uuid(p,"id"),decimal(p,"weightKg"),count(p,"reps")));
         }
         for(var p:array(b,"cardioCorrections")) {
-            fields(p,"id","activeMs","corrected","distanceKm","averageBpm");
+            optionalFields(p,"measurement","id","activeMs","corrected","distanceKm","averageBpm");
             // Equality to the immutable stored timer is checked under the session lock.
             var checked=cardioNumbers(p,null);
-            cardio.add(new CardioCorrection(uuid(p,"id"),checked.activeMs(),checked.corrected(),checked.distanceKm(),checked.averageBpm()));
+            cardio.add(new CardioCorrection(uuid(p,"id"),checked.activeMs(),checked.corrected(),checked.distanceKm(),checked.averageBpm(),checked.measurement()));
         }
         var deletedSets=ids(b,"deletedPerformedSetIds");var deletedCardio=ids(b,"deletedCardioResultIds");
         var setIds=new ArrayList<>(sets.stream().map(SetCorrection::id).toList());setIds.addAll(deletedSets);unique(setIds);

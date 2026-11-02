@@ -99,6 +99,10 @@ class PlanningCalculatorTests {
         var s2=new Session(s.id(),monday,speedInitial,s.applied());
         var unknown=PlanningCalculator.calculate(owner,0,period,new Input(List.of(s2),List.of(),facts.cardio(),List.of(),List.of()),proof);
         assertThat(unknown.unverifiableDays()).isEqualTo(1);assertThat(unknown.days().getFirst().effectiveDay()).isNull();
+        var measured=PlanningCalculator.calculate(owner,0,period,new Input(List.of(s2),List.of(),List.of(new CardioFact(s.id(),activity,100000,new BigDecimal("0.222222"),new BigDecimal("8"),"CALCULATED")),List.of(),List.of()),proof);
+        assertThat(measured.unverifiableDays()).isZero();assertThat(measured.days().getFirst().effectiveDay()).isEqualTo("1");
+        var slow=PlanningCalculator.calculate(owner,0,period,new Input(List.of(s2),List.of(),List.of(new CardioFact(s.id(),activity,100000,new BigDecimal("0.194444"),new BigDecimal("7"),"CALCULATED")),List.of(),List.of()),proof);
+        assertThat(slow.unverifiableDays()).isZero();assertThat(slow.days().getFirst().effectiveDay()).isEqualTo("0");
         var shortRun=PlanningCalculator.calculate(owner,0,period,new Input(List.of(s2),List.of(),List.of(new CardioFact(s.id(),activity,50000,null)),List.of(),List.of()),proof);
         assertThat(shortRun.unverifiableDays()).isZero();assertThat(shortRun.days().getFirst().effectiveDay()).isEqualTo("0");
     }

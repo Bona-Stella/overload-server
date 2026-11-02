@@ -12,7 +12,9 @@ final class StatisticsCalculator {
     record Session(UUID id, LocalDate date, InitialPlan initial, WorkoutSnapshotData.Plan applied) { }
     record SetFact(UUID id, UUID sessionId, UUID exerciseId, UUID standardId, String name,
                    BigDecimal weight, int reps, String loadType) { }
-    record CardioFact(UUID sessionId, UUID activityId, long activeMs, BigDecimal distance) { }
+    record CardioFact(UUID sessionId, UUID activityId, long activeMs, BigDecimal distance,BigDecimal actualSpeedKmh,String distanceSource) {
+        CardioFact(UUID sessionId,UUID activityId,long activeMs,BigDecimal distance){this(sessionId,activityId,activeMs,distance,null,null);}
+    }
     record Mapping(UUID standardId, UUID muscleId, String name, String group, String role) { }
     record Input(List<Session> sessions, List<SetFact> sets, List<CardioFact> cardio, List<Mapping> mappings, List<Recent> recent) { }
     record PlannedWeight(LocalDate date, UUID standardId, String name, int sets) { }
@@ -64,10 +66,7 @@ final class StatisticsCalculator {
         for (var fact : input.cardio()) {
             var session = sessions.get(fact.sessionId());
             if (session == null) throw new IllegalStateException("Cardio outside selected sessions");
-            var plan = session.applied().cardioActivities().stream().filter(p -> p.sessionActivityId().equals(fact.activityId()))
-                    .map(p -> new CardioKey(p.plan().get("kind").asString(), p.plan().get("name").asString())).findFirst()
-                    .orElseGet(() -> session.initial().cardioActivities().stream().filter(p -> p.sessionActivityId().equals(fact.activityId()))
-                            .map(p -> new CardioKey(p.plan().kind(), p.plan().name())).findFirst().orElse(new CardioKey("UNCLASSIFIED", "미분류 유산소")));
+            var plan = cardioKey(session,fact);
             var count = cardio.computeIfAbsent(plan, ignored -> new CardioCount());
             count.ms = Math.addExact(count.ms, fact.activeMs());
             cardioMs = Math.addExact(cardioMs, fact.activeMs());
@@ -86,6 +85,27 @@ final class StatisticsCalculator {
                         .map(e -> new Cardio(e.getKey().kind(), e.getKey().name(), Long.toString(e.getValue().ms),
                                 e.getValue().distances == 0 ? null : decimal(e.getValue().distance), Long.toString(e.getValue().missing))).toList(),
                 input.recent());
+    }
+    private static CardioKey cardioKey(Session session,CardioFact fact){
+        return session.applied().cardioActivities().stream().filter(p->p.sessionActivityId().equals(fact.activityId()))
+                .map(p->new CardioKey(p.plan().get("kind").asString(),p.plan().get("name").asString())).findFirst()
+                .orElseGet(()->session.initial().cardioActivities().stream().filter(p->p.sessionActivityId().equals(fact.activityId()))
+                    .map(p->new CardioKey(p.plan().kind(),p.plan().name())).findFirst().orElse(new CardioKey("UNCLASSIFIED","미분류 유산소")));
+    }
+    static List<StatisticsOverview.CardioTotal> cardioByKind(Input input){
+        var sessions=new HashMap<UUID,Session>();input.sessions().forEach(s->sessions.put(s.id(),s));
+        class Totals {long ms,missing;final BigDecimal[] amounts={BigDecimal.ZERO,BigDecimal.ZERO,BigDecimal.ZERO};final long[] counts=new long[3];}
+        var groups=new TreeMap<String,Totals>();
+        for(var fact:input.cardio()){
+            var group=groups.computeIfAbsent(cardioKey(sessions.get(fact.sessionId()),fact).kind(),ignored->new Totals());group.ms=Math.addExact(group.ms,fact.activeMs());
+            if(fact.distance()==null){group.missing++;continue;}
+            int source="MANUAL".equals(fact.distanceSource())?0:"CALCULATED".equals(fact.distanceSource())?1:2;
+            group.amounts[source]=group.amounts[source].add(fact.distance());group.counts[source]++;
+        }
+        return groups.entrySet().stream().map(entry->{var t=entry.getValue();long count=t.counts[0]+t.counts[1]+t.counts[2];
+            return new StatisticsOverview.CardioTotal(entry.getKey(),Long.toString(t.ms),count==0?null:decimal(t.amounts[0].add(t.amounts[1]).add(t.amounts[2])),
+                t.counts[0]==0?null:decimal(t.amounts[0]),t.counts[1]==0?null:decimal(t.amounts[1]),t.counts[2]==0?null:decimal(t.amounts[2]),
+                Long.toString(t.counts[0]),Long.toString(t.counts[1]),Long.toString(t.counts[2]),Long.toString(t.missing));}).toList();
     }
 
     private static void contribute(List<Mapping> links, Map<MuscleKey, Count> muscles, Map<GroupKey, Count> groups, int planned, SetFact set) {

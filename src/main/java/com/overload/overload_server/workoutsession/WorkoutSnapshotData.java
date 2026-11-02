@@ -1,6 +1,7 @@
 package com.overload.overload_server.workoutsession;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import java.math.BigDecimal;
@@ -30,7 +31,10 @@ public final class WorkoutSnapshotData {
     public record SetValue(UUID id, UUID sessionExerciseId, int ordinal, String weightKg, int reps, Instant completedAt, Context weightContext, UUID manufacturerId, String loadType) {
     }
 
-    public record CardioValue(Long timerMs, Long activeMs, Boolean corrected, String distanceKm, Integer averageBpm) {
+    public record CardioMeasurement(String actualSpeedKmh,String distanceSource) { }
+    public record CardioValue(Long timerMs, Long activeMs, Boolean corrected, String distanceKm, Integer averageBpm,
+            @JsonInclude(JsonInclude.Include.NON_NULL) CardioMeasurement measurement) {
+        public CardioValue(Long timerMs,Long activeMs,Boolean corrected,String distanceKm,Integer averageBpm){this(timerMs,activeMs,corrected,distanceKm,averageBpm,null);}
     }
 
     public record Cardio(UUID id, UUID sessionActivityId, String status, Instant startedAt, Instant occurredAt, CardioValue result) {

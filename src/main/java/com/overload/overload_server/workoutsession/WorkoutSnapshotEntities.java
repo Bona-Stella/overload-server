@@ -125,6 +125,7 @@ class CardioResult {
     Boolean corrected;
     @Column(precision = 20, scale = 6) BigDecimal distance;
     @Column(name = "average_bpm") Integer bpm;
+    @JdbcTypeCode(SqlTypes.JSON) @Column(columnDefinition="jsonb") String measurement;
     @Column(name = "deleted_at") Instant deletedAt;
     protected CardioResult() {
     }
@@ -144,10 +145,12 @@ class CardioResult {
         corrected = result==null?null:result.corrected();
         distance = result==null||result.distanceKm()==null?null:new BigDecimal(result.distanceKm());
         bpm = result==null?null:result.averageBpm();
+        measurement=result==null||result.measurement()==null?null:WorkoutSnapshotData.JSON.writeValueAsString(result.measurement());
     }
     WorkoutSnapshotData.Cardio value() {
         return new WorkoutSnapshotData.Cardio(id, activityId, status, startedAt, occurredAt,
-            status.equals("SKIPPED")?null:new WorkoutSnapshotData.CardioValue(timerMs, activeMs, corrected, WorkoutSnapshotData.decimal(distance), bpm));
+            status.equals("SKIPPED")?null:new WorkoutSnapshotData.CardioValue(timerMs, activeMs, corrected, WorkoutSnapshotData.decimal(distance), bpm,
+                measurement==null?null:WorkoutSnapshotData.JSON.readValue(measurement,WorkoutSnapshotData.CardioMeasurement.class)));
     }
 }
 @Entity @Table(name = "record_change_events") @org.hibernate.annotations.Immutable

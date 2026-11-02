@@ -20,6 +20,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.*;
 import java.net.http.*;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
@@ -1292,6 +1293,45 @@ class WorkoutSessionIntegrationTests {
         error(recover(List.of(equipmentSet(fact,unknown,"STACK")),List.of()),422,"INVALID_SNAPSHOT");assertThat(row()).isEqualTo(frozen);assertThat(count("record_change_events")).isZero();
     }
 
+    @Test void actualCardioCalculationUsesPausedActivityTimeAndStaysOnTheSessionStartDateAcrossMidnight() throws Exception {
+        var body=startBody();body.put("startedAt","2026-10-31T14:50:00Z");body.put("workoutDate","2026-10-31");
+        var base=JSON.treeToValue(node(start(body)).get("snapshot").get("state"),State.class);UUID activity=base.appliedPlan().cardioActivities().getFirst().sessionActivityId();
+        var cardio=new Cardio(UUID.randomUUID(),activity,"COMPLETED",Instant.parse("2026-10-31T14:55:00Z"),Instant.parse("2026-10-31T15:35:00Z"),new CardioValue(1800000L,1800000L,false,null,null,new CardioMeasurement("8",null)));
+        var value=state(base,List.of(),List.of(cardio),List.of(),List.of(),List.of());var finish=finishBody(1,value);finish.put("endedAt","2026-10-31T15:40:00Z");String frozen=json(finish);
+        node(browser.send("POST",path()+"/finish",frozen,csrf));var before=row();
+        assertThat(node(browser.send("POST",path()+"/finish",frozen,csrf)).get("duplicate").asBoolean()).isTrue();assertThat(row()).isEqualTo(before);
+        var actual=node(browser.get(path())).get("snapshot").get("state").get("cardioResults").get(0).get("result");
+        assertThat(actual.get("distanceKm").asString()).isEqualTo("4");assertThat(actual.get("measurement").get("actualSpeedKmh").asString()).isEqualTo("8");assertThat(actual.get("measurement").get("distanceSource").asString()).isEqualTo("CALCULATED");
+        var stats=node(browser.get("/api/v1/statistics/overview?fromDate=2026-10-31&toDateExclusive=2026-11-02"));
+        assertThat(stats.get("statistics").get("days").get(0).get("cardioActiveMs").asString()).isEqualTo("1800000");assertThat(stats.get("statistics").get("days").get(1).get("cardioActiveMs").asString()).isEqualTo("0");
+        assertThat(stats.get("cardioByKind").get(0).get("calculatedDistanceKm").asString()).isEqualTo("4");assertThat(eventCount()).isZero();
+    }
+    @Test void cardioManualCorrectionsKeepProvenanceAndNeverRewriteTheInitialPlanOrSealedEvaluation() throws Exception {
+        var base=initialState();UUID activity=base.appliedPlan().cardioActivities().getFirst().sessionActivityId(),id=UUID.randomUUID();
+        var actual=new Cardio(id,activity,"COMPLETED",Instant.parse("2026-10-31T16:01:00Z"),Instant.parse("2026-10-31T16:31:00Z"),new CardioValue(1800000L,1800000L,false,"3.8",null,new CardioMeasurement("8","MANUAL")));
+        var finish=finishBody(1,state(base,List.of(),List.of(actual),List.of(),List.of(),List.of()));finish.put("endedAt","2026-10-31T16:40:00Z");node(sendFinish(finish));
+        var sealed=jdbc.queryForMap("SELECT initial_plan_snapshot::text,applied_plan_snapshot::text,completion_assessment_snapshot::text,last_snapshot_hash,last_workout_synced_at FROM workout_sessions WHERE id=?",session);
+        node(patchRecords(List.of(),List.of(new WorkoutRecordData.CardioCorrection(id,3600000L,true,"3.8",120)),List.of(),List.of()));
+        var stored=jdbc.queryForMap("SELECT distance,measurement::text FROM cardio_results WHERE id=?",id);assertThat(stored.get("distance").toString()).isEqualTo("3.800000");assertThat(stored.get("measurement").toString()).contains("MANUAL","8");
+        node(patchRecords(List.of(),List.of(new WorkoutRecordData.CardioCorrection(id,3600000L,true,"3.5",120,new CardioMeasurement("10","MANUAL"))),List.of(),List.of()));
+        assertThat(jdbc.queryForObject("SELECT distance FROM cardio_results WHERE id=?",java.math.BigDecimal.class,id)).isEqualByComparingTo("3.5");
+        node(patchRecords(List.of(),List.of(new WorkoutRecordData.CardioCorrection(id,3600000L,true,null,120,new CardioMeasurement("10",null))),List.of(),List.of()));
+        assertThat(jdbc.queryForObject("SELECT distance FROM cardio_results WHERE id=?",java.math.BigDecimal.class,id)).isEqualByComparingTo("10");
+        var calculated=jdbc.queryForMap("SELECT * FROM cardio_results WHERE id=?",id);var beforeFailure=row();
+        error(patchRecords(List.of(),List.of(new WorkoutRecordData.CardioCorrection(id,3600000L,true,"15",120,new CardioMeasurement("10","CALCULATED"))),List.of(),List.of()),400,"INVALID_REQUEST");
+        assertThat(jdbc.queryForMap("SELECT * FROM cardio_results WHERE id=?",id)).isEqualTo(calculated);assertThat(row()).isEqualTo(beforeFailure);
+        assertThat(jdbc.queryForMap("SELECT initial_plan_snapshot::text,applied_plan_snapshot::text,completion_assessment_snapshot::text,last_snapshot_hash,last_workout_synced_at FROM workout_sessions WHERE id=?",session)).isEqualTo(sealed);
+        assertThat(count("record_change_events")).isEqualTo(3);assertThat(eventCount()).isZero();
+    }
+    @Test void legacyCardioRequestsRemainExactAndTargetSpeedNeverBecomesActualSpeed() throws Exception {
+        var base=initialState();UUID activity=base.appliedPlan().cardioActivities().getFirst().sessionActivityId();var target=cardioPlan();target.put("intensity",Map.of("mode","SPEED","value","8"));
+        var applied=new State(base.sessionExercises(),new Plan(2,base.appliedPlan().weightExercises(),List.of(new CardioPlan(activity,JSON.valueToTree(target)))),List.of(),List.of(),List.of(),List.of(),List.of());
+        var actual=new Cardio(UUID.randomUUID(),activity,"COMPLETED",Instant.parse("2026-10-31T16:01:00Z"),Instant.parse("2026-10-31T16:02:00Z"),new CardioValue(60000L,60000L,false,null,null));
+        var value=state(applied,List.of(),List.of(actual),List.of(),List.of(),List.of());String frozen=json(saveBody(1,value));assertThat(frozen).doesNotContain("measurement");
+        node(browser.send("PUT",path()+"/snapshot",frozen,csrf));var before=row();assertThat(node(browser.send("PUT",path()+"/snapshot",frozen,csrf)).get("duplicate").asBoolean()).isTrue();assertThat(row()).isEqualTo(before);
+        var result=node(browser.get(path())).get("snapshot").get("state").get("cardioResults").get(0).get("result");assertThat(result.get("distanceKm").isNull()).isTrue();assertThat(result.has("measurement")).isFalse();
+        node(finish(1,value));var stats=node(browser.get("/api/v1/statistics/overview?fromDate=2026-11-01&toDateExclusive=2026-11-02"));assertThat(stats.get("cardioByKind").get(0).get("distanceKm").isNull()).isTrue();assertThat(stats.get("cardioByKind").get(0).get("recordsWithoutDistance").asString()).isEqualTo("1");
+    }
     void routineEquipment(UUID manufacturer,String load,long version) throws Exception {
         var input=updateRoutine();input.put("expectedVersion",Long.toString(version));input.put("name","session source");
         var weight=equipment(Map.of("mode","EXISTING","id",placement,"setCount",3,"minReps",6,"maxReps",10));

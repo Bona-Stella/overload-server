@@ -9,7 +9,9 @@ public final class WorkoutRecordData {
     private WorkoutRecordData() { }
     public record Scope(long dataGeneration,long expectedVersion) { }
     public record SetCorrection(UUID id,String weightKg,int reps) { }
-    public record CardioCorrection(UUID id,long activeMs,boolean corrected,String distanceKm,Integer averageBpm) { }
+    public record CardioCorrection(UUID id,long activeMs,boolean corrected,String distanceKm,Integer averageBpm,@com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) CardioMeasurement measurement) {
+        public CardioCorrection(UUID id,long activeMs,boolean corrected,String distanceKm,Integer averageBpm){this(id,activeMs,corrected,distanceKm,averageBpm,null);}
+    }
     public record Edit(Scope scope,List<SetCorrection> setCorrections,List<CardioCorrection> cardioCorrections,
             List<UUID> deletedPerformedSetIds,List<UUID> deletedCardioResultIds) { }
     public record Origin(UUID editorDeviceId,String writerEpoch,String localRevision) { }

@@ -1,5 +1,7 @@
 # Statistics API — Phase 2A
 
+2D의 실제 유산소 속도·거리 출처·overview cardioByKind는 [Actual Cardio Measurements](cardio-actual-measurements.md)를 따른다. 기존2A 응답 형태는 유지하며, 아래 ‘실제 속도/계산 거리 후속’ 설명은2A/2B 시점 기록이다.
+
 2C 승인 성장 추적의 실제 조회 계약은 [Approved Weight Growth API](approved-weight-growth.md)를 따른다. 이하2A/2B endpoint는 보존한다.
 
 현행 보완: [2B 주간 일정·계획 이력](weekly-schedule.md)과 아래 overview endpoint를 추가했다. 기존 이 문서의 `/api/v1/statistics`는 2A 계약대로 유지한다. 최신 정책은 [Statistics and Tracking v1.3](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md)이며 v1.1·v1.2 원본은 보존했다.

@@ -10,6 +10,19 @@ import static org.assertj.core.api.Assertions.*;
 import static com.overload.overload_server.statistics.StatisticsCalculator.*;
 
 class StatisticsCalculatorTests {
+    @Test void cardioDistancesAreSeparatedByKindAndProvenanceWhileAllActivityTimeIsAdded(){
+        UUID session=UUID.randomUUID();var ids=java.util.stream.IntStream.range(0,5).mapToObj(i->UUID.randomUUID()).toList();
+        var mapper=tools.jackson.databind.json.JsonMapper.builder().build();var plans=new ArrayList<WorkoutSnapshotData.CardioPlan>();
+        for(int i=0;i<5;i++)plans.add(new WorkoutSnapshotData.CardioPlan(ids.get(i),mapper.valueToTree(new com.overload.overload_server.routine.RoutineResponses.Plan(i<3?"TREADMILL":i==3?"BIKE":"STAIRS","name"+i,600,null,null,null,null))));
+        var source=new Session(session,LocalDate.of(2026,11,1),new InitialPlan(2,UUID.randomUUID(),"r","0",List.of(),List.of()),new WorkoutSnapshotData.Plan(2,List.of(),plans));
+        var input=new Input(List.of(source),List.of(),List.of(new CardioFact(session,ids.get(0),1800000,new BigDecimal("3.8"),new BigDecimal("8"),"MANUAL"),
+            new CardioFact(session,ids.get(1),1800000,new BigDecimal("4"),new BigDecimal("8"),"CALCULATED"),new CardioFact(session,ids.get(2),600000,new BigDecimal("1.25")),
+            new CardioFact(session,ids.get(3),3600000,new BigDecimal("20"),null,"MANUAL"),new CardioFact(session,ids.get(4),600000,null)),List.of(),List.of());
+        var totals=cardioByKind(input);assertThat(totals).hasSize(3);
+        assertThat(totals).filteredOn(t->t.kind().equals("TREADMILL")).singleElement().satisfies(t->{assertThat(t.activeMs()).isEqualTo("4200000");assertThat(t.distanceKm()).isEqualTo("9.05");assertThat(t.manualDistanceKm()).isEqualTo("3.8");assertThat(t.calculatedDistanceKm()).isEqualTo("4");assertThat(t.unknownSourceDistanceKm()).isEqualTo("1.25");});
+        assertThat(totals).filteredOn(t->t.kind().equals("STAIRS")).singleElement().satisfies(t->{assertThat(t.distanceKm()).isNull();assertThat(t.recordsWithoutDistance()).isEqualTo("1");});
+        var stats=StatisticsCalculator.calculate(UUID.randomUUID(),0,new StatisticsQuery(source.date(),source.date().plusDays(1)),input);assertThat(stats.cardioActiveMs()).isEqualTo("8400000");assertThat(stats.cardio()).hasSize(5);
+    }
     final UUID owner=UUID.randomUUID(), session=UUID.randomUUID(), standard=UUID.randomUUID(), item=UUID.randomUUID();
     final LocalDate day=LocalDate.of(2026,11,1);
     final StatisticsQuery query=new StatisticsQuery(day.minusDays(6),day.plusDays(1));

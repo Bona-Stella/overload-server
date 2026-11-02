@@ -80,7 +80,13 @@ final class PlanningCalculator {
             var actual=cardio.get(activity.sessionActivityId());if(actual==null)continue;
             var goal=activity.plan();if(actual.activeMs()<goal.targetSeconds()*1000L)continue;
             if(goal.targetDistanceKm()!=null&&actual.distance()!=null&&actual.distance().compareTo(new BigDecimal(goal.targetDistanceKm()))<0)continue;
-            if(goal.targetDistanceKm()!=null&&actual.distance()==null||goal.intensity()!=null||goal.inclinePercent()!=null||goal.resistance()!=null)unknown++;
+            boolean intensityUnknown=false;
+            if(goal.intensity()!=null){
+                if(actual.actualSpeedKmh()==null)intensityUnknown=true;
+                else if(goal.intensity().mode().equals("SPEED")?actual.actualSpeedKmh().compareTo(new BigDecimal(goal.intensity().value()))<0:
+                        actual.actualSpeedKmh().multiply(new BigDecimal(goal.intensity().value())).compareTo(BigDecimal.valueOf(60))<0)continue;
+            }
+            if(goal.targetDistanceKm()!=null&&actual.distance()==null||intensityUnknown||goal.inclinePercent()!=null||goal.resistance()!=null)unknown++;
             else done++;
         }
         return new Candidate(session.id(),done,unknown,session.initial().weightExercises().size()+session.initial().cardioActivities().size());

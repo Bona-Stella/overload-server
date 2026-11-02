@@ -1,5 +1,7 @@
 # Overload Backend Engineering Rules
 
+유산소 실제 측정의 현행 확장은 [2D DB/API 계약](../api/cardio-actual-measurements.md)을 따른다. V21은 nullable measurement 한 컬럼이며 과거 출처/속도 백필과 기존 JSON/hash 변경은 없다. 개인 DB V18~V21은 적용하지 않았으며 새 코드로 실제 DB 대상 앱을 실행하지 않는다.
+
 > Backend Development Guidelines for AI Coding Agents
 >
 > Repository: `overload-server`
