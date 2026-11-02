@@ -70,7 +70,7 @@ class V10MigrationIntegrationTests {
         return new SpringApplicationBuilder(OverloadServerApplication.class).web(WebApplicationType.NONE)
                 .run("--spring.profiles.active=integration", "--spring.datasource.url=" + postgres.getJdbcUrl(),
                         "--spring.datasource.username=" + postgres.getUsername(), "--spring.datasource.password=" + postgres.getPassword(),
-                        "--spring.flyway.target=17",
+                        "--spring.flyway.target=18",
                         "--GOOGLE_OIDC_ENABLED=false", "--OTP_EMAIL_ENABLED=false", "--logging.level.root=WARN", "--spring.main.banner-mode=off");
     }
 

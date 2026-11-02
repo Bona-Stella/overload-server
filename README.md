@@ -362,6 +362,8 @@ V11은 루틴 관련 네 테이블만 추가합니다. 개인 로컬 V11 적용�
 세션 [START·조회·takeover·snapshot·승인 해결·FINISH·자동 종료 및 종료 후 정정·복구](docs/api/workout-sessions.md)는 V12~V15를 사용합니다. InitialPlan은 불변 JSONB 하나에 보존하고 ACTIVE는 세대와 무관하게 사용자당 하나입니다. 수행은 관계형 저장하며 승인 충돌이 유효 수행 저장을 막지 않습니다. 명시 종료는 최초 평가·AppliedPlan을 봉인하고 AUTO_CLOSED는 마지막 서버 기록만 보존합니다. 종료 후 정정·명시 복구·논리 삭제와 현재 평가는 봉인 사실과 분리하며, 확인 불가 복구 승인 주장은 UNVERIFIED로 보존합니다.
 **V12~V15 격리 검증 후, 2026-11-01 개인 개발 DB의 승인된 V15 신규 구성도 완료했습니다.** [재구성 보고서](docs/tasks/task-009-dev-v15-rebuild-report.md)를 따릅니다. 앱 시작 시 대기 migration이 자동 적용되므로 다른 DB·후속 파괴적 작업에는 별도 승인이 필요합니다.
 현재는 V17 표준 UUID·장비 계약과 Frontend/IndexedDB3·설치형 PWA를 연결했고 [실제 개발 환경 검증](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)도 완료했습니다. 조회·takeover·중복·무변경 snapshot·승인 해결은 운동 동기화 시각을 연장하지 않습니다. 기존 인증·휴식 기본값은 유지하며 개인 운동 가입 seed는 중단했습니다.
+
+통계·추적/디로딩은 [0·1단계 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)부터 확인하세요. V18은 미분류 null을 보존하는 표준 운동 `joint_type`을 추가하며 기존 검색 API는 유지합니다. 개인 DB에는 이번 작업에서 적용하지 않았습니다. 통계 대시보드·디로딩 제품 기능과 정확한 운영 카탈로그 분류는 아직 미완료입니다. 새 코드로 local Backend를 시작하면 대기 중인 V18이 자동 적용되므로 개인 DB 적용과 격리 검증을 구분하세요.
 V1~V9 Flyway 이력은 변경하지 않았습니다. 정식 V10은 폐기 stamp·receipt/feed 구조만 제거하며 기존 데이터·version/deleted_at을 보존합니다.
 V10 전체 회귀·실제 V8 백업의 격리 복원/업그레이드·승인된 개인 로컬 DB V8→V9→V10 적용 결과는 [V10 최종 보고서](docs/tasks/task-009-v10-local-application-report.md)를 참고하세요.
 삭제 목록·DB 의존성과 검증 결과는 [1차 구조 정리 보고서](docs/tasks/task-009-phase-1-cleanup-report.md)를 참고하세요.

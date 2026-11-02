@@ -518,7 +518,7 @@ class EmailOtpIntegrationTests {
 
 	@Test
 	void schemaHasDurableConstraintsAndIndexesAndMigrationIsNotRepeated() {
-		assertThat(application.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("17");
+		assertThat(application.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("18");
 		assertThat(application.getBean(Flyway.class).migrate().migrationsExecuted).isZero();
 		assertThat(jdbc.queryForList("SELECT indexname FROM pg_indexes WHERE tablename = 'email_otp_challenges'", String.class))
 				.contains("email_otp_challenges_pkey", "email_otp_challenges_expiry_index");

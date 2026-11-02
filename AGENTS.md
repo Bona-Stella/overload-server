@@ -101,6 +101,8 @@ Required:
 
 ### Task 009 Current Design
 
+통계·추적 및 디로딩 작업은 [통계 v1.1](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.1.md), [디로딩 v1.2](docs/product/Overload_Deloading_Design_Specification_v1.2.md)과 [0·1단계 조사·정비 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)를 함께 확인합니다. 최신 통계는 PRIMARY/SECONDARY를 분리하며 보조근 0.5 환산을 사용하지 않습니다. V18은 nullable joint_type 구조이며 NULL은 미분류, OTHER는 명시적 해당 없음입니다. 개인 DB V18 적용·정확한 운영 카탈로그 분류·통계/디로딩 기능 구현은 완료로 간주하지 않습니다. 미시작 과거 예정일의 계획을 임의 추정하지 않습니다. CHECK-08은 2026-11-02 사용자 결정으로 확정했습니다. Legs 없는 3일 균등형은 원본 유산소 주 1일이면 첫 운동일, 주 2일 이상이면 앞의 두 운동일에 하루 1종목씩 배치하며 구현은 후속입니다.
+
 표준 운동 연결은 [최종 카탈로그 설계](docs/tasks/standard-exercise-catalog-design-analysis.md)와
 [Backend 2단계 보고서](docs/tasks/standard-exercise-catalog-backend-phase-2-report.md)를 따릅니다.
 V17부터 신규 루틴·세션은 standardExerciseId 단일 계약과 계획/평가 schemaVersion=2를 사용합니다.

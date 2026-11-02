@@ -55,7 +55,7 @@ class CatalogIntegrationTests {
         MixedPersistenceAssertions.verify(app);
         assertThat(app.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         app.getBean(Flyway.class).validate();
-        assertThat(app.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("17");
+        assertThat(app.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("18");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM standard_exercise", Integer.class)).isZero();
     }
 
@@ -109,6 +109,20 @@ class CatalogIntegrationTests {
         assertThat(items.get(0).get("name").asString()).isEqualTo("파나타");
         assertThat(browser.get(MANUFACTURERS).body()).isEqualTo(response.body());
         assertThat(success(browser.get(SEARCH)).get("exercises").isEmpty()).isTrue();
+    }
+
+    @Test void reviewedJointTypesRoundTripWithoutChangingSearchContractOrGuessingUnknownValues() throws Exception {
+        var repository = app.getBean(StandardExerciseRepository.class);
+        for (var type : StandardExercise.JointType.values()) {
+            UUID key = id(type.ordinal() + 1);
+            repository.saveAndFlush(StandardExercise.create(key, type.name(), type, true, NOW));
+            assertThat(repository.findById(key)).get().extracting(StandardExercise::getJointType).isEqualTo(type);
+        }
+        repository.saveAndFlush(StandardExercise.create(id(4), "unreviewed", true, NOW));
+        assertThat(repository.findById(id(4))).get().extracting(StandardExercise::getJointType).isNull();
+        var values = success(browser.get(SEARCH)).get("exercises");
+        assertThat(values.size()).isEqualTo(4);
+        for (var value : values) assertThat(value.size()).isEqualTo(3);
     }
 
     @Test void allFiveJpaMappingsRoundTripCompositeKeysAndMultiplePrimaryMuscles() {

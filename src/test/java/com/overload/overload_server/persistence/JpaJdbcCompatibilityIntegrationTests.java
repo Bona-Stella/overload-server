@@ -164,7 +164,7 @@ class JpaJdbcCompatibilityIntegrationTests {
 		jdbc = app.getBean(JdbcTemplate.class);
 		factory = app.getBean(EntityManagerFactory.class);
 		assertThat(rows()).isEqualTo(before);
-		assertThat(jdbc.queryForList("SELECT version,checksum,success FROM flyway_schema_history ORDER BY installed_rank")).isEqualTo(history).hasSize(17);
+		assertThat(jdbc.queryForList("SELECT version,checksum,success FROM flyway_schema_history ORDER BY installed_rank")).isEqualTo(history).hasSize(18);
 	}
 
 	@Test

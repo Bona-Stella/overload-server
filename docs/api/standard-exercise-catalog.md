@@ -1,5 +1,7 @@
 # 표준 운동 카탈로그 조회 API — Backend 1단계
 
+2026-11-02 통계·디로딩 착수 보완: V18은 `standard_exercise.joint_type`만 추가한다. Java `jointType`은 COMPOUND/ISOLATION/OTHER이며 null은 검토 전 미분류다. OTHER로 자동 보완하지 않는다. search-data schemaVersion=1 및 id/name/aliases 응답은 그대로다. 기존 writer의 컬럼 생략 INSERT도 허용한다. V18 격리 검증과 개인 DB 적용은 별개이며 개인 DB는 이번 작업에서 V17을 유지한다. [0·1단계 보고서](../tasks/statistics-deload-phase-0-1-report.md)를 따른다.
+
 상태: V16 카탈로그5표·조회와 V17 루틴/세션 단일 표준 UUID 연결을 구현했다. 가입 개인20개 seed는 중단하고 개인 POST/PATCH는403으로 차단한다. 루틴/세션은 [루틴 계약](routine-management.md)·[세션 계약](workout-sessions.md)을 따른다. 검색 DTO schemaVersion=1은 계획/평가 schemaVersion=2와 별개다. 2026-11-02 개인 개발 DB V17 적용과 Frontend/IndexedDB3 실제 연동을 확인했다. [4단계 보고서](../tasks/standard-exercise-catalog-dev-phase-4-report.md)와 [개발용 등록 SQL](../dev-data/standard-exercise-catalog.sql)을 따른다. 개발 예시는 운영 카탈로그 확정 데이터가 아니다.
 
 ## 인증·HTTP

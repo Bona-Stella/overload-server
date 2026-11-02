@@ -17,7 +17,7 @@ class V17MigrationIntegrationTests {
     JdbcTemplate jdbc;
     Flyway flyway(String target) {
         var config=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword());
-        return (target==null?config:config.target(target)).load();
+        return config.target(target==null?"17":target).load();
     }
     @BeforeEach void v16() {
         assertThat(postgres.getMappedPort(5432)).isNotIn(5432,5433);

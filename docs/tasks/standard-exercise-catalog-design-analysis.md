@@ -2,6 +2,8 @@
 
 개정일: 2026-11-02 (Asia/Seoul). 상태: **확정 제품 요구를 반영한 설계 문서. 구현·적용 전.**
 
+2026-11-02 통계 v1.1·디로딩 v1.2 보완: 아래 과거 전환 설계의 실제 완료 상태는 [4단계 보고서](standard-exercise-catalog-dev-phase-4-report.md)를 따른다. 최신 [통계 제품 정책](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.1.md)의 ST-25~28·35가 과거 SECONDARY=0.5 기여 제안을 대체한다. PRIMARY와 SECONDARY는 별도로 집계하며 대분류에서 같은 세트는 역할별로 중복 제거한다. [디로딩 정책](../product/Overload_Deloading_Design_Specification_v1.2.md) DL-37~39에 따라 V18의 nullable joint_type을 추가했다. 개인 DB에는 아직 적용하지 않았으며 정확한 카탈로그 분류도 미완료다. [현황·구현 보고서](statistics-deload-phase-0-1-report.md)를 따른다.
+
 ## 1. 채택 구조와 적용 전제
 
 **루틴·세션의 웨이트 운동은 standard_exercise UUID 하나를 직접 참조한다.** 사용자별 표준 사본, 개인 정의와 표준의 이중 식별, 구 데이터 매핑은 없다. 제조사·부하 방식은 선택 기록 정보이며 승인 중량·배치 UUID·공식 평가 조건을 바꾸지 않는다. 실제 완료 세트에는 완료 당시 값을 별도로 고정한다.
@@ -101,7 +103,7 @@ UUID는 관리자가 직접 등록하는 고정 값이며 이름·별칭 변경�
 
 대분류는 muscle.group_code로 직접 보유한다. 최소 초기 코드안은 CHEST/BACK/SHOULDERS/ARMS/LEGS/CORE이며 한글 표시는 코드별 대응으로 제공한다. 세부명은 muscle.name이다. 세부 근육은 행만 추가하고 새 대분류가 필요하면 CHECK·표시 대응을 바꾸면 된다. 대분류별 컬럼·계층 엔진·추가 표는 만들지 않는다. 정확한 근육 목록·대분류 배치는 초기 관리 데이터 작성 시 검토한다.
 
-역할별 기여는 PRIMARY=1.0, SECONDARY=0.5, 연결 없음=0으로 계산한다. 중복 기여율 컬럼은 없다. PRIMARY를 운동별 UNIQUE로 만들지 않으므로 복수 주동근을 허용한다. 같은 운동·근육은 PK상 한 역할만 갖는다.
+PRIMARY 세트와 SECONDARY 참여 세트는 분리한다(ST-25~28). 보조근을 0.5세트로 환산하지 않는다. 기여율 컬럼은 없다. PRIMARY를 운동별 UNIQUE로 만들지 않으므로 복수 주동근을 허용한다. 같은 운동·근육은 PK상 한 역할만 갖는다.
 
 별칭 정규화는 NFKC→앞뒤 공백 제거→연속 Unicode 공백을 단일 공백으로→locale 비의존 소문자화를 제안한다. 관리 SQL에 넣는 normalized_alias와 React 검색 정규화는 같은 예제로 검증한다. 같은 운동의 정규화 별칭 중복은 PK로 차단하고 다른 운동의 같은 별칭은 허용한다. 별칭이 표준명과 같으면 중복 등록할 필요 없다.
 
@@ -249,7 +251,7 @@ snapshot은 전체 최종 상태이므로 한 요청에 과거 장비 세트와 
 
 카탈로그 Entity의 일반 조회는 Spring Data `JpaRepository<Entity,UUID>`를 우선한다. 활성 목록·별칭 목록은 파생 메서드/JPQL @Query를 쓴다. 작은 두 목록을 서비스에서 UUID로 묶으면 N+1 없이 검색 DTO를 만들 수 있다. 별도 범용 카탈로그 인터페이스·캐시 계층·추상 Base는 만들지 않는다.
 
-변경은 workoutTransactionManager의 명확한 서비스 트랜잭션과 JPA 변경 감지를 따른다. 표준명 복사 시 필요한 정렬된 공유 잠금은 기존 START 경계를 유지하고 필요하면 @Lock/@Query로 표현한다. 통계는 GROUP BY·MAX가 필요한 PostgreSQL native @Query를 우선 검토한다. 특수 SQL/잠금 필요가 있는 현행 세션 Repository의 EntityManager/JdbcTemplate는 유지한다. 전 저장소 스타일 리팩터링은 하지 않는다.
+변경은 workoutTransactionManager의 명확한 서비스 트랜잭션과 JPA 변경 감지를 따른다. 표준명 복사 시 필요한 정렬된 공유 잠금은 기존 START 경계를 유지하고 필요하면 @Lock/@Query로 표현한다. 통계는 GROUP BY·역할별 DISTINCT가 필요한 PostgreSQL native @Query를 우선 검토한다. 특수 SQL/잠금 필요가 있는 현행 세션 Repository의 EntityManager/JdbcTemplate는 유지한다. 전 저장소 스타일 리팩터링은 하지 않는다.
 
 | 경로 | 후속 변경 |
 | --- | --- |
@@ -300,7 +302,7 @@ RoutineForm의 개인 select/생성 폼과 운동 중 추가 UI가 같은 검색
 
 ## 12. 근육별 주간 통계 SQL
 
-범위는 서버가 확인한 본인·현재 세대와 `workout_date >= fromDate AND workout_date < toDateExclusive`다. 주간 화면은 선택한 주의 시작일부터7일의 종료일 배타 구간을 전달한다. 특정 요일을 전역 주 시작 정책으로 새로 고정할 필요는 없다. workout_date는 시작 당시 현지 운동일이며 저장/종료/재송신 시각으로 바꾸지 않는다.
+범위는 서버가 확인한 본인·현재 세대와 `workout_date >= fromDate AND workout_date < toDateExclusive`다. ST-05·43에 따라 주간 화면은 월요일~일요일 구간을 사용한다. workout_date는 시작 당시 현지 운동일이며 저장/종료/재송신 시각으로 바꾸지 않는다.
 
 FINISHED·AUTO_CLOSED의 실제 미삭제 웨이트 완료 세트만 포함한다. TODAY_ONLY·UNVERIFIED·PENDING·혼합 중량도 승인과 별개인 완료 사실이면 포함한다. ACTIVE·미완료·예정 세트·유산소·삭제 세트/세션은 제외한다. 정정/복구 후 현재 performed_sets를 읽으며 record_change_events를 합산하지 않는다.
 
@@ -327,33 +329,29 @@ WITH completed AS (
       AND ps.deleted_at IS NULL
       AND ps.kind = 'WEIGHT'
 ), contribution AS (
-    SELECT c.set_id, m.id AS muscle_id, m.name, m.group_code,
-           CASE em.role WHEN 'PRIMARY' THEN 1.0::numeric
-                        WHEN 'SECONDARY' THEN 0.5::numeric
-                        ELSE 0::numeric END AS credit
+    SELECT c.set_id, m.id AS muscle_id, m.name, m.group_code, em.role
     FROM completed c
     JOIN exercise_muscle em ON em.standard_exercise_id = c.standard_exercise_id
     JOIN muscle m ON m.id = em.muscle_id AND m.is_active
 ), per_set_group AS (
-    SELECT set_id, group_code, MAX(credit) AS credit
+    SELECT DISTINCT set_id, group_code, role
     FROM contribution
-    GROUP BY set_id, group_code
 )
 SELECT 'ACTUAL' AS metric, NULL::text AS subject_id,
        '실제 완료 세트'::text AS label, NULL::text AS group_code,
-       COUNT(*)::numeric AS sets
+       COUNT(*)::numeric AS sets, NULL::text AS role
 FROM completed
 UNION ALL
-SELECT 'MUSCLE', muscle_id::text, name, group_code, SUM(credit)
+SELECT 'MUSCLE', muscle_id::text, name, group_code, COUNT(*)::numeric, role
 FROM contribution
-GROUP BY muscle_id, name, group_code
+GROUP BY muscle_id, name, group_code, role
 UNION ALL
-SELECT 'GROUP', group_code, group_code, group_code, SUM(credit)
+SELECT 'GROUP', group_code, group_code, group_code, COUNT(*)::numeric, role
 FROM per_set_group
-GROUP BY group_code;
+GROUP BY group_code, role;
 ```
 
-동일 세트가 같은 대분류의 PRIMARY2개에 연결되면 세부는 각각1.0, 대분류는MAX1.0이다. SECONDARY만 여러 개면 대분류0.5, PRIMARY와 섞이면1.0이다. 실제 완료 세트 수는 근육 JOIN 전 COUNT(*)로 별도 표시한다. 예를 들어 벤치프레스3세트가 가슴 PRIMARY이면 중량 승인 여부와 무관하게 가슴 기여3.0이다.
+동일 세트가 같은 대분류의 PRIMARY2개에 연결되면 세부는 각각1세트, 대분류는 DISTINCT로 1세트다. SECONDARY 참여는 역할별 별도 행으로 반환하고 PRIMARY에 합산하지 않는다. 실제 완료 세트 수는 근육 JOIN 전 COUNT(*)로 별도 표시한다. 예를 들어 벤치프레스3세트가 가슴 PRIMARY이면 중량 승인 여부와 무관하게 가슴 주동근 3세트다. 이 SQL은 현재 수행 세트 조회 예시이며 계획 분모·총중량·UI까지 구현한 통계 API가 아니다.
 
 표준 운동의 근육 연결이 아직 없으면 실제 완료 총수에는 남고 근육 기여에는 나타나지 않는다. 이를 실제 수행0건으로 해석하지 말고 미분류 세트 수를 같은 completed에서 NOT EXISTS로 계산해 표시할 수 있다. 근육 연결·역할·분류 변경은 다음 조회에 과거까지 반영되며 실제 수행·최초 평가·공식 중량 평가는 변경하지 않는다. 필요하면 총수/미분류/기여를 같은 read-only REPEATABLE_READ에서 읽는다.
 
@@ -367,7 +365,7 @@ GROUP BY group_code;
 | 2. 스키마·카탈로그 | 후속 migration1개, JpaRepository 기반 조회·직접 관리 SQL 대상 제약. 격리 빈V15→신규 검증 | 검색DTO/제조사 조회를 준비 |
 | 3. 루틴·seed | 정의 FK 교체·설정 변경·개인seed중단·일반 개인쓰기403. 승인 중량/배치 유지 | 검색·장비 선택·개인 생성/수정 제거 |
 | 4. 세션·수행 | START 복사·snapshot/hash·수행 장비·FINISH·정정/복구·평가UUID 교체. 기존 잠금 유지 | 단일문서·DB3 일회전환·완료복사·동기화·PWA 업데이트를 함께 연결 |
-| 5. 참고 통계 | 현재 수행JOIN·세부SUM·대분류MAX·실세트 총수 | 승인 자격과 구분해 표시. 불필요한 제조사조회 UI는 추가하지 않음 |
+| 5. 참고 통계 | 현재 수행JOIN·역할별 세부COUNT·대분류DISTINCT·실세트 총수 | 승인 자격과 구분해 표시. 불필요한 제조사조회 UI는 추가하지 않음 |
 | 6. 통합 전환 | 승인된 실제 개발 대상의 빈상태 확인·필요 테스트데이터 정리·카탈로그 등록·새 버전 기동 | 모든 구창 종료·전용 테스트문서 전환·재인증 후 새 루틴/운동 검증 |
 
 중간 단계에서 표준 루틴만 먼저 사용자에게 열어 START가 실패하게 하지 않는다. Backend/Frontend 단일 계약을 한 릴리스로 전환하며 옛 앱과 새 앱의 동시 쓰기를 지원하기 위한 계층을 만들지 않는다.
@@ -380,11 +378,11 @@ GROUP BY group_code;
 - 진행 중 장비 변경 전후 완료값 보존·원루틴 불변, snapshot 재시도·동일revision 다른 장비 거부·정정/복구 원본 보존.
 - FINISH 원자성·ACK유실·최초평가 봉인, AUTO_CLOSED·takeover·expectedVersion·서버실패 전체롤백 유지.
 - DB3 전환의 blocked/실패·오프라인허용 취소·타앱 저장소 무변경, 전환 후 초안/타이머·두 탭·계정전환·PWA waiting·재연결.
-- FINISHED/AUTO_CLOSED·TODAY_ONLY/UNVERIFIED 포함, 삭제/ACTIVE 제외, 복수PRIMARY·대분류MAX·근육 매핑 수정 후 참고통계만 재계산.
+- FINISHED/AUTO_CLOSED·TODAY_ONLY/UNVERIFIED 포함, 삭제/ACTIVE 제외, 복수PRIMARY·대분류 중복 제거·근육 매핑 수정 후 참고통계만 재계산.
 
 ## 14. 남은 결정과 이번 작업 결과
 
-**아키텍처·부하 허용값·장비와 승인 관계·통계 범위/MAX에 반드시 추가 제품 결정을 받아야 할 미확정 정책은 없다.** 사용자 결정대로 고정했으며 이전 보고서의 장비 평가 분리 제안은 철회했다.
+**아키텍처·부하 허용값·장비와 승인 관계·표준 카탈로그 연결 범위에 반드시 추가 제품 결정을 받아야 할 미확정 정책은 없다.** 사용자 결정대로 고정했으며 이전 보고서의 장비 평가 분리 제안은 철회했다.
 
 초기 표준 운동/별칭·근육/대분류·제조사 UUID와 정확한 매핑은 관리 데이터 준비 사항이다. 등록 전 검토하면 되며 별도 관계·호환 체계를 요구하지 않는다. 실제 전환 시 어떤 테스트 DB/브라우저 origin을 정리할지, 데이터가 정말 비어 있는지는 적용 직전 확인할 실행 조건이다. 이번 작업은 그 삭제를 실행하지 않는다.
 
