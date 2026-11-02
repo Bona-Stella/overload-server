@@ -11,7 +11,9 @@ import static com.overload.overload_server.statistics.StatisticsResponse.*;
 final class StatisticsCalculator {
     record Session(UUID id, LocalDate date, InitialPlan initial, WorkoutSnapshotData.Plan applied) { }
     record SetFact(UUID id, UUID sessionId, UUID exerciseId, UUID standardId, String name,
-                   BigDecimal weight, int reps, String loadType) { }
+                   BigDecimal weight, int reps, String loadType,BigDecimal additionalWeight) {
+        SetFact(UUID id,UUID sessionId,UUID exerciseId,UUID standardId,String name,BigDecimal weight,int reps,String loadType){this(id,sessionId,exerciseId,standardId,name,weight,reps,loadType,null);}
+    }
     record CardioFact(UUID sessionId, UUID activityId, long activeMs, BigDecimal distance,BigDecimal actualSpeedKmh,String distanceSource) {
         CardioFact(UUID sessionId,UUID activityId,long activeMs,BigDecimal distance){this(sessionId,activityId,activeMs,distance,null,null);}
     }
@@ -126,9 +128,10 @@ final class StatisticsCalculator {
         void add(SetFact set) {
             completed++;
             reps = Math.addExact(reps, set.reps());
-            // Existing BODYWEIGHT numbers do not distinguish body mass from explicit extra load.
-            if ("BODYWEIGHT".equals(set.loadType())) withoutVolume++;
-            else volume = volume.add(set.weight().multiply(BigDecimal.valueOf(set.reps())));
+            // Only explicit extra load is evidence for BODYWEIGHT; never infer it from weight.
+            var load="BODYWEIGHT".equals(set.loadType())?set.additionalWeight():set.weight();
+            if (load==null) withoutVolume++;
+            else volume = volume.add(load.multiply(BigDecimal.valueOf(set.reps())));
         }
         Weight value() { return new Weight(Long.toString(planned), Long.toString(completed), Long.toString(reps),
                 completed == withoutVolume ? null : decimal(volume), Long.toString(withoutVolume)); }

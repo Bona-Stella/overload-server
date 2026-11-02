@@ -349,6 +349,7 @@ public class WorkoutSnapshotService {
             if (row!=null) {
                 if (row.deletedAt!=null)throw failure(RECORD_DELETED);
                 var old = row.value();
+                input=input.preserveOmittedLoad(old);
                 if (!old.sessionExerciseId().equals(input.sessionExerciseId())||old.ordinal()!=input.ordinal()
                     ||!old.completedAt().equals(input.completedAt())||!old.weightContext().equals(input.weightContext())
                     ||!Objects.equals(old.manufacturerId(), input.manufacturerId())||!Objects.equals(old.loadType(), input.loadType()))throw failure(IMMUTABLE_RECORD_CONTEXT);

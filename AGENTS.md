@@ -101,6 +101,8 @@ Required:
 
 ### Task 009 Current Design
 
+맨몸 추가 부하2E는 [보고서](docs/tasks/statistics-tracking-phase-2e-report.md)와 [DB/API·오프라인 계약](docs/api/bodyweight-additional-load.md)을 따릅니다. V22의 optional bodyweightLoad에 명시한 추가 중량만 실제 반복과 곱하며 기존 BODYWEIGHT weight·체중은 재해석하지 않습니다. 승인 평가·구JSON/hash·IndexedDB3/schema2·고정 요청을 보존하고 생략/명시적 제거를 구분합니다. 개인 DB V18~V22 미적용·운영 분류 검증 미완료·디로딩3단계 연결 전 상태를 유지합니다.
+
 유산소 실제 측정 2D는 [보고서](docs/tasks/statistics-tracking-phase-2d-report.md)와 [DB/API·오프라인 계약](docs/api/cardio-actual-measurements.md)을 따릅니다. 실제 속도와 활동 시간만으로 거리를 계산하며 직접 입력/정정 거리가 우선입니다. 선택 measurement와 V21은 기존5필드 JSON·고정 요청·미확인 과거 출처를 보존합니다. IndexedDB3/schema2를 변경하지 않고 다른 종류 거리를 하나의 총 km로 합산하지 않습니다. 개인 DB V18~V21 미적용·운영 분류 검증 미완료·디로딩3단계 연결 전 상태를 유지합니다.
 
 승인 중량 성장 2C는 [진행 보고서](docs/tasks/statistics-tracking-phase-2c-report.md)와 [조회 계약](docs/api/approved-weight-growth.md)을 따릅니다. 기존 승인 사건을 routineId+placementId별로 분리하고 과거 수행/승인 이름을 검색하며, 초기/현재 중량으로 과거 점을 생성하지 않습니다. 연결 근거가 없는 점은 선으로 잇지 않습니다. 디로딩 식별/일반 승인 차단의 실제 연결은 후속3단계이며 혼재 검증 완료로 표시하지 않습니다. 개인 DB V18~V20 미적용을 유지합니다.

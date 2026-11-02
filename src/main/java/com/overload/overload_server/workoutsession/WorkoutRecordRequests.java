@@ -15,7 +15,7 @@ final class WorkoutRecordRequests {
         var b=parse(raw);fields(b,"dataGeneration","expectedVersion","setCorrections","cardioCorrections","deletedPerformedSetIds","deletedCardioResultIds");
         var sets=new ArrayList<SetCorrection>();var cardio=new ArrayList<CardioCorrection>();
         for(var p:array(b,"setCorrections")) {
-            fields(p,"id","weightKg","reps");sets.add(new SetCorrection(uuid(p,"id"),decimal(p,"weightKg"),count(p,"reps")));
+            optionalFields(p,"bodyweightLoad","id","weightKg","reps");sets.add(new SetCorrection(uuid(p,"id"),decimal(p,"weightKg"),count(p,"reps"),bodyweightLoad(p)));
         }
         for(var p:array(b,"cardioCorrections")) {
             optionalFields(p,"measurement","id","activeMs","corrected","distanceKm","averageBpm");

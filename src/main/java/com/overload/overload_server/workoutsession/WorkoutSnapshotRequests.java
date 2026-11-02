@@ -72,13 +72,23 @@ final class WorkoutSnapshotRequests {
     }
 
     static SetValue set(JsonNode p,boolean recovery) {
-        fields(p, "id", "sessionExerciseId", "ordinal", "weightKg", "reps", "completedAt", "weightContext", "manufacturerId", "loadType");
+        optionalFields(p,"bodyweightLoad", "id", "sessionExerciseId", "ordinal", "weightKg", "reps", "completedAt", "weightContext", "manufacturerId", "loadType");
         var context = p.get("weightContext");
         fields(context, "kind", "requestId");
         String kind = text(context, "kind");
         UUID request = nullableUuid(context, "requestId");
         if (!(Set.of("INITIAL_APPROVED", "APPROVAL_REQUEST", "TODAY_ONLY").contains(kind)||recovery&&kind.equals("UNVERIFIED"))||(kind.equals("APPROVAL_REQUEST")!=(request!=null))) throw invalid();
-        return new SetValue(uuid(p, "id"), uuid(p, "sessionExerciseId"), count(p, "ordinal"), decimal(p, "weightKg"), count(p, "reps"), time(p, "completedAt"), new Context(kind, request), nullableUuid(p, "manufacturerId"), loadType(p));
+        var extra=bodyweightLoad(p);String load=loadType(p);
+        validateBodyweightLoad(load,extra);
+        return new SetValue(uuid(p, "id"), uuid(p, "sessionExerciseId"), count(p, "ordinal"), decimal(p, "weightKg"), count(p, "reps"), time(p, "completedAt"), new Context(kind, request), nullableUuid(p, "manufacturerId"), load,extra);
+    }
+    static BodyweightLoad bodyweightLoad(JsonNode p) {
+        if(!p.has("bodyweightLoad")||p.get("bodyweightLoad").isNull())return null;
+        var value=p.get("bodyweightLoad");fields(value,"additionalWeightKg");
+        return new BodyweightLoad(value.get("additionalWeightKg").isNull()?null:decimal(value,"additionalWeightKg"));
+    }
+    static void validateBodyweightLoad(String load,BodyweightLoad extra){
+        if(extra!=null&&!"BODYWEIGHT".equals(load))throw invalid();
     }
     static Cardio cardio(JsonNode p) {
         fields(p, "id", "sessionActivityId", "status", "startedAt", "occurredAt", "result");

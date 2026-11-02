@@ -60,12 +60,13 @@ class PostgresMigrationTests {
 					"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_definitions", "exercise_muscle",
 					"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_versions", "workout_sessions");
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();
-			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("21");
+			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("22");
 			assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();
 			assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
 			flyway.validate();
 			history = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
-			assertThat(history).hasSize(21);
+			assertThat(history).hasSize(22);
+            assertThat(history.get(21)).containsEntry("version", "22").containsEntry("script", "V22__add_bodyweight_additional_load.sql").containsEntry("success", true);
             assertThat(history.get(20)).containsEntry("version", "21").containsEntry("script", "V21__add_actual_cardio_measurements.sql").containsEntry("success", true);
 			assertThat(history.get(19)).containsEntry("version", "20").containsEntry("script", "V20__allow_immediate_first_weekly_schedule.sql").containsEntry("success", true);
 			assertThat(history.get(18)).containsEntry("version", "19").containsEntry("script", "V19__add_weekly_schedule_and_routine_plan_history.sql").containsEntry("success", true);
@@ -146,7 +147,7 @@ class PostgresMigrationTests {
 		var checksums = java.util.Arrays.stream(v2.info().applied()).map(info -> info.getChecksum()).toList();
 		try (var context = startApplication(WebApplicationType.NONE)) {
 			var latest = context.getBean(Flyway.class);
-			assertThat(latest.info().current().getVersion().toString()).isEqualTo("21");
+			assertThat(latest.info().current().getVersion().toString()).isEqualTo("22");
 			assertThat(java.util.Arrays.stream(latest.info().applied()).limit(2).map(info -> info.getChecksum()).toList())
 					.isEqualTo(checksums);
 			assertThat(latest.migrate().migrationsExecuted).isZero();

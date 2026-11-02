@@ -36,7 +36,8 @@ public class WorkoutRecordService {
             var sets=index(data.sets(id),s->s.id);var cardio=index(data.cardio(id),c->c.id);
             for(var correction:input.setCorrections()) {
                 var row=present(sets,correction.id());alive(row.deletedAt);
-                var before=row.value();var after=new SetValue(row.id,row.exerciseId,row.ordinal,correction.weightKg(),correction.reps(),row.completedAt,before.weightContext(),row.manufacturerId,row.loadType);
+                WorkoutSnapshotRequests.validateBodyweightLoad(row.loadType,correction.bodyweightLoad());
+                var before=row.value();var after=new SetValue(row.id,row.exerciseId,row.ordinal,correction.weightKg(),correction.reps(),row.completedAt,before.weightContext(),row.manufacturerId,row.loadType,correction.bodyweightLoad()).preserveOmittedLoad(before);
                 if(!before.equals(after)) {
                     audit(session,"SET",row.id,"CORRECTED",before,after,null,events);row.apply(after);
                 }
@@ -85,7 +86,7 @@ public class WorkoutRecordService {
                 if(old!=null) {
                     alive(old.deletedAt);
                     var claim=recoveredClaims.getOrDefault(old.id,old.value().weightContext());
-                    var expected=new SetValue(old.id,old.exerciseId,old.ordinal,decimal(old.weight),old.reps,old.completedAt,claim,old.manufacturerId,old.loadType);
+                    var expected=new SetValue(old.id,old.exerciseId,old.ordinal,decimal(old.weight),old.reps,old.completedAt,claim,old.manufacturerId,old.loadType,old.value().bodyweightLoad());
                     if(!expected.equals(value))throw failure(RECORD_ID_CONFLICT);
                     existing.add(old.id);continue;
                 }

@@ -1,5 +1,7 @@
 # Statistics API — Phase 2A
 
+2E 현행 맨몸 총중량 계산은 [Bodyweight Additional Load](bodyweight-additional-load.md)를 따른다. BODYWEIGHT는 별도 명시된 추가 중량×실제 반복만 사용하며, 과거 weight/체중을 재해석하지 않는다. 무근거는null·세트/반복만 표시한다. 아래 ‘추가 부하 후속’은2A 당시 기록이며 최신 종목/근육/group/주·월 집계에는2E 계약이 우선한다.
+
 2D의 실제 유산소 속도·거리 출처·overview cardioByKind는 [Actual Cardio Measurements](cardio-actual-measurements.md)를 따른다. 기존2A 응답 형태는 유지하며, 아래 ‘실제 속도/계산 거리 후속’ 설명은2A/2B 시점 기록이다.
 
 2C 승인 성장 추적의 실제 조회 계약은 [Approved Weight Growth API](approved-weight-growth.md)를 따른다. 이하2A/2B endpoint는 보존한다.

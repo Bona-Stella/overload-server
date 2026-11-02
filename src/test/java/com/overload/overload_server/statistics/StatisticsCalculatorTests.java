@@ -10,6 +10,22 @@ import static org.assertj.core.api.Assertions.*;
 import static com.overload.overload_server.statistics.StatisticsCalculator.*;
 
 class StatisticsCalculatorTests {
+    @Test void explicitBodyweightExtraUsesOnlyActualRepsAcrossExercisesMusclesGroupsAndPeriods(){
+        var extra=new SetFact(UUID.randomUUID(),session,item,standard,"squat",new BigDecimal("80"),8,"BODYWEIGHT",new BigDecimal("10.000001"));
+        var zero=new SetFact(UUID.randomUUID(),session,item,standard,"squat",new BigDecimal("80"),5,"BODYWEIGHT",BigDecimal.ZERO);
+        var links=List.of(new Mapping(standard,UUID.randomUUID(),"one","LEGS","PRIMARY"),new Mapping(standard,UUID.randomUUID(),"two","LEGS","PRIMARY"),new Mapping(standard,UUID.randomUUID(),"assist","LEGS","SECONDARY"));
+        var input=new Input(List.of(session(4,2)),List.of(set("70",10,"BODYWEIGHT"),set("0",10,"BODYWEIGHT"),extra,zero),List.of(),links,List.of());
+        for(var period:List.of(query,new StatisticsQuery(day.withDayOfMonth(1),day.plusMonths(1).withDayOfMonth(1)))){
+            var result=StatisticsCalculator.calculate(owner,0,period,input);
+            assertThat(result.summary()).isEqualTo(new StatisticsResponse.Weight("4","4","33","80.000008","2"));
+            assertThat(result.exercises()).singleElement().extracting(StatisticsResponse.Exercise::weights).isEqualTo(result.summary());
+            assertThat(result.muscles()).hasSize(3).allSatisfy(m->assertThat(m.weights()).isEqualTo(result.summary()));
+            assertThat(result.groups()).hasSize(2).allSatisfy(g->assertThat(g.weights()).isEqualTo(result.summary()));
+            assertThat(result.days()).filteredOn(d->d.date().equals(day)).singleElement().extracting(StatisticsResponse.Day::weights).isEqualTo(result.summary());
+        }
+        assertThat(calculate(List.of(zero),List.of()).summary().volumeLoadKg()).isEqualTo("0");
+        assertThat(calculate(List.of(extra,set("20",3,"DUMBBELL")),List.of()).summary().volumeLoadKg()).isEqualTo("140.000008");
+    }
     @Test void cardioDistancesAreSeparatedByKindAndProvenanceWhileAllActivityTimeIsAdded(){
         UUID session=UUID.randomUUID();var ids=java.util.stream.IntStream.range(0,5).mapToObj(i->UUID.randomUUID()).toList();
         var mapper=tools.jackson.databind.json.JsonMapper.builder().build();var plans=new ArrayList<WorkoutSnapshotData.CardioPlan>();

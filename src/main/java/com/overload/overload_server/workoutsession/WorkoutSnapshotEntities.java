@@ -81,6 +81,7 @@ class PerformedSet {
     @Column(name = "manufacturer_id", updatable = false) UUID manufacturerId;
     @Column(name = "load_type", updatable = false, columnDefinition = "text") String loadType;
     @Column(precision = 20, scale = 6) BigDecimal weight;
+    @JdbcTypeCode(SqlTypes.JSON) @Column(name="bodyweight_load",columnDefinition="jsonb") String bodyweightLoad;
     int reps;
     @Column(name = "completed_at", updatable = false) Instant completedAt;
     @Column(name = "context_kind", updatable = false, columnDefinition = "text") String contextKind;
@@ -105,10 +106,12 @@ class PerformedSet {
     void apply(WorkoutSnapshotData.SetValue input) {
         weight = new BigDecimal(input.weightKg());
         reps = input.reps();
+        bodyweightLoad=input.bodyweightLoad()==null?null:WorkoutSnapshotData.json(input.bodyweightLoad());
     }
     WorkoutSnapshotData.SetValue value() {
         return new WorkoutSnapshotData.SetValue(id, exerciseId, ordinal, WorkoutSnapshotData.decimal(weight), reps,
-            completedAt, new WorkoutSnapshotData.Context(contextKind, approvalRequestId), manufacturerId, loadType);
+            completedAt, new WorkoutSnapshotData.Context(contextKind, approvalRequestId), manufacturerId, loadType,
+            bodyweightLoad==null?null:WorkoutSnapshotData.JSON.readValue(bodyweightLoad,WorkoutSnapshotData.BodyweightLoad.class));
     }
 }
 @Entity @Table(name = "cardio_results")

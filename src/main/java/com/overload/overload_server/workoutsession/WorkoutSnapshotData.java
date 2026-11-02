@@ -28,7 +28,15 @@ public final class WorkoutSnapshotData {
     public record Context(String kind, UUID requestId) {
     }
 
-    public record SetValue(UUID id, UUID sessionExerciseId, int ordinal, String weightKg, int reps, Instant completedAt, Context weightContext, UUID manufacturerId, String loadType) {
+    public record BodyweightLoad(String additionalWeightKg) { }
+    public record SetValue(UUID id, UUID sessionExerciseId, int ordinal, String weightKg, int reps, Instant completedAt, Context weightContext, UUID manufacturerId, String loadType,
+            @JsonInclude(JsonInclude.Include.NON_NULL) BodyweightLoad bodyweightLoad) {
+        public SetValue(UUID id,UUID sessionExerciseId,int ordinal,String weightKg,int reps,Instant completedAt,Context weightContext,UUID manufacturerId,String loadType){
+            this(id,sessionExerciseId,ordinal,weightKg,reps,completedAt,weightContext,manufacturerId,loadType,null);
+        }
+        SetValue preserveOmittedLoad(SetValue previous) {
+            return bodyweightLoad!=null?this:new SetValue(id,sessionExerciseId,ordinal,weightKg,reps,completedAt,weightContext,manufacturerId,loadType,previous.bodyweightLoad());
+        }
     }
 
     public record CardioMeasurement(String actualSpeedKmh,String distanceSource) { }

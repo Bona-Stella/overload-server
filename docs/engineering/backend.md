@@ -1,5 +1,7 @@
 # Overload Backend Engineering Rules
 
+맨몸 추가 부하2E는 [DB/API 계약](../api/bodyweight-additional-load.md)을 따른다. V22의 nullable 객체만 추가하고 기존 weight를 추가 중량으로 해석/백필하지 않는다. 통계만 명시적 부하×실제 반복을 사용하며 승인 평가를 변경하지 않는다. 생략 필드·구JSON/hash를 보존하고 개인 DB V18~V22는 적용하지 않는다.
+
 유산소 실제 측정의 현행 확장은 [2D DB/API 계약](../api/cardio-actual-measurements.md)을 따른다. V21은 nullable measurement 한 컬럼이며 과거 출처/속도 백필과 기존 JSON/hash 변경은 없다. 개인 DB V18~V21은 적용하지 않았으며 새 코드로 실제 DB 대상 앱을 실행하지 않는다.
 
 > Backend Development Guidelines for AI Coding Agents

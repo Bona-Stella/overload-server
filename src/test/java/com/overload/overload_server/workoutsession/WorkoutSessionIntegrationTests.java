@@ -1332,6 +1332,61 @@ class WorkoutSessionIntegrationTests {
         var result=node(browser.get(path())).get("snapshot").get("state").get("cardioResults").get(0).get("result");assertThat(result.get("distanceKm").isNull()).isTrue();assertThat(result.has("measurement")).isFalse();
         node(finish(1,value));var stats=node(browser.get("/api/v1/statistics/overview?fromDate=2026-11-01&toDateExclusive=2026-11-02"));assertThat(stats.get("cardioByKind").get(0).get("distanceKm").isNull()).isTrue();assertThat(stats.get("cardioByKind").get(0).get("recordsWithoutDistance").asString()).isEqualTo("1");
     }
+    @Test void bodyweightLegacyNumbersStayUnknownAndOldSnapshotReplayKeepsItsHash() throws Exception {
+        routineEquipment(null,"BODYWEIGHT",0);var base=initialState();
+        var legacy=bodyweight(set(base,UUID.randomUUID(),1,"80",8,new Context("TODAY_ONLY",null)),null);
+        var value=state(base,List.of(legacy),List.of(),List.of(),List.of(),List.of());String frozen=json(saveBody(1,value));
+        assertThat(frozen).doesNotContain("bodyweightLoad");node(browser.send("PUT",path()+"/snapshot",frozen,csrf));var before=row();
+        assertThat(node(browser.send("PUT",path()+"/snapshot",frozen,csrf)).get("duplicate").asBoolean()).isTrue();assertThat(row()).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT bodyweight_load IS NULL FROM performed_sets WHERE id=?",Boolean.class,legacy.id())).isTrue();
+        node(finish(1,value));var stats=bodyweightStatistics();assertThat(stats.get("volumeLoadKg").isNull()).isTrue();assertThat(stats.get("completedSets").asString()).isEqualTo("1");assertThat(stats.get("reps").asString()).isEqualTo("8");
+    }
+    @Test void bodyweightAdditionalLoadSurvivesOldClientsAndExplicitClearWithoutChangingApprovalOrClosure() throws Exception {
+        routineEquipment(null,"BODYWEIGHT",0);var base=initialState();
+        var extra=bodyweight(set(base,UUID.randomUUID(),1,"60",8,new Context("INITIAL_APPROVED",null)),new BodyweightLoad("10"));
+        var value=state(base,List.of(extra),List.of(),List.of(),List.of(),List.of());node(save(1,value));
+        // Old clients can still edit reps, but omitting the extension cannot erase explicit evidence.
+        var oldClient=bodyweight(extra,null);node(save(2,state(base,List.of(oldClient),List.of(),List.of(),List.of(),List.of())));
+        assertThat(jdbc.queryForObject("SELECT bodyweight_load->>'additionalWeightKg' FROM performed_sets WHERE id=?",String.class,extra.id())).isEqualTo("10");
+        node(finish(2,state(base,List.of(oldClient),List.of(),List.of(),List.of(),List.of())));var sealed=closureFacts();
+        assertThat(bodyweightStatistics().get("volumeLoadKg").asString()).isEqualTo("80");
+        node(patchRecords(List.of(new WorkoutRecordData.SetCorrection(extra.id(),"60",9)),List.of(),List.of(),List.of()));assertThat(bodyweightStatistics().get("volumeLoadKg").asString()).isEqualTo("90");
+        node(patchRecords(List.of(new WorkoutRecordData.SetCorrection(extra.id(),"60",9,new BodyweightLoad("12.5"))),List.of(),List.of(),List.of()));assertThat(bodyweightStatistics().get("volumeLoadKg").asString()).isEqualTo("112.5");
+        node(patchRecords(List.of(new WorkoutRecordData.SetCorrection(extra.id(),"60",9,new BodyweightLoad(null))),List.of(),List.of(),List.of()));assertThat(bodyweightStatistics().get("volumeLoadKg").isNull()).isTrue();
+        assertThat(node(browser.get(path()+"/record-change-events")).get("events").size()).isEqualTo(3);
+        assertThat(closureFacts()).isEqualTo(sealed);assertThat(eventCount()).isZero();assertThat(routineVersion()).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT approval_state_at_recording FROM performed_sets WHERE id=?",String.class,extra.id())).isEqualTo("INITIAL_APPROVED");
+    }
+    @Test void bodyweightExtraOnlyCorrectionKeepsApprovedWeightAssessmentEligibleAndUnchanged() throws Exception {
+        routineEquipment(null,"BODYWEIGHT",0);var base=initialState();
+        var sets=new ArrayList<SetValue>();for(int n=1;n<=3;n++)sets.add(bodyweight(set(base,UUID.randomUUID(),n,"60",8,new Context("INITIAL_APPROVED",null)),new BodyweightLoad("10")));
+        node(finish(1,state(base,sets,List.of(),List.of(),List.of(),List.of())));var before=currentExercise();assertThat(before.get("eligible").asBoolean()).isTrue();
+        var sealed=closureFacts();node(patchRecords(List.of(new WorkoutRecordData.SetCorrection(sets.getFirst().id(),"60",8,new BodyweightLoad("20"))),List.of(),List.of(),List.of()));
+        assertThat(currentExercise()).isEqualTo(before);assertThat(closureFacts()).isEqualTo(sealed);assertThat(eventCount()).isZero();
+        assertThat(bodyweightStatistics().get("volumeLoadKg").asString()).isEqualTo("320");
+    }
+    @Test void bodyweightMissingRecoveryRetainsExtraAndDeletionNeverResurrectsIt() throws Exception {
+        routineEquipment(null,"BODYWEIGHT",0);var base=initialState();node(finish(1,base));var sealed=closureFacts();
+        var missing=bodyweight(set(base,UUID.randomUUID(),1,"80",8,new Context("TODAY_ONLY",null)),new BodyweightLoad("5"));
+        node(recover(List.of(missing),List.of()));assertThat(bodyweightStatistics().get("volumeLoadKg").asString()).isEqualTo("40");
+        assertThat(node(recover(List.of(missing),List.of())).get("changed").asBoolean()).isFalse();
+        error(recover(List.of(bodyweight(missing,new BodyweightLoad("6"))),List.of()),409,"RECORD_ID_CONFLICT");
+        error(recover(List.of(bodyweight(missing,null)),List.of()),409,"RECORD_ID_CONFLICT");
+        node(patchRecords(List.of(),List.of(),List.of(missing.id()),List.of()));assertThat(bodyweightStatistics().get("volumeLoadKg").isNull()).isTrue();
+        assertThat(bodyweightStatistics().get("completedSets").asString()).isEqualTo("0");error(recover(List.of(missing),List.of()),422,"RECORD_DELETED");
+        assertThat(closureFacts()).isEqualTo(sealed);assertThat(eventCount()).isZero();
+    }
+    @Test void nonBodyweightRecordsRejectExtraWithoutChangingExistingWeightOrApproval() throws Exception {
+        var base=initialState();var original=set(base,UUID.randomUUID(),1,"60",8,new Context("INITIAL_APPROVED",null));
+        var invalid=new SetValue(original.id(),original.sessionExerciseId(),1,"60",8,original.completedAt(),original.weightContext(),null,null,new BodyweightLoad("5"));
+        error(save(1,state(base,List.of(invalid),List.of(),List.of(),List.of(),List.of())),400,"INVALID_REQUEST");
+        node(finish(1,state(base,List.of(original),List.of(),List.of(),List.of(),List.of())));var sealed=closureFacts();
+        error(patchRecords(List.of(new WorkoutRecordData.SetCorrection(original.id(),"60",8,new BodyweightLoad("5"))),List.of(),List.of(),List.of()),400,"INVALID_REQUEST");
+        assertThat(bodyweightStatistics().get("volumeLoadKg").asString()).isEqualTo("480");assertThat(closureFacts()).isEqualTo(sealed);assertThat(eventCount()).isZero();
+    }
+    JsonNode bodyweightStatistics() throws Exception {return node(browser.get("/api/v1/statistics/overview?fromDate=2026-11-01&toDateExclusive=2026-11-02")).get("statistics").get("summary");}
+    static SetValue bodyweight(SetValue v,BodyweightLoad extra){return new SetValue(v.id(),v.sessionExerciseId(),v.ordinal(),v.weightKg(),v.reps(),v.completedAt(),v.weightContext(),null,"BODYWEIGHT",extra);}
+
     void routineEquipment(UUID manufacturer,String load,long version) throws Exception {
         var input=updateRoutine();input.put("expectedVersion",Long.toString(version));input.put("name","session source");
         var weight=equipment(Map.of("mode","EXISTING","id",placement,"setCount",3,"minReps",6,"maxReps",10));
