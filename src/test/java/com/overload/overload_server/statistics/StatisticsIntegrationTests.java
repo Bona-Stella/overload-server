@@ -135,7 +135,10 @@ class StatisticsIntegrationTests {
     }
     String csrf() throws Exception{return JSON.readTree(browser.get("/api/v1/auth/csrf").body()).get("token").asString();}
     JsonNode routine(int setCount) throws Exception {
-        UUID id=UUID.randomUUID(),standard=CatalogFixtures.exercise(jdbc);var weights=new ArrayList<Map<String,Object>>();
+        return routine(setCount,CatalogFixtures.exercise(jdbc));
+    }
+    JsonNode routine(int setCount,UUID standard) throws Exception {
+        UUID id=UUID.randomUUID();var weights=new ArrayList<Map<String,Object>>();
         for(int n=0;n<4;n++){var w=new LinkedHashMap<String,Object>();w.put("id",UUID.randomUUID());w.put("standardExerciseId",standard);w.put("manufacturerId",null);w.put("loadType",null);w.put("setCount",setCount);w.put("minReps",6);w.put("maxReps",10);w.put("initialWeightKg","80");weights.add(w);}
         var body=Map.of("id",id,"dataGeneration","0","name","scheduled routine","weightPlacements",weights,"cardioPlacements",List.of());
         var response=browser.send("POST","/api/v1/routines",JSON.writeValueAsString(body),csrf());assertThat(response.statusCode()).isEqualTo(201);return JSON.readTree(response.body());
@@ -278,6 +281,65 @@ class StatisticsIntegrationTests {
         assertThat(hit).isTrue();assertThat(jdbc.queryForMap("SELECT * FROM routines WHERE id=?",id)).isEqualTo(before);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM routine_plan_history WHERE user_id=?",Integer.class,owner)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Integer.class,owner)).isEqualTo(1);
+    }
+    String growth(){return "/api/v1/statistics/growth/exercises";}
+    JsonNode approve(JsonNode r,int index,String next,String occurred) throws Exception {
+        var weights=new ArrayList<Map<String,Object>>();for(var old:r.get("weightPlacements")){
+            var w=new LinkedHashMap<String,Object>();w.put("mode","EXISTING");w.put("id",old.get("id").asString());w.put("manufacturerId",null);w.put("loadType",null);w.put("setCount",old.get("setCount").asInt());w.put("minReps",6);w.put("maxReps",10);weights.add(w);
+        }
+        var change=Map.of("placementId",r.get("weightPlacements").get(index).get("id").asString(),"nextApprovedWeightKg",next,"occurredAt",occurred);
+        return success(browser.send("PUT","/api/v1/routines/"+r.get("id").asString(),JSON.writeValueAsString(Map.of("dataGeneration","0","expectedVersion",r.get("version").asString(),"name",r.get("name").asString(),"weightPlacements",weights,"cardioPlacements",List.of(),"weightApprovals",List.of(change))),csrf()));
+    }
+    void growthClock(){EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),Instant.parse("2026-11-20T06:00:00Z")));}
+    @Test void growthReusesActualApprovalsSeparatesPlacementsAndPreservesDeletedRoutineHistory() throws Exception {
+        growthClock();var r=routine(1);String standard=r.get("weightPlacements").get(0).get("standardExerciseId").asString(),placement=r.get("weightPlacements").get(0).get("id").asString();
+        r=approve(r,0,"82.5","2026-09-01T06:00:00Z");EmailOtpFixtures.CLOCK.advance(Duration.ofMinutes(1));
+        r=approve(r,0,"85","2026-11-10T06:00:00Z");EmailOtpFixtures.CLOCK.advance(Duration.ofMinutes(1));r=approve(r,1,"100","2026-11-11T06:00:00Z");
+        var before=jdbc.queryForList("SELECT * FROM progress_change_events WHERE user_id=? ORDER BY id",owner);
+        String root=growth()+"/"+standard;var options=success(browser.get(root+"?period=all&timeZone=UTC"));assertThat(options.get("placements").size()).isEqualTo(2);
+        var all=success(browser.get(root+"/placements/"+placement+"?period=all&timeZone=UTC"));assertThat(all.get("points").size()).isEqualTo(2);
+        assertThat(all.get("points").get(0).get("approvedWeightKg").asString()).isEqualTo("85");assertThat(all.get("points").get(0).get("connectFromPrevious").asBoolean()).isTrue();
+        assertThat(all.get("points").get(1).get("approvedWeightKg").asString()).isEqualTo("82.5");assertThat(all.get("points").get(1).get("connectFromPrevious").asBoolean()).isFalse();
+        assertThat(success(browser.get(root+"/placements/"+placement+"?period=1&timeZone=UTC")).get("points").size()).isEqualTo(1);
+        assertThat(browser.send("DELETE","/api/v1/routines/"+r.get("id").asString(),JSON.writeValueAsString(Map.of("dataGeneration","0","expectedVersion",r.get("version").asString())),csrf()).statusCode()).isEqualTo(204);
+        assertThat(success(browser.get(root+"?period=all&timeZone=UTC")).get("placements").get(0).get("deleted").asBoolean()).isTrue();
+        assertThat(success(browser.get(growth()+"?period=all&timeZone=UTC")).get("exercises").size()).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT * FROM progress_change_events WHERE user_id=? ORDER BY id",owner)).isEqualTo(before);
+        try(var other=new Browser()){other.login();assertThat(other.get(root+"?period=all&timeZone=UTC").statusCode()).isEqualTo(404);assertThat(success(other.get(growth()+"?period=all&timeZone=UTC")).get("exercises").isEmpty()).isTrue();}
+    }
+    @Test void growthSearchIncludesHistoricalExtraExercisesPrioritizesRecentPerformanceAndNeverInventsApproval() throws Exception {
+        growthClock();var source=seed(owner,"FINISHED",false,"2026-11-01T14:30:00Z","2026-11-01");
+        var r=routine(1);r=approve(r,0,"90","2026-11-19T06:00:00Z");
+        var result=success(browser.get(growth()+"?period=1&timeZone=Asia/Seoul"));assertThat(result.get("exercises").size()).isEqualTo(2);
+        assertThat(result.get("exercises").get(0).get("name").asString()).isEqualTo("historical standard");
+        var old=result.get("exercises").get(0).get("standardExerciseId").asString();assertThat(success(browser.get(growth()+"/"+old+"?period=all&timeZone=UTC")).get("placements").isEmpty()).isTrue();
+        jdbc.update("UPDATE standard_exercise SET name='renamed current standard' WHERE id=?",UUID.fromString(old));
+        assertThat(success(browser.get(growth()+"?period=all&timeZone=UTC&q=historical")).get("exercises").size()).isEqualTo(1);
+        assertThat(success(browser.get(growth()+"?period=all&timeZone=UTC&q=%25")).get("exercises").isEmpty()).isTrue();
+        jdbc.update("UPDATE workout_sessions SET deleted_at=now() WHERE id=?",source.session());
+        assertThat(success(browser.get(growth()+"?period=all&timeZone=UTC&q=historical")).get("exercises").isEmpty()).isTrue();
+    }
+    @Test void growthNeverJoinsTwoRoutinesSharingOneStandardExercise() throws Exception {
+        growthClock();UUID standard=CatalogFixtures.exercise(jdbc);var a=routine(1,standard);var b=routine(1,standard);
+        a=approve(a,0,"85","2026-11-10T06:00:00Z");EmailOtpFixtures.CLOCK.advance(Duration.ofMinutes(1));b=approve(b,0,"100","2026-11-11T06:00:00Z");
+        var root=growth()+"/"+standard;assertThat(success(browser.get(root+"?period=all&timeZone=UTC")).get("placements").size()).isEqualTo(2);
+        for(var r:List.of(a,b)){var page=success(browser.get(root+"/placements/"+r.get("weightPlacements").get(0).get("id").asString()+"?period=all&timeZone=UTC"));
+            assertThat(page.get("points").size()).isEqualTo(1);assertThat(page.get("points").get(0).get("connectFromPrevious").asBoolean()).isFalse();assertThat(page.get("placement").get("routineId").asString()).isEqualTo(r.get("id").asString());}
+    }
+    @Test void growthPaginationAndAmbiguousApprovalTimesNeverCreateAnUnsupportedContinuousLine() throws Exception {
+        growthClock();var r=routine(1);UUID placement=UUID.fromString(r.get("weightPlacements").get(0).get("id").asString());String standard=r.get("weightPlacements").get(0).get("standardExerciseId").asString();
+        for(int n=0;n<105;n++)jdbc.update("INSERT INTO progress_change_events(id,user_id,data_generation,routine_id,placement_id,routine_name,exercise_name,previous_weight,next_weight,occurred_at,recorded_at,source) VALUES (?,?,0,?,?,'r','lift',?,?,?::timestamptz,?::timestamptz,'ROUTINE_EDITOR')",UUID.randomUUID(),owner,UUID.fromString(r.get("id").asString()),placement,80+n,81+n,Instant.parse("2026-11-01T00:00:00Z").plusSeconds(n).toString(),"2026-11-20T06:00:00Z");
+        String path=growth()+"/"+standard+"/placements/"+placement+"?period=all&timeZone=UTC";var page=success(browser.get(path));assertThat(page.get("points").size()).isEqualTo(100);assertThat(page.get("nextOffset").asInt()).isEqualTo(100);
+        for(var p:page.get("points"))assertThat(p.get("connectFromPrevious").asBoolean()).isFalse();
+        var last=success(browser.get(path+"&offset=100"));assertThat(last.get("points").size()).isEqualTo(5);assertThat(last.get("nextOffset").isNull()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT approved_weight FROM routine_weight_placements WHERE id=?",java.math.BigDecimal.class,placement)).isEqualByComparingTo("80");
+    }
+    @Test void growthContractIsAuthenticatedReadOnlyAndStrict() throws Exception {
+        try(var anonymous=new Browser()){assertThat(anonymous.get(growth()+"?period=all&timeZone=UTC").statusCode()).isEqualTo(401);}
+        for(String query:List.of("period=2&timeZone=UTC","period=all&timeZone=bogus","period=all&period=1&timeZone=UTC","period=all&timeZone=UTC&userId="+owner,"period=all&timeZone=UTC&offset=01"))assertThat(browser.get(growth()+"?"+query).statusCode()).isEqualTo(400);
+        assertThat(browser.send("GET",growth()+"?period=all&timeZone=UTC","{}",null).statusCode()).isEqualTo(400);
+        var seen=new java.util.concurrent.atomic.AtomicInteger();WorkoutReadFixtures.observer=event->{String sql=event.sql().stripLeading().toLowerCase(Locale.ROOT);if(event.before()&&(sql.startsWith("with bounds as")||sql.startsWith("select data_generation from users where id=?"))){assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly()).isTrue();seen.incrementAndGet();}};
+        try{success(browser.get(growth()+"?period=all&timeZone=UTC"));}finally{WorkoutReadFixtures.observer=null;}assertThat(seen.get()).isEqualTo(2);
     }
     static JsonNode success(HttpResponse<String> response) {
         assertThat(response.statusCode()).isEqualTo(200);assertThat(response.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");

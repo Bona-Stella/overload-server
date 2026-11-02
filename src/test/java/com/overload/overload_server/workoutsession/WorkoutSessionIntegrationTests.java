@@ -460,6 +460,11 @@ class WorkoutSessionIntegrationTests {
         // Omitting request inputs is not deletion or reapplication.
         node(save(3, state(base, List.of(set), List.of(), List.of(), List.of(), List.of())));
         assertThat(count("session_weight_approval_requests")).isEqualTo(3); assertThat(eventCount()).isEqualTo(3);
+        var beforeGrowth=row();
+        var growth=node(browser.get("/api/v1/statistics/growth/exercises/"+exercise+"/placements/"+placement+"?period=all&timeZone=UTC"));
+        assertThat(growth.get("points").size()).isEqualTo(3);
+        for(var point:growth.get("points")){assertThat(point.get("source").asString()).isEqualTo("WORKOUT");assertThat(point.get("sessionId").asString()).isEqualTo(session.toString());}
+        assertThat(row()).isEqualTo(beforeGrowth);assertThat(eventCount()).isEqualTo(3);
     }
 
     @Test void roundTripApprovalsStillIncrementParentAndNoOpApprovalDoesNotCreateAnEvent() throws Exception {
