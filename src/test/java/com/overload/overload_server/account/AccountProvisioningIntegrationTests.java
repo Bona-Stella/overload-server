@@ -78,7 +78,9 @@ class AccountProvisioningIntegrationTests {
 				WHERE table_schema = 'public' ORDER BY table_name
 				""", String.class)).containsExactly("auth_identities", "cardio_results", "email_otp_challenges", "email_otp_limits",
 				"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_definitions", "exercise_muscle",
-				"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "workout_sessions");
+				"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_versions", "workout_sessions");
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions",Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM routine_plan_history",Integer.class)).isZero();
 	}
 
 	@Test

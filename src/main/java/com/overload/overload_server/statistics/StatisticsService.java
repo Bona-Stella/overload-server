@@ -8,9 +8,22 @@ import java.util.UUID;
 @Transactional(transactionManager = "workoutTransactionManager", readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class StatisticsService {
     private final StatisticsRepository repository;
-    StatisticsService(StatisticsRepository repository) { this.repository = repository; }
+    private final PlanningRepository planning;
+    StatisticsService(StatisticsRepository repository,PlanningRepository planning) { this.repository = repository; this.planning=planning; }
     StatisticsResponse read(UUID owner, StatisticsQuery period) {
         long generation = repository.generation(owner);
         return StatisticsCalculator.calculate(owner, generation, period, repository.read(owner, generation, period));
+    }
+    StatisticsOverview overview(UUID owner,StatisticsQuery period) {
+        long generation=repository.generation(owner);
+        var facts=repository.read(owner,generation,period);
+        var plan=PlanningCalculator.calculate(owner,generation,period,facts,planning.read(owner,generation,period));
+        var weights=plan.days().stream().filter(d->d.plan()!=null).flatMap(d->d.plan().weightPlacements().stream()
+                .map(w->new StatisticsCalculator.PlannedWeight(d.date(),w.standardExerciseId(),w.exerciseName(),w.setCount()))).toList();
+        boolean known=plan.unknownDays()==0,verifiable=known&&plan.unverifiableDays()==0;
+        boolean week=period.fromDate().getDayOfWeek()==java.time.DayOfWeek.MONDAY&&period.toDateExclusive().equals(period.fromDate().plusDays(7));
+        var statistics=StatisticsCalculator.calculate(owner,generation,period,facts,weights).withPlanning(known?"FULL_SCHEDULE_HISTORY":"PARTIAL_SCHEDULE_HISTORY",
+                known?plan.knownPlannedDays():null,verifiable&&week&&plan.knownPlannedDays()>0?plan.effective().percent(plan.knownPlannedDays()):null);
+        return new StatisticsOverview(statistics,verifiable?plan.effective().decimal():null,plan.unknownDays(),plan.unverifiableDays(),plan.days());
     }
 }

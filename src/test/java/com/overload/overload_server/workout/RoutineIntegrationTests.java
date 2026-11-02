@@ -162,10 +162,12 @@ class RoutineIntegrationTests {
 	@ParameterizedTest @ValueSource(strings = {"PUT", "DELETE"})
 	void concurrentRequestsWaitOnRoutineAndOnlyOneExpectedVersionCanChangeIt(String competingMethod) throws Exception {
 		create(); var barrier = new CyclicBarrier(2); var locked = new CountDownLatch(1); var release = new CountDownLatch(1);
+		// DELETE now serializes the owner first to reserve next week's schedule removal atomically.
+		String lockTable = competingMethod.equals("DELETE") ? "users" : "routines";
 		var firstLocked = new AtomicBoolean();
 		WorkoutReadFixtures.observer = event -> {
 			String sql = event.sql().toLowerCase(Locale.ROOT);
-			if (sql.startsWith("select") && sql.contains("from routines ") && sql.contains("for ")) {
+			if (sql.startsWith("select") && sql.contains("from " + lockTable + " ") && sql.contains("for ")) {
 				try {
 					if (event.before()) barrier.await(10, TimeUnit.SECONDS);
 					else if (firstLocked.compareAndSet(false, true)) { locked.countDown(); if (!release.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("release timeout"); }
@@ -182,7 +184,7 @@ class RoutineIntegrationTests {
 				assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
 				var independent = new JdbcTemplate(new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()));
 				long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5); boolean waiting;
-				do { waiting = independent.queryForObject("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query ILIKE '%from routines %')", Boolean.class); if (!waiting) Thread.sleep(20); }
+				do { waiting = independent.queryForObject("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query ILIKE ?)", Boolean.class, "%from " + lockTable + " %"); if (!waiting) Thread.sleep(20); }
 				while (!waiting && System.nanoTime() < deadline);
 				assertThat(waiting).isTrue();
 			} finally { release.countDown(); }

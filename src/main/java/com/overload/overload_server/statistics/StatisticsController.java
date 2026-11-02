@@ -19,4 +19,10 @@ public class StatisticsController {
         if (request.getContentLengthLong() > 0 || request.getHeader("Transfer-Encoding") != null) throw StatisticsQuery.invalid();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.read(principal.userId(), StatisticsQuery.parse(query)));
     }
+    @GetMapping("/api/v1/statistics/overview")
+    ResponseEntity<StatisticsOverview> overview(@AuthenticationPrincipal SessionPrincipal principal,
+            @RequestParam MultiValueMap<String,String> query,HttpServletRequest request) {
+        if(request.getContentLengthLong()>0||request.getHeader("Transfer-Encoding")!=null)throw StatisticsQuery.invalid();
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.overview(principal.userId(),StatisticsQuery.parse(query)));
+    }
 }

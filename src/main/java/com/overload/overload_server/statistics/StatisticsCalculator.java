@@ -15,11 +15,17 @@ final class StatisticsCalculator {
     record CardioFact(UUID sessionId, UUID activityId, long activeMs, BigDecimal distance) { }
     record Mapping(UUID standardId, UUID muscleId, String name, String group, String role) { }
     record Input(List<Session> sessions, List<SetFact> sets, List<CardioFact> cardio, List<Mapping> mappings, List<Recent> recent) { }
+    record PlannedWeight(LocalDate date, UUID standardId, String name, int sets) { }
     private record MuscleKey(UUID id, String name, String group, String role) { }
     private record GroupKey(String group, String role) { }
     private record CardioKey(String kind, String name) { }
 
     static StatisticsResponse calculate(UUID owner, long generation, StatisticsQuery query, Input input) {
+        var plans=input.sessions().stream().flatMap(s->s.initial().weightExercises().stream()
+                .map(w->new PlannedWeight(s.date(),w.standardExerciseId(),w.exerciseName(),w.setCount()))).toList();
+        return calculate(owner,generation,query,input,plans);
+    }
+    static StatisticsResponse calculate(UUID owner, long generation, StatisticsQuery query, Input input, List<PlannedWeight> plans) {
         var total = new Count();
         var dayWeights = new TreeMap<LocalDate, Count>();
         var dayCardio = new HashMap<LocalDate, Long>();
@@ -33,13 +39,13 @@ final class StatisticsCalculator {
         input.mappings().forEach(m -> mappings.computeIfAbsent(m.standardId(), ignored -> new ArrayList<>()).add(m));
         for (var session : input.sessions()) {
             sessions.put(session.id(), session);
-            for (var weight : session.initial().weightExercises()) {
-                exerciseNames.putIfAbsent(weight.standardExerciseId(), weight.exerciseName());
-                total.planned += weight.setCount();
-                dayWeights.get(session.date()).planned += weight.setCount();
-                exercises.computeIfAbsent(weight.standardExerciseId(), ignored -> new Count()).planned += weight.setCount();
-                contribute(mappings.getOrDefault(weight.standardExerciseId(), List.of()), muscles, groups, weight.setCount(), null);
-            }
+        }
+        for (var weight : plans) {
+            exerciseNames.putIfAbsent(weight.standardId(), weight.name());
+            total.planned += weight.sets();
+            dayWeights.get(weight.date()).planned += weight.sets();
+            exercises.computeIfAbsent(weight.standardId(), ignored -> new Count()).planned += weight.sets();
+            contribute(mappings.getOrDefault(weight.standardId(), List.of()), muscles, groups, weight.sets(), null);
         }
         long unmapped = 0;
         for (var set : input.sets()) {

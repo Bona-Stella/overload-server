@@ -1,5 +1,7 @@
 # Statistics API — Phase 2A
 
+현행 보완: [2B 주간 일정·계획 이력](weekly-schedule.md)과 아래 overview endpoint를 추가했다. 기존 이 문서의 `/api/v1/statistics`는 2A 계약대로 유지한다. 최신 정책은 [Statistics and Tracking v1.3](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md)이며 v1.1·v1.2 원본은 보존했다.
+
 2026-11-02 (Asia/Seoul). **통계·추적 2단계의 첫 구현 단위**다. 기준은 [Statistics and Tracking v1.1](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.1.md)이며 제품 본문은 한국어로 유지했다. 디로딩 정책은 [Deloading v1.2](../product/Overload_Deloading_Design_Specification_v1.2.md)를 따른다.
 
 ## 구현 범위와 데이터 안전
@@ -63,3 +65,31 @@ Weight = { plannedSets, completedSets, reps, volumeLoadKg, setsWithoutVolume }
 ## 아직 구현하지 않은 2단계 요구사항
 
 주간 일정·적용 시점별 계획 이력과 미시작 날짜의 분모(ST-10·15·17~23), 전체 계획 대비 유산소 목표/달성 비교, 승인 중량 성장선·검색(ST-38~42), 실제 유산소 속도·자동 거리/출처·수정 보존(ST-50~51), BODYWEIGHT 명시적 추가 부하(ST-36)가 남아 있다. 디로딩 기간 표시·분모/승인 평가 분리는 3단계 도메인 연결 전이며 완료로 표시하지 않는다. 이번 구현은 통계 기능 전체 완료가 아니다.
+
+위 문단은 2A 당시의 잔여 항목이다. 주간 일정·계획 이력·미시작 예정일 분모와 최초 계획 달성 비교는 후속2B에서 구현했으며 범위/한계는 다음과 같다.
+
+## GET /api/v1/statistics/overview — 2B
+
+날짜 query·인증·no-store·오류 형식은 원래 statistics와 같다. 기존 endpoint의 고정 null·coverage 계약을 깨지 않도록 새 endpoint로 제공한다.
+
+```text
+{ statistics: StatisticsResponse,
+  effectiveWorkoutDays: Decimal|null,
+  unknownPlanDays: integer, unverifiableDays: integer,
+  plannedDays: [{ date, status, scheduleVersion, plan: RoutineDetail|null,
+                  plannedExercises, completedExercises, effectiveDay, selectedSessionId }] }
+```
+
+- 날짜별로 해당 날짜에 유효한 최신 일정 version을 찾는다. 최초 등록은 당일 즉시 적용하며 첫 주 등록 전 날짜만 BEFORE_REGISTRATION으로 제외한다. 그 날짜의 plan/count/effectiveDay는 null이고 unknownPlanDays를 증가시키지 않는다. 휴식 또는 소급 계획을 만들지 않는다. 최초 등록 주보다 앞선 주는 UNKNOWN이며 과거 분모를 추정하지 않는다. 명시적 휴식 일정은 REST다.
+- 예정일에 해당 루틴을 시작한 증거가 있으면 가장 이른 시작의 불변 InitialPlan을 그날 계획 표시/계획 세트 원본으로 사용한다. 삭제/ACTIVE 세션도 시작 계획의 증거는 유지하며 실제 수행 분자에는 기존처럼 미삭제 종료 세션만 사용한다. 시작한 세션이 없으면 당시 계획 이력의 현지 날짜 종료 이전 최신값을 사용한다. 미래/오늘 계획에는 현재 확인된 최신 자료만 반영하며 지난 날짜를 이후 편집으로 바꾸지 않는다.
+- routine_plan_history는 조회 구간의 날짜별 마지막 계획과 구간 직전 기준만, 일정은 적용일별 마지막 version·구간 직전 기준·최초version1을 읽는다. 최초 이력은 같은 SQL의 UNION으로 확보하여 최근20개 편집에 의존하지 않는다. 세션/근육별 N+1 없이 추가 최대3개 고정 query를 사용한다. 적용 계획의 세트에는 **운동하지 않은 예정일**도 포함한다. 근육별 분류·중복 제거는 2A와 같다.
+- 완료 후보는 예정일 날짜·예정 루틴이 모두 일치하는 미삭제 FINISHED/AUTO_CLOSED 세션이다. 각 후보의 **자기 InitialPlan**과 현재 유효 수행을 비교한다. WEIGHT는 해당 sessionExerciseId의 실제 완료 세트 수가 최초 setCount 이상이어야 완료 종목1개다. AppliedPlan 축소나 추가 종목은 분자/분모를 바꾸지 않는다. 반복·승인 중량 성과 평가를 이 달성률 산식에 섞지 않는다.
+- 후보별 완료 계획 종목/최초 계획 종목의 정확한 유리수를 비교하여 **단일 최고값**만 사용한다. 서로 다른 세션의 부분 세트/종목을 합치지 않는다. 예정일에 수행이 없으면 유효 운동일0, 휴식일/다른 루틴/추가 운동은 계획 분자를 채우지 않으며 실제 운동량에는 남는다. 일일 최대1이다. 유리수 합계는 BigInteger로 유지하고 표시할 때만 반올림한다.
+- CARDIO는 최초 시간·거리 목표와 실제 activeMs/distance를 비교한다. 이미 확인된 목표 미달은 미완료다. 실제 속도/경사/저항이나 필요한 거리 값이 없어서 판정할 수 없으면 UNVERIFIABLE로 남긴다. 계획 속도를 실제로 대체하지 않는다. 불확실한 후보의 가능한 최고값이 확실한 최상 후보를 넘지 못하면 그날은 확실한 결과를 사용할 수 있다.
+- plannedDays.status는 UNKNOWN/BEFORE_REGISTRATION/REST/PLANNED/UNVERIFIABLE다. complete count/effectiveDay는 확인 불가일 때 null이며 잘못된0을 만들지 않는다. 표시 계획과 최고 후보의 InitialPlan 버전이 다른 같은 날짜의 경우, plan은 최초 시작 계획, plannedExercises/completedExercises/selectedSessionId는 최고 후보의 최초 계획 기준임을 구분한다.
+- statistics.planCoverage는 FULL_SCHEDULE_HISTORY 또는 PARTIAL_SCHEDULE_HISTORY다. UNKNOWN 날짜가 있으면 plannedWorkoutDays·routineAchievementPercent·effectiveWorkoutDays는 null이다. 최초 등록 주는 등록 전 날짜의 제외 근거가 있으므로 FULL_SCHEDULE_HISTORY이며 등록일~일요일 예정일만 분모에 포함한다. 목요일 월·목·금·토 등록/목·금 완료의 경우 계획일3·유효일2·달성률66.666667%다. 다음 주는 전체4일이다. 모든 날짜의 근거가 있고 계획일이0이면 계획일0/달성률null이다. 숫자가 없는 과거 분모를0이나 현재 루틴으로 채우지 않는다.
+- 모든 날짜의 계획이 알려져도 UNVERIFIABLE 날짜가 있으면 전체 유효일/달성률은 null이다. 확인 가능한 날짜의 상세는 유지한다. 실제 속도 저장은 후속 기능이다.
+- 월요일부터 정확히7일인 조회만 주간 루틴 달성률 `min(100, 유효일 합계 / 계획일 ×100)`를 반환한다. 다른 날짜 범위는 계획일/일별 상태만 제공하고 새로운 월간 달성률 정책을 만들지 않는다. 주간 달성률은 소수6자리, 유효일은 소수12자리까지 표시한다.
+- actual 세트·볼륨·유산소·날짜·최근3건은 2A와 같은 현재 유효 원본을 사용한다. 정정/삭제/명시 누락 복구 이후 매 조회에서 재계산하며 최초 평가·승인 중량·운동 동기화 시각은 변경하지 않는다. 통계는 오프라인 미반영 사실을 추정하지 않는다.
+
+실제 계정 UI는 overview를 사용하고 다음 월요일 일정 예약·현재/예정/페이지별 변경 이력, 주간 계획일·달성률, 날짜별 예정/휴식/확인 불가와 당시 계획/수행 상세 이동을 제공한다. 기존 DB3/schema2·타이머·고정 요청·PWA permit은 유지한다. 성장선·실제 속도/계산 거리 저장·명시적 맨몸 추가 부하·디로딩 연결은 여전히 후속이다.

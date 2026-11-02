@@ -55,7 +55,7 @@ class CatalogIntegrationTests {
         MixedPersistenceAssertions.verify(app);
         assertThat(app.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         app.getBean(Flyway.class).validate();
-        assertThat(app.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("18");
+        assertThat(app.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("20");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM standard_exercise", Integer.class)).isZero();
     }
 

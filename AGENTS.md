@@ -101,9 +101,11 @@ Required:
 
 ### Task 009 Current Design
 
-통계 2A는 [진행 보고서](docs/tasks/statistics-tracking-phase-2a-report.md)와 [읽기 API](docs/api/statistics.md)를 따릅니다. 완료 기록의 실제 집계와 종료 세션 InitialPlan 계획만 구현했으며 주간 전체 계획/달성률은 null입니다. 성장선·실제 속도/계산 거리 저장·디로딩 연결을 완료로 간주하지 않습니다. 개인 DB V18 미적용·운영 분류 검토 미완료를 유지합니다.
+통계 2B는 [진행 보고서](docs/tasks/statistics-tracking-phase-2b-report.md), [주간 일정 계약](docs/api/weekly-schedule.md), [통계 overview](docs/api/statistics.md)를 따릅니다. 최신 제품 정책은 [Statistics and Tracking v1.3](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md)입니다. 일정 최초 등록은 당일부터 즉시 적용하며 첫 주는 등록일~일요일 예정일만 분모에 포함하고, 기존 요일·빈도 변경은 다음 월요일, 동일 예정일은 최고 단일 세션 InitialPlan 달성률을 사용합니다. V19는 이력2표, V20은 최초 version의 평일 적용 제약만 보완하며 과거 일정 백필은 없습니다. 개인 DB V18·V19·V20 미적용·운영 분류 미검증 상태를 유지합니다. 이력 없는 날짜·실제 유산소 목표 증거 부족은 null/확인 불가이며 추정하지 않습니다. 2A endpoint 계약은 그대로 유지합니다.
 
-통계·추적 및 디로딩 작업은 [통계 v1.1](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.1.md), [디로딩 v1.2](docs/product/Overload_Deloading_Design_Specification_v1.2.md)과 [0·1단계 조사·정비 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)를 함께 확인합니다. 최신 통계는 PRIMARY/SECONDARY를 분리하며 보조근 0.5 환산을 사용하지 않습니다. V18은 nullable joint_type 구조이며 NULL은 미분류, OTHER는 명시적 해당 없음입니다. 개인 DB V18 적용·정확한 운영 카탈로그 분류·통계/디로딩 기능 구현은 완료로 간주하지 않습니다. 미시작 과거 예정일의 계획을 임의 추정하지 않습니다. CHECK-08은 2026-11-02 사용자 결정으로 확정했습니다. Legs 없는 3일 균등형은 원본 유산소 주 1일이면 첫 운동일, 주 2일 이상이면 앞의 두 운동일에 하루 1종목씩 배치하며 구현은 후속입니다.
+보존된 통계 2A `/api/v1/statistics` 계약은 [진행 보고서](docs/tasks/statistics-tracking-phase-2a-report.md)와 [읽기 API](docs/api/statistics.md)를 따릅니다. 완료 기록의 실제 집계와 종료 세션 InitialPlan 계획만 구현했으며 주간 전체 계획/달성률은 null입니다. 성장선·실제 속도/계산 거리 저장·디로딩 연결을 완료로 간주하지 않습니다. 개인 DB V18 미적용·운영 분류 검토 미완료를 유지합니다.
+
+통계·추적 및 디로딩 작업은 [통계 v1.3](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md), [디로딩 v1.3](docs/product/Overload_Deloading_Design_Specification_v1.3.md)과 [0·1단계 조사·정비 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)를 함께 확인합니다. 최신 통계는 PRIMARY/SECONDARY를 분리하며 보조근 0.5 환산을 사용하지 않습니다. V18은 nullable joint_type 구조이며 NULL은 미분류, OTHER는 명시적 해당 없음입니다. 개인 DB V18 적용·정확한 운영 카탈로그 분류·통계/디로딩 기능 구현은 완료로 간주하지 않습니다. 미시작 과거 예정일의 계획을 임의 추정하지 않습니다. CHECK-08은 2026-11-02 사용자 결정으로 확정했습니다. Legs 없는 3일 균등형은 원본 유산소 주 1일이면 첫 운동일, 주 2일 이상이면 앞의 두 운동일에 하루 1종목씩 배치하며 구현은 후속입니다.
 
 표준 운동 연결은 [최종 카탈로그 설계](docs/tasks/standard-exercise-catalog-design-analysis.md)와
 [Backend 2단계 보고서](docs/tasks/standard-exercise-catalog-backend-phase-2-report.md)를 따릅니다.

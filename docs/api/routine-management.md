@@ -111,7 +111,7 @@ API에서 먼저 범위·scale을 검증하여 DB NUMERIC의 암묵적 반올림
 - DELETE는 활성 루틴에서 버전을 확인하고 논리 삭제+version1 증가. 본인 현재 세대의 이미 삭제된 루틴은204, 추가 변경 없음. GET/PUT은404다.
 - 버전 overflow는409 WRITE_CONFLICT이며 전체 롤백한다. 자동 재시도·자동 병합은 없다.
 
-단일 workoutTransactionManager/JPA 트랜잭션 안에서 users FOR SHARE → routine FOR UPDATE → 종목 UUID 순 공유 잠금 → 자식 변경·사건·부모 버전을 처리한다.
+단일 workoutTransactionManager/JPA 트랜잭션 안에서 users FOR SHARE → routine FOR UPDATE → 종목 UUID 순 공유 잠금 → 자식 변경·사건·부모 버전을 처리한다. 2B부터 DELETE는 주간 일정 예약과의 원자 처리를 위해 users FOR UPDATE를 먼저 사용한다. 소유자→루틴 잠금 순서는 유지한다.
 루틴 version은 행 잠금 아래 서비스가 한 번 증가시키는 단일 카운터다. 이 Entity에는 @Version을 추가하지 않아 수동 증가와 이중 적용되지 않는다. 기존 종목/설정 @Version은 유지한다.
 부분 UNIQUE의 순서 교환은 겹치지 않는 양수 임시 위치로 flush 후 최종 위치로 저장한다. 숫자 overflow를 검사하며 임시 상태가 별도로 커밋되지 않는다.
 조회는 기존과 같은 readOnly REPEATABLE_READ 트랜잭션에서 소유자·세대·DTO 전체를 일관되게 완성한다.
@@ -126,7 +126,9 @@ API에서 먼저 범위·scale을 검증하여 DB NUMERIC의 암묵적 반올림
 FK에는 기록 삭제 cascade가 없다. 승인 사건은 Hibernate Immutable 및 모든 필드 updatable=false이며 update/delete API가 없다.
 출처 UUID·최초/승인 중량은 유지한다. 미래 세션은 새 세션 종목 ID와 출처 배치 ID를 구분하고 시작 당시 전체 계획을 복사해야 한다.
 START는 같은 users→routine 잠금 순서와 routine FOR SHARE, REPEATABLE_READ 쓰기 트랜잭션에서 읽기·InitialPlan·세션 생성을 원자 처리한다. 경합 직렬화 실패는 전체 실패로 처리한다. 구현 범위는 [세션 1단계 계약](workout-sessions.md)을 따른다. 루틴과 세션 모두 V17 단일 표준 계약을 사용한다.
-루틴 version을 공식 비교 계보에 추가하거나 이름/순서 변경으로 과거 수행을 수정하지 않는다. 일정은 미구현이며 도입 시 루틴 삭제와 일정 정리를 원자 처리한다.
+루틴 version을 공식 비교 계보에 추가하거나 이름/순서 변경으로 과거 수행을 수정하지 않는다.
+
+2B의 [주간 일정·계획 이력 계약](weekly-schedule.md)에 따라 생성·실제 편집·명시 승인·세션 승인 반영·삭제의 최종 계획을 같은 트랜잭션의 `routine_plan_history`에 기록한다. 무변경 쓰기는 이력을 늘리지 않는다. 논리 삭제는 현재 주의 계획을 지우지 않고 **다음 월요일부터** 최신 주간 일정에서 해당 루틴을 제외하는 새 version을 함께 기록한다. 이력 또는 일정 기록 실패 시 루틴 삭제도 롤백한다. 원래 세션 InitialPlan·승인 사건·현재 승인 중량 계약은 유지한다.
 
 ## 오류
 
@@ -140,3 +142,5 @@ START는 같은 users→routine 잠금 순서와 routine FOR SHARE, REPEATABLE_R
 
 V11은 위 네 테이블만 추가하며 V1~V10을 수정하지 않는다. 기존 계정·종목·설정 재시드나 변환은 없다.
 V11 구현 당시 검증 대상은 격리 Testcontainers PostgreSQL뿐이었다. 이후 개인 로컬 V11 적용·기존 데이터 보존은 사용자 확인 사항이다. 신규 V12는 개인 로컬에 적용하지 않으며 실제 DB 대상 앱을 실행하지 않는다.
+
+위 적용 설명은 V11 단계 당시 기록이다. 현재 승인된 개인 DB 상태는 V17이며 V18·V19·최초 일정 등록 정책을 보완한 V20은 개인 DB에 적용하지 않았다. 격리 migration 검증과 실제 DB 적용 승인을 구분한다.

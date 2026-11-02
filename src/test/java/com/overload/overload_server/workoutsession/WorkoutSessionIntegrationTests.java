@@ -111,7 +111,7 @@ class WorkoutSessionIntegrationTests {
         error(browser.send("GET",BASE+"/closed","{}",null),400,"INVALID_REQUEST");
         // Disposable fixture reset only: preserve the current-generation FK instead of bypassing it.
         jdbc.update("DELETE FROM record_change_events WHERE session_id IN (SELECT id FROM workout_sessions WHERE user_id=?)",owner.id());
-        for(String table:List.of("session_exercises","workout_sessions","routine_weight_placements","routine_cardio_placements","routines","exercise_definitions","user_workout_settings"))jdbc.update("DELETE FROM "+table+" WHERE user_id=?",owner.id());
+        for(String table:List.of("session_exercises","workout_sessions","weekly_schedule_versions","routine_plan_history","routine_weight_placements","routine_cardio_placements","routines","exercise_definitions","user_workout_settings"))jdbc.update("DELETE FROM "+table+" WHERE user_id=?",owner.id());
         jdbc.update("UPDATE users SET data_generation=1 WHERE id=?",owner.id());
         var reset=node(browser.get(BASE+"/closed"));assertThat(reset.get("dataGeneration").asString()).isEqualTo("1");assertThat(reset.get("sessions").size()).isZero();
     }
@@ -235,7 +235,7 @@ class WorkoutSessionIntegrationTests {
             var starting = executor.submit(() -> start(startBody()));
             assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
             var editing = executor.submit(() -> editRoutine(method));
-            try { assertLockWait("routines"); } finally { release.countDown(); }
+            try { assertLockWait(method.equals("DELETE") ? "users" : "routines"); } finally { release.countDown(); }
             var result = node(starting.get(15, TimeUnit.SECONDS));
             assertThat(editing.get(15, TimeUnit.SECONDS).statusCode()).isEqualTo(method.equals("PUT") ? 200 : 204);
             assertThat(result.get("initialPlan").get("routineVersion").asString()).isEqualTo("0");
@@ -256,7 +256,7 @@ class WorkoutSessionIntegrationTests {
             var editing = executor.submit(() -> editRoutine(method));
             assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
             var starting = executor.submit(() -> start(startBody()));
-            try { assertLockWait("routines"); } finally { release.countDown(); }
+            try { assertLockWait(method.equals("DELETE") ? "users" : "routines"); } finally { release.countDown(); }
             assertThat(editing.get(15, TimeUnit.SECONDS).statusCode()).isEqualTo(method.equals("PUT") ? 200 : 204);
             assertThat(starting.get(15, TimeUnit.SECONDS).statusCode()).isIn(404, 409);
         } finally { release.countDown(); WorkoutReadFixtures.observer = null; }
@@ -287,6 +287,8 @@ class WorkoutSessionIntegrationTests {
         // Isolated reset fixture only, not a product reset endpoint or developer database mutation.
         jdbc.update("DELETE FROM session_exercises WHERE user_id=?", owner.id());
         jdbc.update("DELETE FROM workout_sessions WHERE user_id=?", owner.id());
+        jdbc.update("DELETE FROM weekly_schedule_versions WHERE user_id=?", owner.id());
+        jdbc.update("DELETE FROM routine_plan_history WHERE user_id=?", owner.id());
         jdbc.update("DELETE FROM routine_weight_placements WHERE user_id=?", owner.id());
         jdbc.update("DELETE FROM routine_cardio_placements WHERE user_id=?", owner.id());
         jdbc.update("DELETE FROM routines WHERE user_id=?", owner.id());
@@ -361,7 +363,7 @@ class WorkoutSessionIntegrationTests {
                         .executeWithoutResult(status -> {
                             isolated.queryForObject("SELECT data_generation FROM users WHERE id=? FOR UPDATE", Long.class, owner.id());
                             isolated.update("DELETE FROM session_exercises WHERE user_id=?", owner.id());
-                            for (String table : List.of("workout_sessions", "routine_weight_placements", "routine_cardio_placements", "routines", "exercise_definitions", "user_workout_settings"))
+                            for (String table : List.of("workout_sessions", "weekly_schedule_versions", "routine_plan_history", "routine_weight_placements", "routine_cardio_placements", "routines", "exercise_definitions", "user_workout_settings"))
                                 isolated.update("DELETE FROM " + table + " WHERE user_id=?", owner.id());
                             isolated.update("UPDATE users SET data_generation=1 WHERE id=?", owner.id());
                         });

@@ -11,7 +11,8 @@ import java.util.*;
 public class RoutineRepository {
 	@PersistenceContext private EntityManager entityManager;
 	private final JdbcTemplate jdbc;
-	RoutineRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+	private final RoutinePlanHistory history;
+	RoutineRepository(JdbcTemplate jdbc, RoutinePlanHistory history) { this.jdbc = jdbc; this.history = history; }
 	/** Caller owns workoutTransactionManager. This scope does not start or commit a second transaction. */
 	public ApprovalScope lockForWorkoutApproval(UUID owner,long generation,UUID id) {
 		return new ApprovalScope(find(owner,generation,id,true));
@@ -33,7 +34,16 @@ public class RoutineRepository {
 				p.approvedWeight=next;p.updatedAt=now;changed=true;
 			}
 		}
-		public void complete(java.time.Instant now){if(changed)routine.changed(now);}
+		public void complete(java.time.Instant now){if(changed){routine.changed(now);entityManager.flush();history.record(planForHistory(routine),now,false);}}
+	}
+
+	private RoutineResponses.Detail planForHistory(Routine routine) {
+		var weights = weights(routine).stream().filter(p -> p.deletedAt == null).toList();
+		var definitions = exercises(routine.userId, routine.dataGeneration, weights.stream().map(p -> p.standardExerciseId).collect(java.util.stream.Collectors.toSet()), false);
+		return new RoutineResponses.Detail(routine.userId, Long.toString(routine.dataGeneration), routine.id, Long.toString(routine.version), routine.name,
+				weights.stream().map(p -> new RoutineResponses.Weight(p.id,p.standardExerciseId,definitions.get(p.standardExerciseId).getName(),p.manufacturerId,p.loadType,
+						p.setCount,p.minReps,p.maxReps,RoutineResponses.decimal(p.initialWeight),RoutineResponses.decimal(p.approvedWeight),null)).toList(),
+				cardio(routine).stream().filter(p -> p.deletedAt == null).map(RoutineResponses::cardio).toList());
 	}
 
 	/** START's existing workout transaction owns these locks through InitialPlan insertion and commit. */
@@ -60,6 +70,10 @@ public class RoutineRepository {
 				(row, index) -> row.getLong(1), owner);
 		if (values.isEmpty()) throw new RoutineFailure(RoutineFailure.Reason.AUTHENTICATION_REQUIRED);
 		return values.getFirst();
+	}
+	long lockOwnerForScheduleChange(UUID owner) {
+		var rows=jdbc.query("SELECT data_generation FROM users WHERE id=? FOR UPDATE",(r,i)->r.getLong(1),owner);
+		if(rows.isEmpty())throw new RoutineFailure(RoutineFailure.Reason.AUTHENTICATION_REQUIRED);return rows.getFirst();
 	}
 	List<Routine> list(UUID owner, long generation) {
 		return entityManager.createQuery("select r from Routine r where r.userId=:owner and r.dataGeneration=:generation and r.deletedAt is null order by r.id", Routine.class)

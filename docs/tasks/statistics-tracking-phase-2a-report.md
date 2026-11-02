@@ -2,6 +2,8 @@
 
 작성일: 2026-11-02 (Asia/Seoul). **2A 구현·자동 검증 완료, 2단계 전체는 진행 중**. 이 문서는 2A의 실제 구현과 한계를 기록하며 2단계 전체 완료를 뜻하지 않는다.
 
+후속 현재 상태: 2A는 Backend `84f5242`, Frontend `f869115`로 커밋했고 주간 일정·달성률의 이후 구현은 [2B 보고서](statistics-tracking-phase-2b-report.md)를 따른다. 아래 잔여 항목과 미커밋 설명은 해당 단계의 시점과 구분한다.
+
 ## 1. 0·1단계 커밋과 제목 변경
 
 - Backend 시작 HEAD `8e6fd74`, Frontend `d33e156`. Backend 변경20파일은 앞선 작업의 코드·테스트·설계뿐이었고 Frontend는 clean이었다.

@@ -18,12 +18,13 @@ import static com.overload.overload_server.routine.RoutineFailure.Reason.*;
 @Service
 public class RoutineService {
 	private final RoutineRepository repository;
+	private final RoutinePlanHistory history;
 	private final Clock clock;
 	private final TransactionTemplate writes;
 	private final TransactionTemplate reads;
-	RoutineService(RoutineRepository repository, ObjectProvider<Clock> clocks,
+	RoutineService(RoutineRepository repository, RoutinePlanHistory history, ObjectProvider<Clock> clocks,
 			@Qualifier("workoutTransactionManager") PlatformTransactionManager manager) {
-		this.repository = repository; this.clock = clocks.getIfAvailable(Clock::systemUTC);
+		this.repository = repository; this.history = history; this.clock = clocks.getIfAvailable(Clock::systemUTC);
 		writes = new TransactionTemplate(manager);
 		reads = new TransactionTemplate(manager); reads.setReadOnly(true);
 		reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
@@ -50,7 +51,7 @@ public class RoutineService {
 			repository.insert(routine);
 			apply(routine, request.weightPlacements(), request.cardioPlacements(), List.of(), now);
 			repository.flush();
-			return response(routine, false);
+			var result = response(routine, false); history.record(result, now, false); return result;
 		});
 	}
 	public RoutineResponses.Detail update(UUID user, UUID id, RoutineRequests.Update request) {
@@ -63,17 +64,19 @@ public class RoutineService {
 			boolean changed = apply(routine, request.weightPlacements(), request.cardioPlacements(), request.weightApprovals(), now);
 			if (renamed || changed) routine.changed(now);
 			repository.flush();
-			return response(routine, false);
+			var result = response(routine, false); if (renamed || changed) history.record(result, now, false); return result;
 		});
 	}
 	public void delete(UUID user, UUID id, RoutineRequests.Delete request) {
 		transaction(writes, () -> {
-			owner(user, request.dataGeneration());
+			if(repository.lockOwnerForScheduleChange(user)!=request.dataGeneration())throw new RoutineFailure(DATA_GENERATION_MISMATCH);
 			var routine = repository.find(user, request.dataGeneration(), id, true);
 			if (routine.deletedAt == null) {
 				version(routine, request.expectedVersion());
 				Instant now = clock.instant(); routine.deletedAt = now; routine.changed(now);
 				repository.flush();
+				history.record(response(routine, false), now, true);
+				history.removeFromNextSchedule(user,request.dataGeneration(),id,now);
 			}
 			return null;
 		});

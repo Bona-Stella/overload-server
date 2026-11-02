@@ -16,7 +16,7 @@ import java.sql.SQLException;
 import java.sql.SQLTimeoutException;
 import java.util.*;
 
-@RestControllerAdvice(assignableTypes = RoutineController.class)
+@RestControllerAdvice(assignableTypes = {RoutineController.class, WeeklyScheduleController.class})
 public class RoutineErrors {
 	public record Body(String code) { }
 	@ExceptionHandler(RoutineFailure.class)

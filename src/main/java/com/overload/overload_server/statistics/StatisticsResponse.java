@@ -8,6 +8,10 @@ public record StatisticsResponse(UUID userId, String dataGeneration, LocalDate f
         Weight summary, String cardioActiveMs, String unmappedCompletedSets, List<Day> days,
         List<Exercise> exercises, List<Muscle> muscles, List<Group> groups, List<Cardio> cardio,
         List<Recent> recentSessions) {
+    StatisticsResponse withPlanning(String coverage,Integer plannedDays,String rate) {
+        return new StatisticsResponse(userId,dataGeneration,fromDate,toDateExclusive,coverage,plannedDays,rate,summary,cardioActiveMs,
+                unmappedCompletedSets,days,exercises,muscles,groups,cardio,recentSessions);
+    }
     public record Weight(String plannedSets, String completedSets, String reps, String volumeLoadKg, String setsWithoutVolume) { }
     public record Day(LocalDate date, Weight weights, String cardioActiveMs) { }
     public record Exercise(UUID standardExerciseId, String name, Weight weights) { }
