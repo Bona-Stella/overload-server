@@ -79,7 +79,7 @@ class RoutineIntegrationTests {
 		assertThat(browser.send("POST", "/api/v1/routines", json(duplicateName), csrf).statusCode()).isEqualTo(201);
 		assertThat(node(browser.get("/api/v1/routines")).get("routines").size()).isEqualTo(2);
 		assertThat(jdbc.queryForMap("SELECT * FROM standard_exercise WHERE id=?", exercise)).isEqualTo(oldExercise);
-		assertThat(browser.get("/api/v1/exercises").statusCode()).isEqualTo(200);
+		assertThat(browser.get("/api/v1/standard-exercises/search-data").statusCode()).isEqualTo(200);
 		assertThat(browser.get("/api/v1/workout-settings").statusCode()).isEqualTo(200);
 	}
 	@Test void childChangesSwapsAndApprovalIncrementParentExactlyOnceAndNoopDoesNotWrite() throws Exception {

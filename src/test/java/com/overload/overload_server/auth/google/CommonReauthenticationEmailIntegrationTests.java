@@ -228,14 +228,14 @@ class CommonReauthenticationEmailIntegrationTests {
 		}
 	}
 
-	@Test void linkedProvidersSendOnlyToOneRepresentativeAndLegacyIdentityCannotBypassIt() throws Exception {
+	@Test void linkedProvidersSendOnlyToOneRepresentativeAndIdentitySelectionIsRejected() throws Exception {
 		googleLogin(browser);var owner=metadata(browser).userId();String first="registered-first@example.test",second="another-login@example.test";
 		var firstId=linkFixtureEmail(owner,first);var secondId=linkFixtureEmail(owner,second);
 		try(var verified=new Browser()){emailLogin(verified,first);}
 		try(var verified=new Browser()){emailLogin(verified,second);}
-		int sent=sender.messages.size();assertThat(post(browser,REAUTH+"request",Map.of("identityId",secondId),csrf(browser)).statusCode()).isEqualTo(409);
+		int sent=sender.messages.size();assertThat(post(browser,REAUTH+"request",Map.of("identityId",secondId),csrf(browser)).statusCode()).isEqualTo(400);
 		assertThat(sender.messages.size()).isEqualTo(sent);
-		var message=issue(browser,REAUTH+"request",Map.of("identityId",firstId));assertThat(message.recipient().equals(first)).isTrue();
+		var message=issue(browser,REAUTH+"request",Map.of());assertThat(message.recipient().equals(first)).isTrue();
 		assertThat(post(browser,REAUTH+"request",Map.of(),csrf(browser)).statusCode()).isEqualTo(429);assertThat(sender.messages.size()).isEqualTo(sent+1);
 		provider.email="changed-google-email@example.test";
 		assertFailure(start(browser,GoogleContactSecurity.START,googleIdentity(browser),csrf(browser),null));

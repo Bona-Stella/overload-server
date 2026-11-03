@@ -4,6 +4,8 @@ import com.overload.overload_server.OverloadServerApplication;
 import com.overload.overload_server.workoutsession.*;
 import com.overload.testfixture.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
@@ -23,7 +25,7 @@ import static org.assertj.core.api.Assertions.*;
 @Tag("postgres") @Testcontainers
 class StatisticsIntegrationTests {
     static final JsonMapper JSON=JsonMapper.builder().build();
-    static final String PATH="/api/v1/statistics?fromDate=2026-10-26&toDateExclusive=2026-11-02";
+    static final String PATH="/api/v1/statistics/overview?fromDate=2026-10-26&toDateExclusive=2026-11-02";
     @Container static final PostgreSQLContainer POSTGRES=new PostgreSQLContainer("postgres:18.6-alpine")
             .withDatabaseName("overload_statistics_test").withUsername("overload_test").withPassword(UUID.randomUUID().toString());
     static ConfigurableApplicationContext app; static JdbcTemplate jdbc;
@@ -41,7 +43,9 @@ class StatisticsIntegrationTests {
         jdbc=app.getBean(JdbcTemplate.class);
     }
     @BeforeEach void login() throws Exception {
-        WorkoutReadFixtures.observer=null;EmailOtpFixtures.CLOCK.reset();app.getBean(EmailOtpFixtures.FakeSender.class).reset();jdbc.update("DELETE FROM email_otp_rate_limits");
+        WorkoutReadFixtures.observer=null;EmailOtpFixtures.CLOCK.reset();
+        EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),Instant.parse("2026-10-26T00:00:00Z")));
+        app.getBean(EmailOtpFixtures.FakeSender.class).reset();jdbc.update("DELETE FROM email_otp_rate_limits");
         browser=new Browser();browser.login();owner=UUID.fromString(JSON.readTree(browser.send("GET","/__otp_test__/me",null,null).body()).get("id").asString());
     }
     @AfterEach void close() { WorkoutReadFixtures.observer=null;if(browser!=null)browser.close(); }
@@ -80,16 +84,24 @@ class StatisticsIntegrationTests {
     @Test void authenticatedReadUsesStartDateActualRepsAndRoleDedupWithoutChangingSourceFacts() throws Exception {
         var source=seed(owner,"FINISHED",false,"2026-11-01T14:30:00Z","2026-11-01");
         var before=jdbc.queryForMap("SELECT * FROM workout_sessions WHERE id=?",source.session());
-        var data=success(browser.get(PATH));
+        var data=success(browser.get(PATH)).get("statistics");
         assertThat(data.get("summary").get("volumeLoadKg").asString()).isEqualTo("2140");
         assertThat(data.get("summary").get("completedSets").asString()).isEqualTo("3");
-        assertThat(data.get("summary").get("plannedSets").asString()).isEqualTo("3");
+        assertThat(data.get("summary").get("plannedSets").asString()).isEqualTo("0");
+        assertThat(data.get("planCoverage").asString()).isEqualTo("PARTIAL_SCHEDULE_HISTORY");
         assertThat(data.get("plannedWorkoutDays").isNull()).isTrue();assertThat(data.get("routineAchievementPercent").isNull()).isTrue();
         assertThat(data.get("muscles").size()).isEqualTo(3);assertThat(data.get("groups").size()).isEqualTo(2);
         for(var group:data.get("groups"))assertThat(group.get("weights").get("completedSets").asString()).isEqualTo("3");
         assertThat(data.get("days").get(6).get("date").asString()).isEqualTo("2026-11-01");
         assertThat(data.get("days").get(6).get("weights").get("volumeLoadKg").asString()).isEqualTo("2140");
-        assertThat(success(browser.get("/api/v1/statistics?fromDate=2026-11-02&toDateExclusive=2026-11-09")).get("summary").get("completedSets").asString()).isEqualTo("0");
+        assertThat(success(browser.get("/api/v1/statistics/overview?fromDate=2026-11-02&toDateExclusive=2026-11-09")).get("statistics").get("summary").get("completedSets").asString()).isEqualTo("0");
+        // A registered schedule makes the frozen InitialPlan available; AppliedPlan has only one set.
+        EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),Instant.parse("2026-11-01T00:00:00Z")));
+        schedule(JSON.valueToTree(Map.of("id",before.get("source_routine_id"))),"0",List.of(7));
+        var planned=success(browser.get(PATH));
+        assertThat(planned.get("statistics").get("summary").get("plannedSets").asString()).isEqualTo("3");
+        assertThat(planned.get("statistics").get("summary").get("completedSets").asString()).isEqualTo("3");
+        assertThat(planned.get("statistics").get("planCoverage").asString()).isEqualTo("FULL_SCHEDULE_HISTORY");
         assertThat(jdbc.queryForMap("SELECT * FROM workout_sessions WHERE id=?",source.session())).isEqualTo(before);
     }
     @Test void scopeExcludesOtherOwnersActiveAndDeletedSessionsAndReadsCorrectionsAndMissingFactRecovery() throws Exception {
@@ -100,7 +112,7 @@ class StatisticsIntegrationTests {
         seed(owner,"ACTIVE",false,"2026-11-01T14:30:00Z","2026-11-01");
         jdbc.update("UPDATE performed_sets SET weight=81,reps=9 WHERE id=?",source.sets().get(0));
         jdbc.update("UPDATE performed_sets SET deleted_at=now() WHERE id=?",source.sets().get(1));
-        var data=success(browser.get(PATH));
+        var data=success(browser.get(PATH)).get("statistics");
         assertThat(data.get("summary").get("completedSets").asString()).isEqualTo("2");
         assertThat(data.get("summary").get("volumeLoadKg").asString()).isEqualTo("1429");
         assertThat(data.get("recentSessions").size()).isEqualTo(1);
@@ -109,29 +121,50 @@ class StatisticsIntegrationTests {
                 INSERT INTO performed_sets(id,session_id,session_exercise_id,ordinal,weight,reps,completed_at,context_kind,approval_state_at_recording)
                 SELECT ?,session_id,session_exercise_id,4,10,5,completed_at,'TODAY_ONLY','TODAY_ONLY' FROM performed_sets WHERE id=?
                 """,UUID.randomUUID(),source.sets().get(0));
-        assertThat(success(browser.get(PATH)).get("summary").get("volumeLoadKg").asString()).isEqualTo("1479");
+        assertThat(success(browser.get(PATH)).get("statistics").get("summary").get("volumeLoadKg").asString()).isEqualTo("1479");
         jdbc.update("UPDATE workout_sessions SET deleted_at=now() WHERE id=?",source.session());
-        assertThat(success(browser.get(PATH)).get("summary").get("completedSets").asString()).isEqualTo("0");
+        assertThat(success(browser.get(PATH)).get("statistics").get("summary").get("completedSets").asString()).isEqualTo("0");
     }
-    @Test void readsAreReadOnlyRepeatableAndHaveFixedQueryCountWithoutWorkoutActivityUpdates() throws Exception {
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void readsAreReadOnlyRepeatableAndHaveFixedQueryCountWithoutWorkoutActivityUpdates(boolean scheduled) throws Exception {
+        if(scheduled){
+            EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),Instant.parse("2026-11-01T00:00:00Z")));
+            schedule(routine(1),"0",List.of(7));
+        }
         seed(owner,"AUTO_CLOSED",false,"2026-11-01T14:30:00Z","2026-11-01");
         var selects=new ArrayList<String>();
-        WorkoutReadFixtures.observer=event->{if(event.before()&&event.sql().startsWith("SELECT")&&!event.sql().toLowerCase(Locale.ROOT).contains("spring_session")) {
+        WorkoutReadFixtures.observer=event->{if(event.before()&&(event.sql().stripLeading().toUpperCase(Locale.ROOT).startsWith("SELECT")||event.sql().stripLeading().toUpperCase(Locale.ROOT).startsWith("WITH"))&&!event.sql().toLowerCase(Locale.ROOT).contains("spring_session")) {
             selects.add(event.sql());assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
             try { assertThat(event.connection().isReadOnly()).isTrue();assertThat(event.connection().getTransactionIsolation()).isEqualTo(java.sql.Connection.TRANSACTION_REPEATABLE_READ); }
             catch(java.sql.SQLException failure){throw new AssertionError(failure);}
         }};
         success(browser.get(PATH));WorkoutReadFixtures.observer=null;
-        assertThat(selects).hasSize(6);
+        assertThat(selects).hasSize(scheduled?9:8);
     }
     @Test void authenticationAndStrictQueryContractRejectForgedScopeAndInvalidRanges() throws Exception {
         try(var anonymous=new Browser()){assertThat(anonymous.get(PATH).statusCode()).isEqualTo(401);}
         for(String query:List.of("", "?fromDate=2026-02-30&toDateExclusive=2026-03-01", "?fromDate=2026-11-02&toDateExclusive=2026-11-02",
                 "?fromDate=2024-01-01&toDateExclusive=2026-11-02", "?fromDate=2026-10-26&toDateExclusive=2026-11-02&userId="+owner,
-                "?fromDate=2026-10-26&fromDate=2026-10-26&toDateExclusive=2026-11-02")) {
-            var response=browser.get("/api/v1/statistics"+query);assertThat(response.statusCode()).isEqualTo(400);assertThat(JSON.readTree(response.body()).get("code").asString()).isEqualTo("INVALID_REQUEST");
+                "?fromDate=2026-10-26&fromDate=2026-10-26&toDateExclusive=2026-11-02",
+                "?fromDate=2026-10-26&toDateExclusive=2026-11-02&dataGeneration=1")) {
+            var response=browser.get("/api/v1/statistics/overview"+query);assertThat(response.statusCode()).isEqualTo(400);assertThat(JSON.readTree(response.body()).get("code").asString()).isEqualTo("INVALID_REQUEST");
         }
         assertThat(browser.send("GET",PATH,"{}",null).statusCode()).isEqualTo(400);
+    }
+    @Test void overviewUsesCurrentOwnerAndExactLargeGeneration() throws Exception {
+        long generation=9007199254740993L;
+        jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?",owner);
+        jdbc.update("UPDATE users SET data_generation=? WHERE id=?",generation,owner);
+        var response=success(browser.get(PATH));var data=response.get("statistics");
+        assertThat(data.get("userId").asString()).isEqualTo(owner.toString());
+        assertThat(data.get("dataGeneration").asString()).isEqualTo(Long.toString(generation));
+        assertThat(data.get("summary").get("completedSets").asString()).isEqualTo("0");
+        assertThat(data.get("plannedWorkoutDays").isNull()).isTrue();
+    }
+    @Test void retiredStatisticsEndpointHasNoHandler() {
+        var mappings=app.getBean(org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping.class);
+        assertThat(mappings.getHandlerMethods().keySet().stream().flatMap(mapping->mapping.getPatternValues().stream()))
+                .doesNotContain("/api/v1/statistics").contains("/api/v1/statistics/overview");
     }
     String csrf() throws Exception{return JSON.readTree(browser.get("/api/v1/auth/csrf").body()).get("token").asString();}
     JsonNode routine(int setCount) throws Exception {
@@ -166,7 +199,7 @@ class StatisticsIntegrationTests {
         var finish=Map.of("dataGeneration","0","editorDeviceId",device,"writerEpoch","0","localRevision","1","snapshot",snapshot,"endedAt",at.plusSeconds(600));
         assertThat(browser.send("POST","/api/v1/workout-sessions/"+id+"/finish",JSON.writeValueAsString(finish),csrf()).statusCode()).isEqualTo(200);
     }
-    @Test void weeklyScheduleCountsMissedDaysAndBestSingleInitialPlanSessionWhileKeepingLegacyReadCompatible() throws Exception {
+    @Test void weeklyScheduleCountsMissedDaysAndBestSingleInitialPlanSession() throws Exception {
         var routine=routine(1);var saved=schedule(routine,"0",List.of(1,2,4,5));var monday=LocalDate.parse(saved.get("nextEffectiveFrom").asString());
         assertThat(saved.get("current").get("version").asString()).isEqualTo("1");assertThat(saved.get("pending").isNull()).isTrue();
         perform(routine,monday,4);perform(routine,monday.plusDays(1),2);perform(routine,monday.plusDays(3),3);
@@ -177,7 +210,6 @@ class StatisticsIntegrationTests {
         assertThat(stats.get("summary").get("completedSets").asString()).isEqualTo("14");
         assertThat(result.get("plannedDays").get(4).get("effectiveDay").asString()).isEqualTo("0");
         assertThat(overview(monday.minusDays(14)).get("statistics").get("plannedWorkoutDays").isNull()).isTrue();
-        assertThat(success(browser.get(PATH)).get("planCoverage").asString()).isEqualTo("STARTED_SESSIONS_ONLY");
     }
     @Test void firstThursdayRegistrationStartsTodayAndOnlyRemainingDaysCountWhileEditsWaitUntilMonday() throws Exception {
         var thursday=LocalDate.of(2026,11,12);var monday=thursday.minusDays(3);

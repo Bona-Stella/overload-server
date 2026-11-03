@@ -3,33 +3,12 @@ package com.overload.overload_server.workout;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import tools.jackson.databind.JsonNode;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Set;
-import java.util.UUID;
 
 /** Strict JSON at the write boundary: never coerce decimals, numeric strings or owner fields. */
 public final class WorkoutWriteRequests {
 
 	private WorkoutWriteRequests() { }
-
-	public record CreateExercise(UUID id, long dataGeneration, String name) {
-		@JsonCreator(mode = JsonCreator.Mode.DELEGATING)
-		public static CreateExercise from(JsonNode body) {
-			fields(body, Set.of("id", "dataGeneration", "name"));
-			String id = text(body, "id");
-			UUID uuid = UUID.fromString(id);
-			if (!uuid.toString().equalsIgnoreCase(id)) throw invalid();
-			return new CreateExercise(uuid, generation(body), WorkoutWriteRequests.name(body));
-		}
-	}
-
-	public record RenameExercise(long dataGeneration, String name) {
-		@JsonCreator(mode = JsonCreator.Mode.DELEGATING)
-		public static RenameExercise from(JsonNode body) {
-			fields(body, Set.of("dataGeneration", "name"));
-			return new RenameExercise(generation(body), WorkoutWriteRequests.name(body));
-		}
-	}
 
 	public record ChangeRest(long dataGeneration, int restLowSeconds, int restMediumSeconds, int restHighSeconds) {
 		@JsonCreator(mode = JsonCreator.Mode.DELEGATING)
@@ -49,12 +28,6 @@ public final class WorkoutWriteRequests {
 		var value = body.get(field);
 		if (value == null || !value.isString()) throw invalid();
 		return value.asString();
-	}
-
-	private static String name(JsonNode body) {
-		String value = text(body, "name");
-		if (value.isBlank() || value.indexOf('\0') >= 0 || !StandardCharsets.UTF_8.newEncoder().canEncode(value)) throw invalid();
-		return value; // Preserve whitespace and Unicode; names are not unique identifiers.
 	}
 
 	private static long generation(JsonNode body) {

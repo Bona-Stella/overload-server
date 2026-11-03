@@ -1,5 +1,6 @@
 package com.overload.overload_server.workoutsession;
 
+import com.overload.overload_server.persistence.TransactionExecution;
 import com.overload.overload_server.routine.RoutineRepository;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.ObjectProvider;
@@ -8,8 +9,6 @@ import org.springframework.transaction.*;
 import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 import static com.overload.overload_server.workoutsession.WorkoutSessionFailure.Reason.*;
 
 @Service
@@ -29,7 +28,7 @@ public class WorkoutSessionService {
     }
 
     WorkoutSessionResponses.Started start(UUID owner, WorkoutSessionRequests.Start input) {
-        return transaction(starts, () -> {
+        return TransactionExecution.execute(starts, () -> {
             owner(owner, input.dataGeneration());
             if (sessions.exists(owner,input.dataGeneration(),input.id())) {
                 var previous=find(owner,input.dataGeneration(),input.id(),true);
@@ -57,7 +56,7 @@ public class WorkoutSessionService {
     }
     WorkoutSessionResponses.Active active(UUID owner) {
         expireForRead(owner,null);
-        return transaction(reads, () -> {
+        return TransactionExecution.execute(reads, () -> {
             long generation = sessions.generation(owner, false);
             return new WorkoutSessionResponses.Active(owner, Long.toString(generation),
                     sessions.active(owner, generation).map(this::response).orElse(null));
@@ -65,10 +64,10 @@ public class WorkoutSessionService {
     }
     WorkoutSessionResponses.Detail detail(UUID owner, UUID id) {
         expireForRead(owner,id);
-        return transaction(reads, () -> response(find(owner, sessions.generation(owner, false), id, false)));
+        return TransactionExecution.execute(reads, () -> response(find(owner, sessions.generation(owner, false), id, false)));
     }
     WorkoutSessionResponses.ClosedPage closed(UUID owner,WorkoutSessionRequests.ClosedQuery page) {
-        return transaction(reads,()->{
+        return TransactionExecution.execute(reads,()->{
             long generation=sessions.generation(owner,false);
             var rows=sessions.closed(owner,generation,page);
             var values=rows.stream().limit(page.limit()).map(s->new WorkoutSessionResponses.ClosedSummary(s.id,
@@ -79,7 +78,7 @@ public class WorkoutSessionService {
         });
     }
     WorkoutSessionResponses.Detail takeover(UUID owner, UUID id, WorkoutSessionRequests.Takeover input) {
-        var result=transaction(writes, () -> {
+        var result=TransactionExecution.execute(writes, () -> {
             owner(owner, input.dataGeneration());
             var session = find(owner, input.dataGeneration(), id, true);
             if(session.deletedAt!=null)throw new WorkoutSessionFailure(SESSION_DELETED);
@@ -92,7 +91,7 @@ public class WorkoutSessionService {
         return result;
     }
     private void expireForRead(UUID owner,UUID id) {
-        transaction(writes,()->{
+        TransactionExecution.execute(writes,()->{
             long generation=sessions.generation(owner,true);
             var target=id==null?sessions.activeId(owner,generation):java.util.Optional.of(id);
             target.flatMap(value->sessions.find(owner,generation,value,true)).ifPresent(value->value.expireIfDue(clock.instant()));
@@ -104,7 +103,7 @@ public class WorkoutSessionService {
         var candidates=sessions.expiryCandidates(clock.instant().minus(java.time.Duration.ofHours(24)));
         for (var candidate:candidates) {
             try {
-                boolean changed=Boolean.TRUE.equals(transaction(writes,()->{
+                boolean changed=Boolean.TRUE.equals(TransactionExecution.execute(writes,()->{
                     var generation=sessions.currentGeneration(candidate.owner());
                     if (generation.isEmpty()||generation.get()!=candidate.generation()) return false;
                     var session=sessions.lockSkippingBusy(candidate);
@@ -124,16 +123,5 @@ public class WorkoutSessionService {
     }
     private WorkoutSession find(UUID owner, long generation, UUID id, boolean lock) {
         return sessions.find(owner, generation, id, lock).orElseThrow(() -> new WorkoutSessionFailure(SESSION_NOT_FOUND));
-    }
-    private static <T> T transaction(TransactionTemplate template, Supplier<T> action) {
-        var original = new AtomicReference<RuntimeException>();
-        try {
-            return template.execute(status -> {
-                try { return action.get(); } catch (RuntimeException failure) { original.set(failure); throw failure; }
-            });
-        } catch (RuntimeException failure) {
-            if (original.get() != null && original.get() != failure) failure.addSuppressed(original.get());
-            throw failure;
-        }
     }
 }

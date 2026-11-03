@@ -1,6 +1,5 @@
 package com.overload.overload_server.persistence;
 
-import com.overload.overload_server.exercise.ExerciseDefinitionRepository;
 import com.overload.overload_server.catalog.StandardExerciseRepository;
 import com.overload.overload_server.workoutsettings.UserWorkoutSettingsRepository;
 import jakarta.persistence.EntityManagerFactory;
@@ -28,7 +27,7 @@ import javax.sql.DataSource;
 		DataSourceTransactionManagerAutoConfiguration.class, HibernateJpaAutoConfiguration.class,
 		DataJpaRepositoriesAutoConfiguration.class})
 @ConditionalOnSingleCandidate(DataSource.class)
-@EnableJpaRepositories(basePackageClasses = {ExerciseDefinitionRepository.class, UserWorkoutSettingsRepository.class, StandardExerciseRepository.class},
+@EnableJpaRepositories(basePackageClasses = {UserWorkoutSettingsRepository.class, StandardExerciseRepository.class},
 		transactionManagerRef = "workoutTransactionManager")
 public class WorkoutPersistenceConfiguration {
 

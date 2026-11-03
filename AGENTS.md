@@ -113,9 +113,9 @@ Required:
 
 승인 중량 성장 2C는 [진행 보고서](docs/tasks/statistics-tracking-phase-2c-report.md)와 [조회 계약](docs/api/approved-weight-growth.md)을 따릅니다. 기존 승인 사건을 routineId+placementId별로 분리하고 과거 수행/승인 이름을 검색하며, 초기/현재 중량으로 과거 점을 생성하지 않습니다. 연결 근거가 없는 점은 선으로 잇지 않습니다. 디로딩 식별/일반 승인 차단의 실제 연결은 후속3단계이며 혼재 검증 완료로 표시하지 않습니다. 개인 DB V18~V20 미적용을 유지합니다.
 
-통계 2B는 [진행 보고서](docs/tasks/statistics-tracking-phase-2b-report.md), [주간 일정 계약](docs/api/weekly-schedule.md), [통계 overview](docs/api/statistics.md)를 따릅니다. 최신 제품 정책은 [Statistics and Tracking v1.3](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md)입니다. 일정 최초 등록은 당일부터 즉시 적용하며 첫 주는 등록일~일요일 예정일만 분모에 포함하고, 기존 요일·빈도 변경은 다음 월요일, 동일 예정일은 최고 단일 세션 InitialPlan 달성률을 사용합니다. V19는 이력2표, V20은 최초 version의 평일 적용 제약만 보완하며 과거 일정 백필은 없습니다. 개인 DB V18·V19·V20 미적용·운영 분류 미검증 상태를 유지합니다. 이력 없는 날짜·실제 유산소 목표 증거 부족은 null/확인 불가이며 추정하지 않습니다. 2A endpoint 계약은 그대로 유지합니다.
+통계 2B는 [진행 보고서](docs/tasks/statistics-tracking-phase-2b-report.md), [주간 일정 계약](docs/api/weekly-schedule.md), [통계 overview](docs/api/statistics.md)를 따릅니다. 최신 제품 정책은 [Statistics and Tracking v1.3](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md)입니다. 일정 최초 등록은 당일부터 즉시 적용하며 첫 주는 등록일~일요일 예정일만 분모에 포함하고, 기존 요일·빈도 변경은 다음 월요일, 동일 예정일은 최고 단일 세션 InitialPlan 달성률을 사용합니다. V19는 이력2표, V20은 최초 version의 평일 적용 제약만 보완하며 과거 일정 백필은 없습니다. 개인 DB V18·V19·V20 미적용·운영 분류 미검증 상태를 유지합니다. 이력 없는 날짜·실제 유산소 목표 증거 부족은 null/확인 불가이며 추정하지 않습니다. 이전 2A endpoint는 3단계 승인 정리에서 제거했으며, 현재 통계 조회는 overview와 성장 조회 계약을 따릅니다.
 
-보존된 통계 2A `/api/v1/statistics` 계약은 [진행 보고서](docs/tasks/statistics-tracking-phase-2a-report.md)와 [읽기 API](docs/api/statistics.md)를 따릅니다. 완료 기록의 실제 집계와 종료 세션 InitialPlan 계획만 구현했으며 주간 전체 계획/달성률은 null입니다. 성장선의 이후 구현은2C를 따르며 실제 속도/계산 거리 저장·디로딩 연결을 완료로 간주하지 않습니다. 개인 DB V18 미적용·운영 분류 검토 미완료를 유지합니다.
+통계 2A `/api/v1/statistics`의 과거 구현 기록은 [진행 보고서](docs/tasks/statistics-tracking-phase-2a-report.md)와 [읽기 API](docs/api/statistics.md)에 보존하며, 해당 GET endpoint는 3단계 승인 정리에서 제거했습니다. 당시에는 완료 기록의 실제 집계와 종료 세션 InitialPlan 계획만 구현했으며 주간 전체 계획/달성률은 null입니다. 성장선의 이후 구현은2C를 따르며 실제 속도/계산 거리 저장·디로딩 연결을 완료로 간주하지 않습니다. 개인 DB V18 미적용·운영 분류 검토 미완료를 유지합니다.
 
 통계·추적 및 디로딩 작업은 [통계 v1.3](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md), [디로딩 v1.3](docs/product/Overload_Deloading_Design_Specification_v1.3.md)과 [0·1단계 조사·정비 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)를 함께 확인합니다. 최신 통계는 PRIMARY/SECONDARY를 분리하며 보조근 0.5 환산을 사용하지 않습니다. V18은 nullable joint_type 구조이며 NULL은 미분류, OTHER는 명시적 해당 없음입니다. 개인 DB V18 적용·정확한 운영 카탈로그 분류·통계/디로딩 기능 구현은 완료로 간주하지 않습니다. 미시작 과거 예정일의 계획을 임의 추정하지 않습니다. CHECK-08은 2026-11-02 사용자 결정으로 확정했습니다. Legs 없는 3일 균등형은 원본 유산소 주 1일이면 첫 운동일, 주 2일 이상이면 앞의 두 운동일에 하루 1종목씩 배치하며 구현은 후속입니다.
 
@@ -123,7 +123,7 @@ Required:
 [Backend 2단계 보고서](docs/tasks/standard-exercise-catalog-backend-phase-2-report.md)를 따릅니다.
 V17부터 신규 루틴·세션은 standardExerciseId 단일 계약과 계획/평가 schemaVersion=2를 사용합니다.
 장비 변경은 승인 중량·공식 비교 키를 바꾸지 않으며 완료 세트의 장비는 불변입니다.
-개인 운동 seed는 중단하고 일반 개인 POST/PATCH는403으로 차단합니다.
+개인 운동 seed는 중단하고 일반 개인 POST/PATCH는403으로 차단합니다. 개인 운동 GET과 전용 Entity·Repository는 제거했으며 테이블·기존 데이터·Flyway 이력은 보존합니다.
 V17의 격리 검증과 개인 DB 적용은 구분합니다. 2026-11-02 사용자 승인으로 기존 `127.0.0.1:5433/overload_dev`에 V16·V17을 정상 적용하고 개발용 카탈로그를 등록했습니다. [4단계 실제 적용·통합 검증 보고서](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)를 따릅니다. 기존 migration/이력·볼륨은 보존했으며 다른 DB나 후속 파괴적 변경은 별도 승인이 필요합니다.
 Frontend/IndexedDB3·schema2 전환과 실제 앱 연동을 확인했습니다. 오프라인 접근 허용은 갱신을 직렬화하고 동일 계정·세대의 이미 허용된 nonce를 유지하며, 로그아웃·계정/세대 변경은 계속 즉시 차단합니다.
 
@@ -132,7 +132,7 @@ Task 009 및 이후 운동 쓰기·진행 세션·복구 작업 시 필수:
 
 일반 관리는 온라인 API, 진행 운동 보호는 전체 확정 스냅샷과 IndexedDB를 기준으로 합니다.
 폐기된 범용 명령·Outbox·필드 병합·영수증/feed 구조를 다시 구현하지 않습니다.
-일반 온라인 종목 생성·이름 변경·휴식 설정 변경은 [온라인 쓰기 API 계약](docs/api/workout-online-write.md)을 따릅니다.
+현재 온라인 휴식 설정 변경과 개인 운동 POST/PATCH 차단·내부 구현 제거 상태는 [온라인 쓰기 API 계약](docs/api/workout-online-write.md)을 따릅니다.
 루틴 관리 API는 [루틴 온라인 계약](docs/api/routine-management.md)을 따릅니다. 개인 개발 DB는 2026-11-01 사용자 승인으로 기존 테스트 데이터를 폐기하고 V15까지 재구성했습니다. [실제 재구성 보고서](docs/tasks/task-009-dev-v15-rebuild-report.md)를 따릅니다.
 세션 START·조회·takeover(V12), snapshot·승인 요청/해결(V13), FINISH·최초 평가·AUTO_CLOSED(V14), 종료 후 정정·명시 복구·논리 삭제·현재 평가·승인 해결(V15)은 [세션 계약](docs/api/workout-sessions.md)을 따릅니다. V12~V15의 격리 검증과 개인 개발 DB의 승인된 V15 신규 구성을 완료했습니다. 다른 DB나 후속 파괴적 변경은 별도 승인이 필요합니다.
 Frontend/IndexedDB/PWA 연결은 구현되어 있습니다. 조회·중복·takeover·실제 무변경 snapshot·승인 해결은 마지막 운동 동기화 시각을 연장하지 않습니다. 종료 후 쓰기는 expectedVersion으로 분리하고, 봉인 계획/평가와 최초 수행 승인 문맥을 유지합니다. 확인 불가 복구 주장은 UNVERIFIED입니다.

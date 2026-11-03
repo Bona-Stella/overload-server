@@ -16,7 +16,7 @@ class StatisticsCalculatorTests {
         var links=List.of(new Mapping(standard,UUID.randomUUID(),"one","LEGS","PRIMARY"),new Mapping(standard,UUID.randomUUID(),"two","LEGS","PRIMARY"),new Mapping(standard,UUID.randomUUID(),"assist","LEGS","SECONDARY"));
         var input=new Input(List.of(session(4,2)),List.of(set("70",10,"BODYWEIGHT"),set("0",10,"BODYWEIGHT"),extra,zero),List.of(),links,List.of());
         for(var period:List.of(query,new StatisticsQuery(day.withDayOfMonth(1),day.plusMonths(1).withDayOfMonth(1)))){
-            var result=StatisticsCalculator.calculate(owner,0,period,input);
+            var result=StatisticsCalculator.calculate(owner,0,period,input,List.of(new PlannedWeight(day,standard,"squat",4)));
             assertThat(result.summary()).isEqualTo(new StatisticsResponse.Weight("4","4","33","80.000008","2"));
             assertThat(result.exercises()).singleElement().extracting(StatisticsResponse.Exercise::weights).isEqualTo(result.summary());
             assertThat(result.muscles()).hasSize(3).allSatisfy(m->assertThat(m.weights()).isEqualTo(result.summary()));
@@ -37,7 +37,7 @@ class StatisticsCalculatorTests {
         var totals=cardioByKind(input);assertThat(totals).hasSize(3);
         assertThat(totals).filteredOn(t->t.kind().equals("TREADMILL")).singleElement().satisfies(t->{assertThat(t.activeMs()).isEqualTo("4200000");assertThat(t.distanceKm()).isEqualTo("9.05");assertThat(t.manualDistanceKm()).isEqualTo("3.8");assertThat(t.calculatedDistanceKm()).isEqualTo("4");assertThat(t.unknownSourceDistanceKm()).isEqualTo("1.25");});
         assertThat(totals).filteredOn(t->t.kind().equals("STAIRS")).singleElement().satisfies(t->{assertThat(t.distanceKm()).isNull();assertThat(t.recordsWithoutDistance()).isEqualTo("1");});
-        var stats=StatisticsCalculator.calculate(UUID.randomUUID(),0,new StatisticsQuery(source.date(),source.date().plusDays(1)),input);assertThat(stats.cardioActiveMs()).isEqualTo("8400000");assertThat(stats.cardio()).hasSize(5);
+        var stats=StatisticsCalculator.calculate(UUID.randomUUID(),0,new StatisticsQuery(source.date(),source.date().plusDays(1)),input,List.of());assertThat(stats.cardioActiveMs()).isEqualTo("8400000");assertThat(stats.cardio()).hasSize(5);
     }
     final UUID owner=UUID.randomUUID(), session=UUID.randomUUID(), standard=UUID.randomUUID(), item=UUID.randomUUID();
     final LocalDate day=LocalDate.of(2026,11,1);
@@ -49,9 +49,9 @@ class StatisticsCalculatorTests {
     }
     SetFact set(String kg,int reps,String load) { return new SetFact(UUID.randomUUID(),session,item,standard,"squat",new BigDecimal(kg),reps,load); }
     StatisticsResponse calculate(List<SetFact> sets,List<Mapping> links) {
-        return StatisticsCalculator.calculate(owner,0,query,new Input(List.of(session(4,2)),sets,List.of(),links,List.of()));
+        return StatisticsCalculator.calculate(owner,0,query,new Input(List.of(session(4,2)),sets,List.of(),links,List.of()),List.of(new PlannedWeight(day,standard,"squat",4)));
     }
-    @Test void actualRepetitionsProduce2140KgAndInitialPlanSurvivesAppliedPlanReduction() {
+    @Test void actualRepetitionsProduce2140KgAndSuppliedPlanSurvivesAppliedPlanReduction() {
         var result=calculate(List.of(set("80",10,null),set("80",8,null),set("70",10,null)),List.of());
         assertThat(result.summary()).isEqualTo(new StatisticsResponse.Weight("4","3","28","2140","0"));
         assertThat(result.unmappedCompletedSets()).isEqualTo("3");
@@ -91,7 +91,7 @@ class StatisticsCalculatorTests {
                 new WorkoutSnapshotData.CardioPlan(run,json.readTree("{\"kind\":\"TREADMILL\",\"name\":\"running\",\"intensity\":{\"mode\":\"SPEED\",\"value\":\"8\"}}")),
                 new WorkoutSnapshotData.CardioPlan(bike,json.readTree("{\"kind\":\"BIKE\",\"name\":\"bike\"}"))));
         var result=StatisticsCalculator.calculate(owner,0,query,new Input(List.of(new Session(session,day,initial,applied)),List.of(),List.of(
-                new CardioFact(session,run,1800000,null),new CardioFact(session,bike,1800000,new BigDecimal("20"))),List.of(),List.of()));
+                new CardioFact(session,run,1800000,null),new CardioFact(session,bike,1800000,new BigDecimal("20"))),List.of(),List.of()),List.of());
         assertThat(result.cardioActiveMs()).isEqualTo("3600000");assertThat(result.summary().completedSets()).isEqualTo("0");
         assertThat(result.cardio()).hasSize(2);
         assertThat(result.cardio()).filteredOn(c->c.kind().equals("TREADMILL")).singleElement().satisfies(c->{assertThat(c.distanceKm()).isNull();assertThat(c.recordsWithoutDistance()).isEqualTo("1");});

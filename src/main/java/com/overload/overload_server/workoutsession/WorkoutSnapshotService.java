@@ -1,5 +1,6 @@
 package com.overload.overload_server.workoutsession;
 
+import com.overload.overload_server.persistence.TransactionExecution;
 import com.overload.overload_server.routine.RoutineRepository;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -36,7 +37,7 @@ public class WorkoutSnapshotService {
     }
 
     Ack save(UUID owner, UUID id, Save input) {
-        var result=transaction(() -> {
+        var result=TransactionExecution.execute(writes, () -> {
             var locked=lock(owner,id,input);
             var session=locked.session();
             if (expired(session)) return null;
@@ -49,7 +50,7 @@ public class WorkoutSnapshotService {
     }
 
     FinishAck finish(UUID owner,UUID id,Finish input) {
-        var result=transaction(()->{
+        var result=TransactionExecution.execute(writes, ()->{
             Save state=input.state();
             var locked=lock(owner,id,state);var session=locked.session();
             // Original FINISH confirmation is read-only even after explicit record deletion.
@@ -155,7 +156,7 @@ public class WorkoutSnapshotService {
     }
 
     Resolution resolve(UUID owner, UUID id, Resolve input) {
-        var result=transaction(() -> {
+        var result=TransactionExecution.execute(writes, () -> {
             owner(owner, input.dataGeneration());
             UUID source = data.source(owner, input.dataGeneration(), id);
             var scope = input.decision().equals("REAPPROVE")?routines.lockForWorkoutApproval(owner, input.dataGeneration(), source):null;
@@ -171,7 +172,7 @@ public class WorkoutSnapshotService {
     }
 
     WorkoutRecordData.ResolutionAck resolveClosed(UUID owner,UUID id,WorkoutRecordData.ClosedResolve input) {
-        return transaction(()->{
+        return TransactionExecution.execute(writes, ()->{
             owner(owner,input.scope().dataGeneration());
             UUID source=data.source(owner,input.scope().dataGeneration(),id);
             var scope=input.newApprovalRequest()==null?null:routines.lockForWorkoutApproval(owner,input.scope().dataGeneration(),source);
@@ -488,24 +489,6 @@ public class WorkoutSnapshotService {
         }
     }
 
-    private <T>T transaction(Supplier<T> action) {
-        var original = new java.util.concurrent.atomic.AtomicReference<RuntimeException>();
-        try {
-            return writes.execute(status -> {
-                try {
-                    return action.get();
-                }
-                catch (RuntimeException e) {
-                    original.set(e);
-                    throw e;
-                }
-                });
-        }
-        catch (RuntimeException e) {
-            if (original.get()!=null&&original.get()!=e)e.addSuppressed(original.get());
-            throw e;
-        }
-    }
 
     private static <T>Map<UUID, T> index(List<T> list, Function<T, UUID> key) {
         return list.stream().collect(Collectors.toMap(key, Function.identity()));

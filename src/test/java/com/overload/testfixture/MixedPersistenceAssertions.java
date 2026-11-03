@@ -1,6 +1,5 @@
 package com.overload.testfixture;
 
-import com.overload.overload_server.exercise.ExerciseDefinition;
 import com.overload.overload_server.workoutsettings.UserWorkoutSettings;
 import jakarta.persistence.EntityManagerFactory;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -30,7 +29,7 @@ public final class MixedPersistenceAssertions {
 		assertThat(jpa.getEntityManagerFactory()).isSameAs(factory);
 		assertThat(((EntityManagerFactoryInfo) factory).getDataSource()).isSameAs(dataSource);
 		assertThat(factory.getMetamodel().getEntities()).extracting(entity -> entity.getJavaType().getName())
-				.containsExactlyInAnyOrder(ExerciseDefinition.class.getName(), UserWorkoutSettings.class.getName(), com.overload.overload_server.routine.Routine.class.getName(), com.overload.overload_server.routine.RoutineWeightPlacement.class.getName(), com.overload.overload_server.routine.RoutineCardioPlacement.class.getName(), com.overload.overload_server.routine.ProgressChangeEvent.class.getName(), com.overload.overload_server.workoutsession.WorkoutSession.class.getName(), "com.overload.overload_server.workoutsession.SessionExercise", "com.overload.overload_server.workoutsession.PerformedSet", "com.overload.overload_server.workoutsession.CardioResult", "com.overload.overload_server.workoutsession.WeightApprovalRequest", "com.overload.overload_server.workoutsession.RecordChangeEvent",
+				.containsExactlyInAnyOrder(UserWorkoutSettings.class.getName(), com.overload.overload_server.routine.Routine.class.getName(), com.overload.overload_server.routine.RoutineWeightPlacement.class.getName(), com.overload.overload_server.routine.RoutineCardioPlacement.class.getName(), com.overload.overload_server.routine.ProgressChangeEvent.class.getName(), com.overload.overload_server.workoutsession.WorkoutSession.class.getName(), "com.overload.overload_server.workoutsession.SessionExercise", "com.overload.overload_server.workoutsession.PerformedSet", "com.overload.overload_server.workoutsession.CardioResult", "com.overload.overload_server.workoutsession.WeightApprovalRequest", "com.overload.overload_server.workoutsession.RecordChangeEvent",
                         "com.overload.overload_server.catalog.StandardExercise", "com.overload.overload_server.catalog.ExerciseAlias",
                         "com.overload.overload_server.catalog.Muscle", "com.overload.overload_server.catalog.ExerciseMuscle", "com.overload.overload_server.catalog.Manufacturer");
 		assertThat(app.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");

@@ -3,10 +3,7 @@ package com.overload.overload_server.persistence;
 import com.overload.overload_server.OverloadServerApplication;
 import com.overload.overload_server.account.Account;
 import com.overload.overload_server.account.AccountProvisioningService;
-import com.overload.overload_server.account.AccountSeed;
 import com.overload.overload_server.account.VerifiedIdentity;
-import com.overload.overload_server.exercise.ExerciseDefinition;
-import com.overload.overload_server.exercise.ExerciseDefinitionRepository;
 import com.overload.overload_server.security.SessionMetadata;
 import com.overload.overload_server.workoutsettings.UserWorkoutSettings;
 import com.overload.overload_server.workoutsettings.UserWorkoutSettingsRepository;
@@ -71,7 +68,6 @@ class JpaJdbcCompatibilityIntegrationTests {
 	EntityManagerFactory factory;
 	AccountProvisioningService accounts;
 	Account account;
-	UUID exerciseId;
 
 	@BeforeAll
 	static void start() {
@@ -104,8 +100,6 @@ class JpaJdbcCompatibilityIntegrationTests {
 		primary = new TransactionTemplate(app.getBean(PlatformTransactionManager.class));
 		accounts = app.getBean(AccountProvisioningService.class);
 		account = accounts.provision(VerifiedIdentity.email(UUID.randomUUID() + "@example.test"), null);
-		com.overload.testfixture.CatalogFixtures.personalExercises(jdbc, account.id());
-		exerciseId = jdbc.queryForList("SELECT id FROM exercise_definitions WHERE user_id=? ORDER BY id", UUID.class, account.id()).getFirst();
 	}
 
 	@AfterEach
@@ -133,7 +127,6 @@ class JpaJdbcCompatibilityIntegrationTests {
 		assertThat(transaction.getIsolationLevel()).isEqualTo(TransactionDefinition.ISOLATION_READ_COMMITTED);
 		var observed = new ArrayList<Boolean>();
 		JpaCompatibilityFixtures.jpaObserver = observed::add;
-		assertThat(app.getBean(ExerciseDefinitionRepository.class).findAllByUserIdAndDataGenerationOrderById(account.id(), 0)).hasSize(20);
 		assertThat(app.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(account.id(), 0)).isPresent();
 		assertThat(observed).isNotEmpty().containsOnly(true);
 		primary.executeWithoutResult(status -> assertThat(TransactionSynchronizationManager.hasResource(factory)).isFalse());
@@ -143,20 +136,14 @@ class JpaJdbcCompatibilityIntegrationTests {
 	void tx02JdbcSeedIsReadableThroughJpaWithoutChangingIdsSettingsOrSchema() {
 		var before = rows();
 		var history = jdbc.queryForList("SELECT version,checksum,success FROM flyway_schema_history ORDER BY installed_rank");
-		var definitions = app.getBean(ExerciseDefinitionRepository.class).findAllByUserIdAndDataGenerationOrderById(account.id(), 0);
-		assertThat(definitions).hasSize(20);
-		assertThat(definitions).extracting(ExerciseDefinition::getName).containsExactlyInAnyOrderElementsOf(AccountSeed.WEIGHT_EXERCISE_NAMES);
-		assertThat(definitions).allSatisfy(value -> {
-			assertThat(value.getUserId()).isEqualTo(account.id());
-			assertThat(value.getDataGeneration()).isZero();
-			assertThat(value.getCreatedAt()).isNotNull();
-			assertThat(value.getUpdatedAt()).isEqualTo(value.getCreatedAt());
-		});
 		var settings = app.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(account.id(), 0).orElseThrow();
 		assertThat(settings.getUserId()).isEqualTo(account.id());
+		assertThat(settings.getDataGeneration()).isZero();
+		assertThat(settings.getCreatedAt()).isNotNull();
+		assertThat(settings.getUpdatedAt()).isEqualTo(settings.getCreatedAt());
 		assertThat(List.of(settings.getRestLowSeconds(), settings.getRestMediumSeconds(), settings.getRestHighSeconds())).containsExactly(180, 120, 90);
-		assertThat(app.getBean(ExerciseDefinitionRepository.class).findByIdAndUserIdAndDataGeneration(exerciseId, UUID.randomUUID(), 0)).isEmpty();
-		assertThat(app.getBean(ExerciseDefinitionRepository.class).findAllByUserIdAndDataGenerationOrderById(account.id(), 1)).isEmpty();
+		assertThat(app.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(UUID.randomUUID(), 0)).isEmpty();
+		assertThat(app.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(account.id(), 1)).isEmpty();
 		assertThat(rows()).isEqualTo(before);
 		app.close();
 		app = startApplication();
@@ -170,19 +157,16 @@ class JpaJdbcCompatibilityIntegrationTests {
 	@Test
 	void tx02NonzeroLargeGenerationAndMicrosecondTimestampsRoundTripUnchanged() {
 		var owner = UUID.randomUUID();
-		var id = UUID.randomUUID();
 		long generation = 9007199254740993L;
 		var instant = Instant.parse("2026-10-27T00:00:00.123456Z");
 		jdbc.update("INSERT INTO users(id,data_generation) VALUES (?,?)", owner, generation);
-		jdbc.update("INSERT INTO exercise_definitions VALUES (?,?,?,'same name',?,?)", id, owner, generation,
-				java.sql.Timestamp.from(instant), java.sql.Timestamp.from(instant));
 		jdbc.update("INSERT INTO user_workout_settings VALUES (?,?,77,88,99,?,?)", owner, generation,
 				java.sql.Timestamp.from(instant), java.sql.Timestamp.from(instant));
-		var exercise = app.getBean(ExerciseDefinitionRepository.class).findByIdAndUserIdAndDataGeneration(id, owner, generation).orElseThrow();
-		assertThat(exercise.getId()).isEqualTo(id);
-		assertThat(exercise.getDataGeneration()).isEqualTo(generation);
-		assertThat(exercise.getCreatedAt()).isEqualTo(instant);
-		assertThat(exercise.getUpdatedAt()).isEqualTo(instant);
+		var settings = app.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(owner, generation).orElseThrow();
+		assertThat(settings.getUserId()).isEqualTo(owner);
+		assertThat(settings.getDataGeneration()).isEqualTo(generation);
+		assertThat(settings.getCreatedAt()).isEqualTo(instant);
+		assertThat(settings.getUpdatedAt()).isEqualTo(instant);
 		assertThat(app.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(owner, generation).orElseThrow().getRestLowSeconds()).isEqualTo(77);
 	}
 
@@ -194,7 +178,7 @@ class JpaJdbcCompatibilityIntegrationTests {
 			assertSameConnection();
 			assertThat(jdbc.queryForObject("SHOW transaction_isolation", String.class)).isEqualTo("repeatable read");
 			assertThat(jdbc.queryForObject("SHOW transaction_read_only", String.class)).isEqualTo("on");
-			assertThat(app.getBean(ExerciseDefinitionRepository.class).findAllByUserIdAndDataGenerationOrderById(account.id(), 0)).hasSize(20);
+			assertThat(app.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(account.id(), 0)).isPresent();
 		});
 	}
 
@@ -204,21 +188,20 @@ class JpaJdbcCompatibilityIntegrationTests {
 			assertThat(alternate.getBean(PlatformTransactionManager.class))
 					.isSameAs(alternate.getBean("transactionManager"))
 					.isExactlyInstanceOf(org.springframework.jdbc.datasource.DataSourceTransactionManager.class);
-			assertThat(alternate.getBean(ExerciseDefinitionRepository.class)
-					.findAllByUserIdAndDataGenerationOrderById(account.id(), 0)).hasSize(20);
+			assertThat(alternate.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(account.id(), 0)).isPresent();
 		}
 	}
 
 	@Test
 	void tx02ValidateRejectsMissingColumnWithoutRepairingSchema() {
-		jdbc.execute("ALTER TABLE exercise_definitions RENAME COLUMN name TO compat_missing_name");
+		jdbc.execute("ALTER TABLE user_workout_settings RENAME COLUMN rest_medium_seconds TO compat_missing_rest");
 		try {
 			assertThatThrownBy(() -> {
 				try (var unexpected = startApplication()) { throw new AssertionError("Missing column was accepted"); }
 			}).hasRootCauseInstanceOf(org.hibernate.tool.schema.spi.SchemaManagementException.class);
-			assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.columns WHERE table_name='exercise_definitions' AND column_name='name'", Integer.class)).isZero();
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.columns WHERE table_name='user_workout_settings' AND column_name='rest_medium_seconds'", Integer.class)).isZero();
 		} finally {
-			jdbc.execute("ALTER TABLE exercise_definitions RENAME COLUMN compat_missing_name TO name");
+			jdbc.execute("ALTER TABLE user_workout_settings RENAME COLUMN compat_missing_rest TO rest_medium_seconds");
 		}
 	}
 
@@ -228,11 +211,11 @@ class JpaJdbcCompatibilityIntegrationTests {
 		jpa.executeWithoutResult(status -> {
 			assertSameConnection();
 			if (jdbcFirst) jdbc.update("UPDATE user_workout_settings SET rest_low_seconds=321 WHERE user_id=?", account.id());
-			ReflectionTestUtils.setField(entityManager().find(ExerciseDefinition.class, exerciseId), "name", "JPA committed");
+			ReflectionTestUtils.setField(entityManager().find(UserWorkoutSettings.class, account.id()), "restMediumSeconds", 222);
 			entityManager().flush();
 			if (!jdbcFirst) jdbc.update("UPDATE user_workout_settings SET rest_low_seconds=321 WHERE user_id=?", account.id());
 		});
-		assertThat(name()).isEqualTo("JPA committed");
+		assertThat(medium()).isEqualTo(222);
 		assertThat(low()).isEqualTo(321);
 	}
 
@@ -243,7 +226,7 @@ class JpaJdbcCompatibilityIntegrationTests {
 		assertThatThrownBy(() -> jpa.executeWithoutResult(status -> {
 			assertSameConnection();
 			if (jdbcFirst) jdbc.update("UPDATE user_workout_settings SET rest_low_seconds=333 WHERE user_id=?", account.id());
-			ReflectionTestUtils.setField(entityManager().find(ExerciseDefinition.class, exerciseId), "name", "rolled back");
+			ReflectionTestUtils.setField(entityManager().find(UserWorkoutSettings.class, account.id()), "restMediumSeconds", 223);
 			entityManager().flush();
 			if (!jdbcFirst) jdbc.update("UPDATE user_workout_settings SET rest_low_seconds=333 WHERE user_id=?", account.id());
 			throw new IllegalStateException("synthetic rollback");
@@ -255,7 +238,7 @@ class JpaJdbcCompatibilityIntegrationTests {
 	void tx03CommitTimeJpaConstraintFailureAlsoRollsBackJdbc() {
 		var before = rows();
 		assertThatThrownBy(() -> jpa.executeWithoutResult(status -> {
-			ReflectionTestUtils.setField(entityManager().find(ExerciseDefinition.class, exerciseId), "name", " ");
+			ReflectionTestUtils.setField(entityManager().find(UserWorkoutSettings.class, account.id()), "restMediumSeconds", -1);
 			jdbc.update("UPDATE user_workout_settings SET rest_low_seconds=444 WHERE user_id=?", account.id());
 			// No explicit flush: the real constraint fails during transaction completion.
 		})).isInstanceOf(RuntimeException.class);
@@ -265,35 +248,35 @@ class JpaJdbcCompatibilityIntegrationTests {
 	@Test
 	void tx04ExplicitFlushAndRefreshReconcileJdbcAndNativeUpdates() {
 		jpa.executeWithoutResult(status -> {
-			var exercise = entityManager().find(ExerciseDefinition.class, exerciseId);
-			var old = exercise.getName();
-			ReflectionTestUtils.setField(exercise, "name", "flushed JPA");
-			assertThat(name()).isEqualTo(old);
+			var settings = entityManager().find(UserWorkoutSettings.class, account.id());
+			var old = settings.getRestMediumSeconds();
+			ReflectionTestUtils.setField(settings, "restMediumSeconds", 224);
+			assertThat(medium()).isEqualTo(old);
 			entityManager().flush();
-			assertThat(name()).isEqualTo("flushed JPA");
-			jdbc.update("UPDATE exercise_definitions SET name='JDBC update' WHERE id=?", exerciseId);
-			assertThat(exercise.getName()).isEqualTo("flushed JPA");
-			entityManager().refresh(exercise);
-			assertThat(exercise.getName()).isEqualTo("JDBC update");
-			entityManager().createNativeQuery("UPDATE exercise_definitions SET name='native update' WHERE id=:id")
-					.setParameter("id", exerciseId).executeUpdate();
-			assertThat(exercise.getName()).isEqualTo("JDBC update");
+			assertThat(medium()).isEqualTo(224);
+			jdbc.update("UPDATE user_workout_settings SET rest_medium_seconds=225 WHERE user_id=?", account.id());
+			assertThat(settings.getRestMediumSeconds()).isEqualTo(224);
+			entityManager().refresh(settings);
+			assertThat(settings.getRestMediumSeconds()).isEqualTo(225);
+			entityManager().createNativeQuery("UPDATE user_workout_settings SET rest_medium_seconds=226 WHERE user_id=:id")
+					.setParameter("id", account.id()).executeUpdate();
+			assertThat(settings.getRestMediumSeconds()).isEqualTo(225);
 			entityManager().clear();
-			assertThat(entityManager().find(ExerciseDefinition.class, exerciseId).getName()).isEqualTo("native update");
+			assertThat(entityManager().find(UserWorkoutSettings.class, account.id()).getRestMediumSeconds()).isEqualTo(226);
 		});
-		assertThat(name()).isEqualTo("native update");
+		assertThat(medium()).isEqualTo(226);
 	}
 
 	@Test
 	void tx04JdbcConstraintFailureRollsBackAndRecoveryUsesAFreshTransaction() {
 		var before = rows();
 		assertThatThrownBy(() -> jpa.executeWithoutResult(status -> {
-			ReflectionTestUtils.setField(entityManager().find(ExerciseDefinition.class, exerciseId), "name", "not committed");
+			ReflectionTestUtils.setField(entityManager().find(UserWorkoutSettings.class, account.id()), "restMediumSeconds", 227);
 			entityManager().flush();
 			jdbc.update("INSERT INTO user_workout_settings(user_id,data_generation,rest_low_seconds,rest_medium_seconds,rest_high_seconds) VALUES (?,0,1,1,1)", account.id());
 		})).isInstanceOf(DataIntegrityViolationException.class);
 		assertThat(rows()).isEqualTo(before);
-		jpa.executeWithoutResult(status -> assertThat(entityManager().find(ExerciseDefinition.class, exerciseId).getName()).isEqualTo(name()));
+		jpa.executeWithoutResult(status -> assertThat(entityManager().find(UserWorkoutSettings.class, account.id()).getRestMediumSeconds()).isEqualTo(medium()));
 	}
 
 	@Test
@@ -301,15 +284,15 @@ class JpaJdbcCompatibilityIntegrationTests {
 		var email = UUID.randomUUID() + "@example.test";
 		var created = primary.execute(status -> {
 			var pid = jdbc.queryForObject("SELECT pg_backend_pid()", Integer.class);
-			jdbc.update("UPDATE exercise_definitions SET name='outer rollback' WHERE id=?", exerciseId);
+			jdbc.update("UPDATE user_workout_settings SET rest_medium_seconds=228 WHERE user_id=?", account.id());
 			var result = accounts.provision(VerifiedIdentity.email(email), null);
 			assertThat(jdbc.queryForObject("SELECT pg_backend_pid()", Integer.class)).isEqualTo(pid);
 			assertThat(independentJdbc().queryForObject("SELECT count(*) FROM users WHERE id=?", Integer.class, result.id())).isEqualTo(1);
 			status.setRollbackOnly();
 			return result;
 		});
-		assertThat(name()).isNotEqualTo("outer rollback");
-		assertThat(app.getBean(ExerciseDefinitionRepository.class).findAllByUserIdAndDataGenerationOrderById(created.id(), 0)).isEmpty();
+		assertThat(medium()).isNotEqualTo(228);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions WHERE user_id=?",Integer.class,created.id())).isZero();
 		assertThat(app.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(created.id(), 0)).isPresent();
 		assertThat(accounts.provision(VerifiedIdentity.email(email), "ignored")).isEqualTo(created);
 	}
@@ -374,7 +357,7 @@ class JpaJdbcCompatibilityIntegrationTests {
 			var oldId = browser.cookie();
 			var metadata = (SessionMetadata) sessions.findById(oldId).getAttribute(SessionMetadata.ATTRIBUTE);
 			var owner = metadata.userId();
-			assertThat(app.getBean(ExerciseDefinitionRepository.class).findAllByUserIdAndDataGenerationOrderById(owner, 0)).isEmpty();
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions WHERE user_id=?",Integer.class,owner)).isZero();
 			var proof = message(browser.post("/api/v1/auth/reauth/email/request", Map.of(), browser.csrf()));
 			var body = Map.of("challengeId", proof.issuanceId(), "code", proof.code());
 			jdbc.execute("CREATE OR REPLACE FUNCTION compat_rotation_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic rotation fault' USING ERRCODE='23514'; END $$");
@@ -416,8 +399,8 @@ class JpaJdbcCompatibilityIntegrationTests {
 		var spring = jdbc.queryForObject("SELECT pg_backend_pid(), txid_current()", (row, index) -> List.of(row.getLong(1), row.getLong(2)));
 		assertThat(spring).isEqualTo(hibernate);
 	}
-	private Object rows() { return List.of(jdbc.queryForList("SELECT * FROM exercise_definitions WHERE user_id=? ORDER BY id", account.id()), jdbc.queryForList("SELECT * FROM user_workout_settings WHERE user_id=?", account.id())); }
-	private String name() { return jdbc.queryForObject("SELECT name FROM exercise_definitions WHERE id=?", String.class, exerciseId); }
+	private Object rows() { return jdbc.queryForList("SELECT * FROM user_workout_settings WHERE user_id=?", account.id()); }
+	private int medium() { return jdbc.queryForObject("SELECT rest_medium_seconds FROM user_workout_settings WHERE user_id=?", Integer.class, account.id()); }
 	private int low() { return jdbc.queryForObject("SELECT rest_low_seconds FROM user_workout_settings WHERE user_id=?", Integer.class, account.id()); }
 	private JdbcTemplate independentJdbc() { return new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())); }
 	private static String randomKey() { var bytes = new byte[32]; new SecureRandom().nextBytes(bytes); return Base64.getEncoder().encodeToString(bytes); }

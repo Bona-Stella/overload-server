@@ -12,14 +12,13 @@ Google auth_time 재인증은 별도 기본 비활성 실험 기능이며, 민�
 | 요청 | JSON | 성공 |
 |---|---|---|
 | GET /api/v1/auth/identities | 없음 | 200 `{identities:[{id,provider}]}` |
-| POST /api/v1/auth/reauth/email/request | `{}`, 선택적 기존 `identityId` | 202 `{status:"ACCEPTED",challengeId}` |
-| POST /api/v1/auth/reauth/email/verify | `{challengeId,code}`, 선택적 기존 `identityId` | 204, 회전된 SESSION 쿠키 |
+| POST /api/v1/auth/reauth/email/request | `{}` | 202 `{status:"ACCEPTED",challengeId}` |
+| POST /api/v1/auth/reauth/email/verify | `{challengeId,code}` | 204, 회전된 SESSION 쿠키 |
 
-identityId와 challengeId는 UUID, code는 선행 0을 보존하는 6자리 문자열이다.
+challengeId는 UUID, code는 선행 0을 보존하는 6자리 문자열이다.
 조회는 자기 계정의 identity UUID와 소문자 provider만 반환한다. 원문/가린 이메일, issuer, sub, OAuth 토큰은 반환하지 않는다.
-타인의 identity UUID, 없는 UUID, Google identity로 발급·검증하면 같은 404 `IDENTITY_NOT_FOUND`다.
-기존 EMAIL identity 입력을 사용할 때는 소유자·provider·issuer 및 대표 이메일과의 일치를 매 단계 다시 검사한다.
-대표 주소와 다른 자기 EMAIL identity는 409 `REAUTH_EMAIL_MISMATCH`이며 해당 주소로 발송하지 않는다.
+재인증 대상은 인증된 사용자에 대해 서버에서 확인한 현재 VERIFIED 대표 연락처 하나로 고정한다.
+2026-11-03 승인으로 선택적 `identityId` 입력을 제거했다. 인증·CSRF 검사를 통과한 발급·검증 JSON에 해당 필드가 있으면 값이 null이어도 400 `INVALID_REQUEST`이며 발송·OTP 소비를 수행하지 않는다. 알 수 없는 필드는 기존 요청별 JSON 검증으로 거절한다.
 대표 이메일이 없으면 409 `REAUTH_EMAIL_REQUIRED`다. 최초 등록/조회/취소 API는 공통 계약 문서를 따른다.
 
 모든 경로는 인증된 세션이 필요하다(익명 401). POST에는 같은 쿠키 세션으로

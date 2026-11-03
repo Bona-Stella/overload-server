@@ -1,12 +1,14 @@
-# Statistics API — Phase 2A
+# Statistics API — Overview
+
+2026-11-03 사용자 승인으로 `GET /api/v1/statistics`와 종료 세션 InitialPlan만 더하던 전용 진입점을 제거했다. 현재 통계 조회는 `/api/v1/statistics/overview`를 사용하며 성장 조회는 기존 경로를 유지한다. 아래 2A 본문은 과거 구현 기록이고, 현행 계획 범위는 overview 절을 따른다.
 
 2E 현행 맨몸 총중량 계산은 [Bodyweight Additional Load](bodyweight-additional-load.md)를 따른다. BODYWEIGHT는 별도 명시된 추가 중량×실제 반복만 사용하며, 과거 weight/체중을 재해석하지 않는다. 무근거는null·세트/반복만 표시한다. 아래 ‘추가 부하 후속’은2A 당시 기록이며 최신 종목/근육/group/주·월 집계에는2E 계약이 우선한다.
 
-2D의 실제 유산소 속도·거리 출처·overview cardioByKind는 [Actual Cardio Measurements](cardio-actual-measurements.md)를 따른다. 기존2A 응답 형태는 유지하며, 아래 ‘실제 속도/계산 거리 후속’ 설명은2A/2B 시점 기록이다.
+2D의 실제 유산소 속도·거리 출처·overview cardioByKind는 [Actual Cardio Measurements](cardio-actual-measurements.md)를 따른다. 2A 응답 설명은 과거 기록이며, 아래 ‘실제 속도/계산 거리 후속’ 설명은2A/2B 시점 기록이다.
 
-2C 승인 성장 추적의 실제 조회 계약은 [Approved Weight Growth API](approved-weight-growth.md)를 따른다. 이하2A/2B endpoint는 보존한다.
+2C 승인 성장 추적의 실제 조회 계약은 [Approved Weight Growth API](approved-weight-growth.md)를 따른다. 성장 조회와 overview endpoint를 유지한다.
 
-현행 보완: [2B 주간 일정·계획 이력](weekly-schedule.md)과 아래 overview endpoint를 추가했다. 기존 이 문서의 `/api/v1/statistics`는 2A 계약대로 유지한다. 최신 정책은 [Statistics and Tracking v1.3](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md)이며 v1.1·v1.2 원본은 보존했다.
+현행 보완: [2B 주간 일정·계획 이력](weekly-schedule.md)과 아래 overview endpoint를 추가했다. 이전 `/api/v1/statistics`는 제거했다. 최신 정책은 [Statistics and Tracking v1.3](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md)이며 v1.1·v1.2 원본은 보존했다.
 
 2026-11-02 (Asia/Seoul). **통계·추적 2단계의 첫 구현 단위**다. 기준은 [Statistics and Tracking v1.1](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.1.md)이며 제품 본문은 한국어로 유지했다. 디로딩 정책은 [Deloading v1.2](../product/Overload_Deloading_Design_Specification_v1.2.md)를 따른다.
 
@@ -16,7 +18,7 @@
 
 기존 principal·현재 dataGeneration, workoutTransactionManager의 read-only REPEATABLE_READ 트랜잭션을 사용한다. 요청의 userId/generation 입력은 받지 않는다. 조회가 세션 만료·takeover·승인·운동 동기화 시각을 갱신하지 않는다. Spring Session의 기존 인증/쿠키/CSRF 정책은 유지한다.
 
-## GET /api/v1/statistics
+## 과거 2A 계약 기록 — GET /api/v1/statistics (제거됨)
 
 필수 query는 `fromDate=YYYY-MM-DD&toDateExclusive=YYYY-MM-DD` 두 개뿐이다. 종료일 배타 범위, 1~366일을 허용한다. 이는 조회량을 제한하는 기술 계약이며 주/월 보정 정책이 아니다. 기간 전체 성장은 별도 후속 계약이며 이 API의 366일 제한을 전체 성장 이력의 제품 제한으로 사용하지 않는다.
 
@@ -76,7 +78,7 @@ Weight = { plannedSets, completedSets, reps, volumeLoadKg, setsWithoutVolume }
 
 ## GET /api/v1/statistics/overview — 2B
 
-날짜 query·인증·no-store·오류 형식은 원래 statistics와 같다. 기존 endpoint의 고정 null·coverage 계약을 깨지 않도록 새 endpoint로 제공한다.
+날짜 query·인증·no-store·오류 형식은 위 조회 규칙을 따른다. 현재 통계 endpoint이며 전체 일정·계획 이력에 근거한 coverage를 반환한다.
 
 ```text
 { statistics: StatisticsResponse,

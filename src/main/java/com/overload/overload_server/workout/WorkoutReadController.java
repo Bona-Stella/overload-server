@@ -19,13 +19,6 @@ public class WorkoutReadController {
 		this.service = service;
 	}
 
-	@GetMapping("/api/v1/exercises")
-	ResponseEntity<ExerciseListResponse> exercises(@AuthenticationPrincipal SessionPrincipal principal,
-			HttpServletRequest request) {
-		validate(request);
-		return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.exercises(principal.userId()));
-	}
-
 	@GetMapping("/api/v1/workout-settings")
 	ResponseEntity<WorkoutSettingsResponse> settings(@AuthenticationPrincipal SessionPrincipal principal,
 			HttpServletRequest request) {

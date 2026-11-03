@@ -4,7 +4,6 @@ import com.overload.overload_server.OverloadServerApplication;
 import com.overload.overload_server.account.AccountProvisioningService;
 import com.overload.overload_server.account.AccountSeed;
 import com.overload.overload_server.account.VerifiedIdentity;
-import com.overload.overload_server.exercise.ExerciseDefinitionRepository;
 import com.overload.overload_server.workoutsettings.UserWorkoutSettingsRepository;
 import com.overload.testfixture.MixedPersistenceAssertions;
 import org.flywaydb.core.Flyway;
@@ -67,11 +66,8 @@ class V9MigrationCompatibilityTests {
 			assertThat(jdbc.queryForList("SELECT * FROM auth_identities ORDER BY id")).isEqualTo(identities);
 			assertThat(jdbc.queryForList("SELECT id,user_id,data_generation,name,created_at,updated_at FROM exercise_definitions ORDER BY id")).isEqualTo(exercises);
 			assertThat(jdbc.queryForList("SELECT user_id,data_generation,rest_low_seconds,rest_medium_seconds,rest_high_seconds,created_at,updated_at FROM user_workout_settings")).isEqualTo(settings);
-			var mapped = app.getBean(ExerciseDefinitionRepository.class).findAllByUserIdAndDataGenerationOrderById(owner, generation);
-			assertThat(mapped).hasSize(2).allSatisfy(value -> {
-				assertThat(value.getName()).isEqualTo("  同名 벤치 Ω  ");
-				assertThat(value.getVersion()).isZero(); assertThat(value.getDeletedAt()).isNull();
-			});
+			assertThat(jdbc.queryForList("SELECT version FROM exercise_definitions WHERE user_id=?",Long.class,owner)).containsOnly(0L);
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions WHERE user_id=? AND deleted_at IS NOT NULL",Integer.class,owner)).isZero();
 			assertThat(app.getBean(UserWorkoutSettingsRepository.class).findByUserIdAndDataGeneration(owner, generation).orElseThrow().getRestLowSeconds()).isEqualTo(17);
 			var provisioning = app.getBean(AccountProvisioningService.class);
 			assertThat(provisioning.provision(identity, null).id()).isEqualTo(owner);

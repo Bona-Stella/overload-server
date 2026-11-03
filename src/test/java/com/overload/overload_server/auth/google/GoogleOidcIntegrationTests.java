@@ -154,9 +154,9 @@ class GoogleOidcIntegrationTests {
 		assertThat(identities.statusCode()).isEqualTo(200);
 		assertThat(identities.body()).contains("google", ownId.toString()).doesNotContain("@", provider.subject, foreignId.toString());
 		for (var identity : List.of(ownId, foreignId)) {
-			assertThat(post(browser, "/api/v1/auth/reauth/email/request", Map.of("identityId", identity), csrf(browser)).statusCode()).isEqualTo(404);
+			assertThat(post(browser, "/api/v1/auth/reauth/email/request", Map.of("identityId", identity), csrf(browser)).statusCode()).isEqualTo(400);
 			assertThat(post(browser, "/api/v1/auth/reauth/email/verify", Map.of("identityId", identity,
-					"challengeId", UUID.randomUUID(), "code", "000007"), csrf(browser)).statusCode()).isEqualTo(404);
+					"challengeId", UUID.randomUUID(), "code", "000007"), csrf(browser)).statusCode()).isEqualTo(400);
 		}
 		assertThat(application.getBean(EmailOtpFixtures.FakeSender.class).messages).isEmpty();
 		assertThat(count("SELECT count(*) FROM users")).isEqualTo(2);

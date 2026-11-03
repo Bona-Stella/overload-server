@@ -84,9 +84,8 @@ JSON의 알 수 없는 필드와 발급/검증 URL의 주소 입력 파라미터
 | POST /api/v1/auth/reauth/email/request | `{}` | 202 `{status:"ACCEPTED",challengeId}` |
 | POST /api/v1/auth/reauth/email/verify | `{challengeId,code}` | 204 + 회전된 세션 쿠키 |
 
-기존 3B-1의 선택적 `identityId` 요청은 호환된다. 입력하면 현재 소유 EMAIL identity이고 그 주소가 대표 이메일과
-같아야 한다. 다른 소유자/Google identity는 404 `IDENTITY_NOT_FOUND`, 다른 자기 EMAIL 주소는 409
-`REAUTH_EMAIL_MISMATCH`이며 발송하지 않는다. identityId를 생략한 공통 경로가 권장된다.
+2026-11-03 승인으로 이메일 재인증 JSON의 선택적 `identityId` 입력 지원을 제거했다.
+발급은 `{}`, 검증은 `{challengeId,code}`만 사용한다. 인증·CSRF 검사 이후 `identityId`는 null을 포함한 어떤 값이라도 400 `INVALID_REQUEST`이며 발송·OTP 소비를 수행하지 않는다. 대상은 서버의 현재 VERIFIED 대표 연락처로 결정하고, 진행 중 연락처와 원본 세션을 다시 검증한다. Google CONTACT form의 identityId 계약은 그대로다.
 대표 이메일 없으면 409 `REAUTH_EMAIL_REQUIRED`, 이미 등록된 최초 등록 시도는 409
 `REAUTH_EMAIL_ALREADY_VERIFIED`다. 형식 400, 잘못된/만료/다른 세션 증명 401 `OTP_INVALID`, 세션 만료/교체
 401 `AUTHENTICATION_REQUIRED`, 제한 429 `OTP_RATE_LIMITED`+Retry-After, 발송/DB 설정 장애 503 `OTP_UNAVAILABLE`을 사용한다.

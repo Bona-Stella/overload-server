@@ -27,8 +27,8 @@ V1 출시 전 설계 우선·호환성·단순화·리팩터링·테스트 기�
 
 Task 007의 확정 정책과 구현 단계는 [Task 006 최종 설계 v0.3.1](../tasks/task-006-integrated-design-v0.3.1.md)을 따릅니다.
 운동 쓰기·진행 세션·복구는 [Task 009 v1.0](../tasks/task-009-redesign-v1.0.md)이 우선합니다.
-Task 006의 나머지 운동·인증 정책과 기존 Task 008 조회 계약은 유지합니다.
-일반 온라인 종목 생성·이름 변경·휴식 설정 변경은 [온라인 쓰기 API 계약](../api/workout-online-write.md)을 따릅니다.
+Task 006의 나머지 운동·인증 정책과 Task 008의 휴식 설정 조회 계약은 유지합니다. 개인 운동 GET과 전용 Entity·Repository는 3단계 승인 정리에서 제거했으며 DB·Flyway 이력은 보존합니다.
+현재 온라인 휴식 설정 변경과 개인 운동 POST/PATCH 차단·내부 구현 제거 상태는 [온라인 쓰기 API 계약](../api/workout-online-write.md)을 따릅니다.
 웨이트·유산소 루틴 관리 및 명시적 승인 중량 변경은 [루틴 온라인 계약](../api/routine-management.md)을 따릅니다.
 세션 START·조회·takeover·snapshot·승인 해결·FINISH·최초 평가·AUTO_CLOSED와 종료 후 정정/명시 복구/논리 삭제/현재 평가/승인 해결은 [세션 계약](../api/workout-sessions.md)을 따릅니다. 개인 개발 DB는 2026-11-01 사용자 명시 승인으로 테스트 데이터를 폐기하고 V1~V15를 신규 적용했습니다. [재구성 보고서](../tasks/task-009-dev-v15-rebuild-report.md)를 확인하며 다른 DB·후속 파괴적 작업은 별도 승인합니다.
 현재 개인 개발 DB는 2026-11-02 승인으로 V16·V17을 추가 적용했고 Frontend/IndexedDB3·PWA 실제 연동도 확인했습니다. [4단계 적용·검증](../tasks/standard-exercise-catalog-dev-phase-4-report.md)을 따릅니다. 만료 요청은 자동 종료를 커밋한 뒤 오류로 변환하며, 트랜잭션 안의 예외로 정상 만료를 롤백하지 않습니다. 종료 후 편집은 expectedVersion을 사용하고 확인 불가 복구 문맥은 UNVERIFIED로 보존합니다.

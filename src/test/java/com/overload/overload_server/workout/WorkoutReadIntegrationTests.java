@@ -3,7 +3,6 @@ package com.overload.overload_server.workout;
 import com.overload.overload_server.OverloadServerApplication;
 import com.overload.overload_server.account.Account;
 import com.overload.overload_server.account.AccountProvisioningService;
-import com.overload.overload_server.account.AccountSeed;
 import com.overload.overload_server.account.VerifiedIdentity;
 import com.overload.testfixture.EmailOtpFixtures;
 import com.overload.testfixture.MixedPersistenceAssertions;
@@ -83,7 +82,6 @@ class WorkoutReadIntegrationTests {
 		jdbc.update("DELETE FROM email_otp_rate_limits");
 		email = UUID.randomUUID() + "@example.test";
 		owner = app.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email(email), null);
-		com.overload.testfixture.CatalogFixtures.personalExercises(jdbc, owner.id());
 		browser = new Browser(); browser.login(email);
 	}
 
@@ -93,7 +91,7 @@ class WorkoutReadIntegrationTests {
 	}
 	@AfterAll static void stop() { if (app != null) app.close(); }
 
-	@ParameterizedTest @ValueSource(strings = {EXERCISES, SETTINGS})
+	@ParameterizedTest @ValueSource(strings = {SETTINGS})
 	void anonymousExpiredAndMissingOwnersAreUnauthorized(String path) throws Exception {
 		try (var anonymous = new Browser()) { error(anonymous.get(path), 401, "AUTHENTICATION_REQUIRED"); }
 		var before = snapshot();
@@ -113,26 +111,9 @@ class WorkoutReadIntegrationTests {
 		error(browser.get(path), 401, "AUTHENTICATION_REQUIRED");
 	}
 
-	@Test void seedEditedValuesExactNamesAndUuidOrderArePreserved(TestReporter reporter) throws Exception {
+	@Test void editedSettingsArePreserved(TestReporter reporter) throws Exception {
 		jdbc.update("UPDATE user_workout_settings SET rest_low_seconds=17,rest_medium_seconds=29,rest_high_seconds=43 WHERE user_id=?", owner.id());
-		var expected = jdbc.queryForList("SELECT id,name FROM exercise_definitions WHERE user_id=? ORDER BY id", owner.id());
-		var id = expected.getFirst().get("id");
-		jdbc.update("UPDATE exercise_definitions SET name=? WHERE id=?", "  동명 종목 Ω  ", id);
 		var original = snapshot();
-		var exerciseResponse = browser.get(EXERCISES);
-		reporter.publishEntry("actualExerciseResponse", exerciseResponse.body());
-		var exercises = success(exerciseResponse);
-		assertThat(exercises.size()).isEqualTo(3);
-		assertThat(exercises.get("userId").asString()).isEqualTo(owner.id().toString());
-		assertThat(exercises.get("dataGeneration").isString()).isTrue();
-		assertThat(exercises.get("dataGeneration").asString()).isEqualTo("0");
-		var values = exercises.get("exercises");
-		assertThat(values.size()).isEqualTo(20);
-		for (int index = 0; index < 20; index++) {
-			assertThat(values.get(index).size()).isEqualTo(2);
-			assertThat(values.get(index).get("id").asString()).isEqualTo(expected.get(index).get("id").toString());
-		}
-		assertThat(values.get(0).get("name").asString()).isEqualTo("  동명 종목 Ω  ");
 		var settingsResponse = browser.get(SETTINGS);
 		reporter.publishEntry("actualSettingsResponse", settingsResponse.body());
 		var settings = success(settingsResponse);
@@ -145,24 +126,19 @@ class WorkoutReadIntegrationTests {
 		assertThat(snapshot()).isEqualTo(original);
 	}
 
-	@Test void twoAccountsAreIsolatedAndOriginalSeedNamesAreReturned() throws Exception {
+	@Test void twoAccountsSettingsAreIsolated() throws Exception {
 		try (var other = new Browser()) {
 			other.login(UUID.randomUUID() + "@example.test");
 			var otherId = UUID.fromString(JSON.readTree(other.get("/api/v1/auth/session").body()).get("userId").asString());
 			jdbc.update("UPDATE user_workout_settings SET rest_low_seconds=99 WHERE user_id=?", otherId);
-			var mine = success(browser.get(EXERCISES));
-			var theirs = success(other.get(EXERCISES));
-			var names = new ArrayList<String>(); var ids = new HashSet<String>();
-			mine.get("exercises").forEach(item -> { ids.add(item.get("id").asString()); names.add(item.get("name").asString()); });
-			assertThat(names).containsExactlyInAnyOrderElementsOf(AccountSeed.WEIGHT_EXERCISE_NAMES);
-			assertThat(theirs.get("userId").asString()).isEqualTo(otherId.toString());
-			theirs.get("exercises").forEach(item -> assertThat(ids).doesNotContain(item.get("id").asString()));
+			assertThat(success(browser.get(SETTINGS)).get("userId").asString()).isEqualTo(owner.id().toString());
+			assertThat(success(other.get(SETTINGS)).get("userId").asString()).isEqualTo(otherId.toString());
 			assertThat(success(browser.get(SETTINGS)).get("restLowSeconds").asInt()).isEqualTo(180);
 			assertThat(success(other.get(SETTINGS)).get("restLowSeconds").asInt()).isEqualTo(99);
 		}
 	}
 
-	@ParameterizedTest @ValueSource(strings = {EXERCISES, SETTINGS})
+	@ParameterizedTest @ValueSource(strings = {SETTINGS})
 	void arbitraryQueriesAndGetBodiesAreRejectedWithoutWorkoutSql(String path) throws Exception {
 		var observed = new CopyOnWriteArrayList<String>();
 		WorkoutReadFixtures.observer = event -> { if (event.before()) observed.add(event.sql()); };
@@ -173,11 +149,10 @@ class WorkoutReadIntegrationTests {
 		assertThat(observed).noneMatch(WorkoutReadIntegrationTests::workoutSql);
 	}
 
-	@Test void emptyExercisesAndMissingSettingsNeverRepairTheSeed() throws Exception {
+	@Test void missingSettingsNeverRepairTheSeed() throws Exception {
 		jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", owner.id());
 		jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", owner.id());
 		var before = snapshot();
-		assertThat(success(browser.get(EXERCISES)).get("exercises").isEmpty()).isTrue();
 		error(browser.get(SETTINGS), 500, "WORKOUT_SETTINGS_MISSING");
 		assertThat(snapshot()).isEqualTo(before);
 	}
@@ -186,7 +161,7 @@ class WorkoutReadIntegrationTests {
 	void bigGenerationIsAnExactJsonString(long generation) throws Exception {
 		replaceGeneration(generation);
 		var original = snapshot();
-		for (var path : List.of(EXERCISES, SETTINGS)) {
+		for (var path : List.of(SETTINGS)) {
 			var value = success(browser.get(path)).get("dataGeneration");
 			assertThat(value.isString()).isTrue();
 			assertThat(value.asString()).isEqualTo(Long.toString(generation));
@@ -194,7 +169,7 @@ class WorkoutReadIntegrationTests {
 		assertThat(snapshot()).isEqualTo(original);
 	}
 
-	@ParameterizedTest @ValueSource(strings = {EXERCISES, SETTINGS})
+	@ParameterizedTest @ValueSource(strings = {SETTINGS})
 	void generationAndDataShareOneReadOnlyRepeatableReadSnapshot(String path) throws Exception {
 		var executions = new CopyOnWriteArrayList<String>();
 		var samples = new CopyOnWriteArrayList<List<Long>>();
@@ -224,8 +199,7 @@ class WorkoutReadIntegrationTests {
 		WorkoutReadFixtures.observer = null;
 		assertThat(changed).isTrue();
 		assertThat(result.get("dataGeneration").asString()).isEqualTo("0");
-		if (path.equals(EXERCISES)) assertThat(result.get("exercises").size()).isEqualTo(20);
-		else assertThat(result.get("restLowSeconds").asInt()).isEqualTo(180);
+		assertThat(result.get("restLowSeconds").asInt()).isEqualTo(180);
 		assertThat(samples).hasSize(2).containsOnly(samples.getFirst());
 		assertThat(requestIds).hasSize(2).containsOnly(response.headers().firstValue("X-Request-ID").orElseThrow());
 		assertThat(executions.stream().filter(WorkoutReadIntegrationTests::workoutSql).toList()).hasSize(2)
@@ -234,11 +208,10 @@ class WorkoutReadIntegrationTests {
 		assertThat(executions).noneMatch(sql -> sql.toLowerCase(Locale.ROOT).matches("(?s).*(insert into|update|delete from) (users|exercise_definitions|user_workout_settings).*"));
 		var current = success(browser.get(path));
 		assertThat(current.get("dataGeneration").asString()).isEqualTo("1");
-		if (path.equals(EXERCISES)) assertThat(current.get("exercises").size()).isEqualTo(1);
-		else assertThat(current.get("restLowSeconds").asInt()).isEqualTo(77);
+		assertThat(current.get("restLowSeconds").asInt()).isEqualTo(77);
 	}
 
-	@ParameterizedTest @ValueSource(strings = {EXERCISES, SETTINGS})
+	@ParameterizedTest @ValueSource(strings = {SETTINGS})
 	void securityExceptionsStillReachExistingSecurityHandlers(String path) throws Exception {
 		WorkoutReadFixtures.observer = event -> { if (event.before() && workoutSql(event.sql())) throw new AccessDeniedException("synthetic private detail"); };
 		error(browser.get(path), 403, "ACCESS_DENIED");
@@ -258,13 +231,13 @@ class WorkoutReadIntegrationTests {
 	}
 
 	@Test void actualSqlMappingFailureIs500WithoutSqlLeakage() throws Exception {
-		jdbc.execute("ALTER TABLE exercise_definitions RENAME COLUMN name TO compat_hidden_name");
-		try { error(browser.get(EXERCISES), 500, "WORKOUT_DATA_READ_FAILED"); }
-		finally { jdbc.execute("ALTER TABLE exercise_definitions RENAME COLUMN compat_hidden_name TO name"); }
-		assertThat(success(browser.get(EXERCISES)).get("exercises").size()).isEqualTo(20);
+		jdbc.execute("ALTER TABLE user_workout_settings RENAME COLUMN rest_low_seconds TO compat_hidden_rest");
+		try { error(browser.get(SETTINGS), 500, "WORKOUT_DATA_READ_FAILED"); }
+		finally { jdbc.execute("ALTER TABLE user_workout_settings RENAME COLUMN compat_hidden_rest TO rest_low_seconds"); }
+		assertThat(success(browser.get(SETTINGS)).get("restLowSeconds").asInt()).isEqualTo(180);
 	}
 
-	@ParameterizedTest @ValueSource(strings = {EXERCISES, SETTINGS})
+	@ParameterizedTest @ValueSource(strings = {SETTINGS})
 	void actualLostWorkoutConnectionIs503AndNextRequestRecovers(String path) throws Exception {
 		var killed = new AtomicBoolean();
 		WorkoutReadFixtures.observer = event -> {
@@ -293,12 +266,20 @@ class WorkoutReadIntegrationTests {
 	}
 
 	@Test void unsupportedMethodsRetain405RatherThanBecoming500() throws Exception {
-		// POST is now supported; PUT remains unsupported and must keep MVC's 405 boundary.
+		// The settings GET/PATCH contract keeps MVC's unsupported-method boundary.
 		var token = browser.csrf();
-		var result = browser.send("PUT", EXERCISES, "{}", token);
+		var result = browser.send("PUT", SETTINGS, "{}", token);
 		assertThat(result.statusCode()).isEqualTo(405);
 		headers(result);
 		error(browser.send("POST", EXERCISES, "{}", token), 403, "ACCESS_DENIED");
+	}
+
+	@Test void retiredPersonalGetHasNoHandlerAndKeepsAuthenticationBoundary() throws Exception {
+		try (var anonymous = new Browser()) { error(anonymous.get(EXERCISES),401,"AUTHENTICATION_REQUIRED"); }
+		assertThat(browser.get(EXERCISES).statusCode()).isEqualTo(404);
+		assertThat(app.getBean(org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping.class)
+				.getHandlerMethods().keySet().stream().flatMap(mapping -> mapping.getPatternValues().stream()))
+				.doesNotContain(EXERCISES).contains(SETTINGS);
 	}
 
 	Object snapshot() {
@@ -315,7 +296,6 @@ class WorkoutReadIntegrationTests {
 				writer.update("DELETE FROM exercise_definitions WHERE user_id=?", owner.id());
 				writer.update("DELETE FROM user_workout_settings WHERE user_id=?", owner.id());
 				writer.update("UPDATE users SET data_generation=? WHERE id=?", generation, owner.id());
-				writer.update("INSERT INTO exercise_definitions(id,user_id,data_generation,name) VALUES (?,?,?,'new generation')", UUID.randomUUID(), owner.id(), generation);
 				writer.update("INSERT INTO user_workout_settings(user_id,data_generation,rest_low_seconds,rest_medium_seconds,rest_high_seconds) VALUES (?,?,77,88,99)", owner.id(), generation);
 				connection.commit();
 			} catch (Throwable failure) { connection.rollback(); throw failure; }

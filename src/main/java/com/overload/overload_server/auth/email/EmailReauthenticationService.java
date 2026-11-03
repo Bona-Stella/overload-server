@@ -22,17 +22,17 @@ public class EmailReauthenticationService {
 		this.challenges = login.challenges(); this.identities = identities; this.sessions = sessions; this.contacts=contacts;
 	}
 
-	public UUID request(UUID user, UUID identity, HttpServletRequest request) {
+	public UUID request(UUID user, HttpServletRequest request) {
 		var snapshot = sessions.capture(request, user);
-		var context = context(snapshot, identity);
-		return challenges.request(context, request.getRemoteAddr(), () -> validate(context, snapshot, identity));
+		var context = context(snapshot);
+		return challenges.request(context, request.getRemoteAddr(), () -> validate(context, snapshot));
 	}
 
-	public void verify(UUID user, UUID identity, UUID challenge, String code, HttpServletRequest request, HttpServletResponse response) {
+	public void verify(UUID user, UUID challenge, String code, HttpServletRequest request, HttpServletResponse response) {
 		var snapshot = sessions.capture(request, user);
-		var context = context(snapshot, identity);
+		var context = context(snapshot);
 		var rotation = challenges.consume(context, challenge, code, request.getRemoteAddr(),
-				() -> validate(context, snapshot, identity), now -> {
+				() -> validate(context, snapshot), now -> {
 					var updated = sessions.rotateWithEmailProof(snapshot,EmailOwnershipProof.verified(context.contactId(),context.email(),now,EmailOwnershipProof.Source.EMAIL_REAUTH));
 					sessions.validateRotation(updated);
 					return updated;
@@ -40,19 +40,15 @@ public class EmailReauthenticationService {
 		sessions.complete(request, response, rotation);
 	}
 
-	private OtpChallenges.Context context(SessionReauthentication.Snapshot snapshot, UUID identity) {
-		var legacy=identity==null?null:identities.email(snapshot.userId(),identity,false).orElseThrow(()->new OtpFailure(404,"IDENTITY_NOT_FOUND"));
+	private OtpChallenges.Context context(SessionReauthentication.Snapshot snapshot) {
 		var contact=contacts.contact(snapshot.userId()).orElseThrow(()->new OtpFailure(409,"REAUTH_EMAIL_REQUIRED"));
-		if(legacy!=null&&!legacy.email().equals(contact.email())){throw new OtpFailure(409,"REAUTH_EMAIL_MISMATCH");}
 		return new OtpChallenges.Context(OtpPurpose.REAUTH,contact.email(),ReauthenticationEmails.binding(snapshot,contact.id()),snapshot.userId(),null,contact.id());
 	}
 
-	private void validate(OtpChallenges.Context context, SessionReauthentication.Snapshot snapshot, UUID legacyIdentity) {
+	private void validate(OtpChallenges.Context context, SessionReauthentication.Snapshot snapshot) {
 		contacts.lockUser(snapshot.userId());
 		var contact=contacts.contact(snapshot.userId()).orElseThrow(()->new OtpFailure(409,"REAUTH_EMAIL_REQUIRED"));
 		if(!contact.id().equals(context.contactId())||!contact.email().equals(context.email())){throw new SessionReauthentication.SessionChanged();}
-		if(legacyIdentity!=null){var owned=identities.email(snapshot.userId(),legacyIdentity,true).orElseThrow(()->new OtpFailure(404,"IDENTITY_NOT_FOUND"));
-			if(!owned.email().equals(contact.email())){throw new OtpFailure(409,"REAUTH_EMAIL_MISMATCH");}}
 		sessions.validate(snapshot);
 	}
 

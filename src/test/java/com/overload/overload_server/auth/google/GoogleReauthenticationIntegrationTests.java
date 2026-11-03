@@ -296,10 +296,10 @@ class GoogleReauthenticationIntegrationTests {
 		try(var emailProof=new Browser()){otpLogin(emailProof,email);}
 		identity=googleIdentity;
 		var flow=begin(browser); var csrf=csrf(browser);
-		var issued=post(browser,"/api/v1/auth/reauth/email/request",Map.of("identityId",emailIdentity),csrf);
+		var issued=post(browser,"/api/v1/auth/reauth/email/request",Map.of(),csrf);
 		assertThat(issued.statusCode()).isEqualTo(202); var challenge=UUID.fromString(JSON.readTree(issued.body()).get("challengeId").asString());
 		var message=app.getBean(EmailOtpFixtures.FakeSender.class).messages.get(challenge);
-		assertThat(post(browser,"/api/v1/auth/reauth/email/verify",Map.of("identityId",emailIdentity,"challengeId",challenge,"code",message.code()),csrf).statusCode()).isEqualTo(204);
+		assertThat(post(browser,"/api/v1/auth/reauth/email/verify",Map.of("challengeId",challenge,"code",message.code()),csrf).statusCode()).isEqualTo(204);
 		assertFailure(complete(browser,flow)); assertSuccess(complete(browser,begin(browser)));
 		assertThat(metadata(browser).userId().equals(user)).isTrue(); assertThat(count("SELECT count(*) FROM users")).isEqualTo(1);
 	}

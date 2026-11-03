@@ -84,7 +84,7 @@ class V10MigrationIntegrationTests {
             MixedPersistenceAssertions.verify(context);
             var account = context.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email("fresh-v10@example.test"), null);
             var read = context.getBean(WorkoutReadService.class);
-            assertThat(read.exercises(account.id()).exercises()).isEmpty();
+            assertThat(jdbc().queryForObject("SELECT count(*) FROM exercise_definitions WHERE user_id=?",Integer.class,account.id())).isZero();
             assertThat(read.settings(account.id()).restLowSeconds()).isEqualTo(180);
         }
         assertThat(flyway.migrate().migrationsExecuted).isZero();
@@ -124,13 +124,13 @@ class V10MigrationIntegrationTests {
         try (var context = app(true)) {
             MixedPersistenceAssertions.verify(context);
             var read = context.getBean(WorkoutReadService.class);
-            assertThat(read.exercises(owner).dataGeneration()).isEqualTo(9007199254740993L);
-            assertThat(read.exercises(owner).exercises()).hasSize(1);
+            assertThat(read.settings(owner).dataGeneration()).isEqualTo(9007199254740993L);
+            assertThat(jdbc().queryForObject("SELECT count(*) FROM exercise_definitions WHERE user_id=?",Integer.class,owner)).isEqualTo(1);
             assertThat(read.settings(owner).restLowSeconds()).isEqualTo(17);
             var provisioning = context.getBean(AccountProvisioningService.class);
             assertThat(provisioning.provision(VerifiedIdentity.email("preserved-v10@example.test"),null).id()).isEqualTo(emailOwner);
             assertThat(provisioning.provision(VerifiedIdentity.google(VerifiedIdentity.GOOGLE_ISSUER,"isolated-google-subject"),null).id()).isEqualTo(owner);
-            assertThat(read.exercises(owner).exercises()).hasSize(1);
+            assertThat(jdbc().queryForObject("SELECT count(*) FROM exercise_definitions WHERE user_id=?",Integer.class,owner)).isEqualTo(1);
         }
     }
 

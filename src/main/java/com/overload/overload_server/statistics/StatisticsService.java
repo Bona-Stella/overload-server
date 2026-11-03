@@ -10,10 +10,6 @@ public class StatisticsService {
     private final StatisticsRepository repository;
     private final PlanningRepository planning;
     StatisticsService(StatisticsRepository repository,PlanningRepository planning) { this.repository = repository; this.planning=planning; }
-    StatisticsResponse read(UUID owner, StatisticsQuery period) {
-        long generation = repository.generation(owner);
-        return StatisticsCalculator.calculate(owner, generation, period, repository.read(owner, generation, period));
-    }
     StatisticsOverview overview(UUID owner,StatisticsQuery period) {
         long generation=repository.generation(owner);
         var facts=repository.read(owner,generation,period);

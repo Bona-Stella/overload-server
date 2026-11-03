@@ -4,7 +4,7 @@
 
 ## V17 현재 접근 경계
 
-일반 사용자 POST /api/v1/exercises 및 PATCH /api/v1/exercises/{id}는 제품 Security 경계에서403 ACCESS_DENIED로 차단한다. 익명/만료401과 CSRF403은 기존 정책을 따른다. Controller·Service·Entity·Repository의 개인 CRUD 내부 구현은 보존하며 아래 개인 CRUD의 성공·검증 계약은 보관된 내부 동작을 설명한다. 일반 사용자에게 성공 경로를 제공하지 않는다. GET 개인 목록의 기존 의미와 휴식 설정 API는 유지한다.
+일반 사용자 POST /api/v1/exercises 및 PATCH /api/v1/exercises/{id}는 제품 Security 경계에서403 ACCESS_DENIED로 차단한다. 익명/만료401과 CSRF403은 기존 정책을 따른다. 차단된 개인 생성·이름 변경의 Controller·Service·전용 DTO와 Entity/Repository 쓰기 함수는 제거했다. 일반 사용자에게 성공 경로를 제공하지 않는다. 아래 개인 CRUD의 성공·검증 설명은 제거 전 구현 기록이다. 2026-11-03 승인으로 GET /api/v1/exercises와 전용 Entity·Repository도 제거했다. exercise_definitions 테이블·기존 데이터·Flyway 이력은 보존하고 휴식 설정 GET/PATCH와 표준 카탈로그 API는 유지한다.
 
 가입 시 개인 운동 정의는0개이며 사용자·신원·휴식 기본값만 생성한다. 새 루틴·세션은 표준 카탈로그 UUID만 사용한다.
 
@@ -14,8 +14,8 @@
 
 | 메서드·URL | JSON 요청 | 성공 |
 |---|---|---|
-| POST /api/v1/exercises | `{"id":"UUID","dataGeneration":"0","name":"벤치프레스"}` | 제품403 ACCESS_DENIED (내부 구현: 신규201/중복200) |
-| PATCH /api/v1/exercises/{id} | `{"dataGeneration":"0","name":"바벨 벤치프레스"}` | 제품403 ACCESS_DENIED (내부 구현: 200) |
+| POST /api/v1/exercises | `{"id":"UUID","dataGeneration":"0","name":"벤치프레스"}` | 403 ACCESS_DENIED (내부 구현 제거) |
+| PATCH /api/v1/exercises/{id} | `{"dataGeneration":"0","name":"바벨 벤치프레스"}` | 403 ACCESS_DENIED (내부 구현 제거) |
 | PATCH /api/v1/workout-settings | `{"dataGeneration":"0","restLowSeconds":180,"restMediumSeconds":120,"restHighSeconds":90}` | 200 |
 
 종목 응답은 `{"userId":"UUID","dataGeneration":"0","id":"UUID","name":"벤치프레스"}`이다. 설정 응답은 기존 GET과 동일한 userId·문자열 dataGeneration·세 정수 초다. 모든 성공/명시적 오류는 no-store이며 기존 X-Request-ID를 유지한다. 생성 응답 Location은 종목 PATCH URI다. 개별 종목 GET은 추가하지 않는다.

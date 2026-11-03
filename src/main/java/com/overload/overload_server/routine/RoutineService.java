@@ -1,5 +1,6 @@
 package com.overload.overload_server.routine;
 
+import com.overload.overload_server.persistence.TransactionExecution;
 import com.overload.overload_server.catalog.StandardExercise;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.ObjectProvider;
@@ -10,8 +11,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import static com.overload.overload_server.routine.RoutineFailure.Reason.*;
 
@@ -30,20 +29,20 @@ public class RoutineService {
 		reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
 	}
 	public RoutineResponses.Listing list(UUID user) {
-		return transaction(reads, () -> {
+		return TransactionExecution.execute(reads, () -> {
 			long generation = repository.generation(user, false);
 			return new RoutineResponses.Listing(user, Long.toString(generation), repository.list(user, generation).stream()
 					.map(value -> new RoutineResponses.Summary(value.id, value.name, Long.toString(value.version))).toList());
 		});
 	}
 	public RoutineResponses.Detail detail(UUID user, UUID id, boolean removed) {
-		return transaction(reads, () -> {
+		return TransactionExecution.execute(reads, () -> {
 			var routine = active(repository.find(user, repository.generation(user, false), id, false));
 			return response(routine, removed);
 		});
 	}
 	public RoutineResponses.Detail create(UUID user, RoutineRequests.Create request) {
-		return transaction(writes, () -> {
+		return TransactionExecution.execute(writes, () -> {
 			owner(user, request.dataGeneration());
 			if (repository.occupied("routines", request.id())) throw new RoutineFailure(ROUTINE_ID_CONFLICT);
 			Instant now = clock.instant();
@@ -55,7 +54,7 @@ public class RoutineService {
 		});
 	}
 	public RoutineResponses.Detail update(UUID user, UUID id, RoutineRequests.Update request) {
-		return transaction(writes, () -> {
+		return TransactionExecution.execute(writes, () -> {
 			owner(user, request.dataGeneration());
 			var routine = active(repository.find(user, request.dataGeneration(), id, true));
 			version(routine, request.expectedVersion());
@@ -68,7 +67,7 @@ public class RoutineService {
 		});
 	}
 	public void delete(UUID user, UUID id, RoutineRequests.Delete request) {
-		transaction(writes, () -> {
+		TransactionExecution.execute(writes, () -> {
 			if(repository.lockOwnerForScheduleChange(user)!=request.dataGeneration())throw new RoutineFailure(DATA_GENERATION_MISMATCH);
 			var routine = repository.find(user, request.dataGeneration(), id, true);
 			if (routine.deletedAt == null) {
@@ -191,16 +190,5 @@ public class RoutineService {
 				RoutineResponses.decimal(value.initialWeight), RoutineResponses.decimal(value.approvedWeight), value.deletedAt)).toList();
 		return new RoutineResponses.Detail(routine.userId, Long.toString(routine.dataGeneration), routine.id, Long.toString(routine.version),
 				routine.name, weightResponses, cardio.stream().map(RoutineResponses::cardio).toList());
-	}
-	private static <T> T transaction(TransactionTemplate template, Supplier<T> action) {
-		var original = new AtomicReference<RuntimeException>();
-		try {
-			return template.execute(status -> {
-				try { return action.get(); } catch (RuntimeException failure) { original.set(failure); throw failure; }
-			});
-		} catch (RuntimeException failure) {
-			if (original.get() != null && original.get() != failure) failure.addSuppressed(original.get());
-			throw failure;
-		}
 	}
 }

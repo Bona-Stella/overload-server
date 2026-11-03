@@ -24,11 +24,6 @@ final class StatisticsCalculator {
     private record GroupKey(String group, String role) { }
     private record CardioKey(String kind, String name) { }
 
-    static StatisticsResponse calculate(UUID owner, long generation, StatisticsQuery query, Input input) {
-        var plans=input.sessions().stream().flatMap(s->s.initial().weightExercises().stream()
-                .map(w->new PlannedWeight(s.date(),w.standardExerciseId(),w.exerciseName(),w.setCount()))).toList();
-        return calculate(owner,generation,query,input,plans);
-    }
     static StatisticsResponse calculate(UUID owner, long generation, StatisticsQuery query, Input input, List<PlannedWeight> plans) {
         var total = new Count();
         var dayWeights = new TreeMap<LocalDate, Count>();
@@ -75,8 +70,9 @@ final class StatisticsCalculator {
             dayCardio.merge(session.date(), fact.activeMs(), Math::addExact);
             if (fact.distance() == null) count.missing++; else { count.distance = count.distance.add(fact.distance()); count.distances++; }
         }
+        // The overview service supplies schedule coverage and achievement before exposing this result.
         return new StatisticsResponse(owner, Long.toString(generation), query.fromDate(), query.toDateExclusive(),
-                "STARTED_SESSIONS_ONLY", null, null, total.value(), Long.toString(cardioMs), Long.toString(unmapped),
+                null, null, null, total.value(), Long.toString(cardioMs), Long.toString(unmapped),
                 dayWeights.entrySet().stream().map(e -> new Day(e.getKey(), e.getValue().value(), Long.toString(dayCardio.getOrDefault(e.getKey(), 0L)))).toList(),
                 exercises.entrySet().stream().map(e -> new Exercise(e.getKey(), exerciseNames.get(e.getKey()), e.getValue().value())).toList(),
                 muscles.entrySet().stream().sorted(Comparator.comparing(e -> e.getKey().id().toString() + e.getKey().role()))

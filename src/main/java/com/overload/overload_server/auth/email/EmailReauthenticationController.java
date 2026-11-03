@@ -36,7 +36,7 @@ public class EmailReauthenticationController {
 	ResponseEntity<Map<String, Object>> request(@AuthenticationPrincipal SessionPrincipal principal,
 			@RequestBody Request body, HttpServletRequest request) {
 		rejectQuery(request);
-		var challenge = reauthentication.request(principal.userId(), body.identityId(), request);
+		var challenge = reauthentication.request(principal.userId(), request);
 		return ResponseEntity.accepted().cacheControl(CacheControl.noStore()).body(Map.of("status", "ACCEPTED", "challengeId", challenge));
 	}
 
@@ -44,15 +44,15 @@ public class EmailReauthenticationController {
 	ResponseEntity<Void> verify(@AuthenticationPrincipal SessionPrincipal principal, @RequestBody Verification body,
 			HttpServletRequest request, HttpServletResponse response) {
 		rejectQuery(request);
-		reauthentication.verify(principal.userId(), body.identityId(), body.challengeId(), body.code(), request, response);
+		reauthentication.verify(principal.userId(), body.challengeId(), body.code(), request, response);
 		return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
 	}
 
-	public record Request(UUID identityId) {
+	public record Request() {
 		@com.fasterxml.jackson.annotation.JsonAnySetter public void unexpected(String field,Object value){throw new IllegalArgumentException("Unexpected field");}
 		@Override public String toString() { return "ReauthenticationRequest[redacted]"; }
 	}
-	public record Verification(UUID identityId, UUID challengeId, String code) {
+	public record Verification(UUID challengeId, String code) {
 		@com.fasterxml.jackson.annotation.JsonAnySetter public void unexpected(String field,Object value){throw new IllegalArgumentException("Unexpected field");}
 		@Override public String toString() { return "ReauthenticationVerification[redacted]"; }
 	}
