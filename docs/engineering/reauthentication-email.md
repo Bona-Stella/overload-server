@@ -15,7 +15,7 @@
 연락처 등록은 EMAIL identity 생성·계정 연결·병합을 하지 않는다.
 
 등록 API는 최초 등록만 허용한다. 기존 VERIFIED 연락처는 이후 EMAIL 로그인 또는 Google 이메일 변경으로
-덮어쓰지 않는다. 주소 변경/분실 복구/인증 수단 연결·해제는 미구현이다. 주소 변경은 후속 단계에서
+덮어쓰지 않는다. 주소 변경/분실 복구는 미구현이며, 인증 수단 연결·해제는 현재 [EMAIL](email-identities.md)·[Google](google-identities.md)의 별도 명시 API를 사용한다. 주소 변경은 후속 단계에서
 기존 수단의 최근 재인증과 새 주소의 OTP 증명을 모두 요구하는 별도 계약이 필요하다.
 
 미검증 주소는 `reauth_email_candidates`에만 저장한다. 후보 UUID·사용자·기존 Google identity·검증된 sub·주소·

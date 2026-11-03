@@ -673,16 +673,15 @@ src/main/resources/
 예시:
 
 ```http
-GET    /api/v1/exercises
-POST   /api/v1/workouts
-GET    /api/v1/workouts/{workoutId}
-PATCH  /api/v1/workouts/{workoutId}
-DELETE /api/v1/workouts/{workoutId}
+GET    /api/v1/standard-exercises/search-data
+GET    /api/v1/workout-settings
+PATCH  /api/v1/workout-settings
+POST   /api/v1/workout-sessions
+GET    /api/v1/workout-sessions/{sessionId}
 GET    /api/v1/routines
 ```
 
-위 경로는 설계 예시이며
-확정된 API 명세를 우선합니다.
+위 경로의 요청·응답 조건은 [온라인 설정](../api/workout-online-write.md), [세션](../api/workout-sessions.md), [루틴](../api/routine-management.md)의 현행 계약을 따릅니다. 개인 운동 GET은 제거됐고 POST/PATCH는 차단 경계만 유지합니다.
 
 ### 9.3 HTTP Method
 

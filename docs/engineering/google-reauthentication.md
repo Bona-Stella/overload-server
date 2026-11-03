@@ -103,6 +103,7 @@ OidcUser/ID·access·refresh token/authorized client는 장기 세션에 쓰지 
 
 Pending 저장·소비는 같은 JDBC 연결/기존 V3 직렬화 형식을 사용한다. REQUIRES_NEW인 공식 SessionRepository를
 행 락 안에서 중첩 호출하지 않는다. 검증은 풀 크기 1, 재시작 및 멀티탭에서도 수행한다.
+공통 GoogleBoundRequests.Pending은 Java Serializable 객체이며 Spring Session JDBC 속성으로 저장·복원한다. JSON Mapper 변환 경로가 아니다. 과거5필드 Java 직렬화 호환성 전용 테스트 제거는 현재 Pending 저장·소비·신원/세션 바인딩 보호를 제거한 것이 아니다.
 Google auth_time 경로 자체는 별도 테이블/새 의존성을 요구하지 않는다. 후속 공통 대표 이메일에는 추가형 V6를
 사용하며 V1~V5와 Task 006은 불변이다. 공통 bound OIDC 경계는 추출했지만 auth_time 판정은 그대로 보존했다.
 

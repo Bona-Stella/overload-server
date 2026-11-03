@@ -1,8 +1,8 @@
 # 루틴 관리 온라인 API — Task 009
 
-상태: V17 표준 운동 UUID 단일 계약. 웨이트·유산소 루틴 관리와 명시적 중량 승인을 제공한다. 개인 DB에는 V17을 적용하지 않았다.
+상태: V17 표준 운동 UUID 단일 계약. 웨이트·유산소 루틴 관리와 명시적 중량 승인을 제공한다. 개인 DB의 마지막 V17 적용 기록과 현재 미확인 상태는 [DB 안내](../engineering/local-postgresql.md)를 따른다.
 기준은 [Task 009 v1.0](../tasks/task-009-redesign-v1.0.md), 유지되는 [Task 006 도메인 정책](../tasks/task-006-integrated-design-v0.3.1.md), 기존 [온라인 쓰기](workout-online-write.md)다.
-Backend 세션은 같은 표준 계약으로 전환했다. Frontend/IndexedDB는 아직 이전 계약이며 후속3단계 연동이 필요하다.
+Backend 세션과 Frontend/IndexedDB3·local schema2는 같은 표준 UUID 계약으로 전환했다. 당시 구현·연동 기록은 [Frontend3단계](../../../overload-pwa/docs/tasks/standard-exercise-catalog-frontend-phase-3-report.md)와 [실제 개발 환경4단계](../tasks/standard-exercise-catalog-dev-phase-4-report.md)를 따른다. 최신 코드의 종합 검증은6B에서 별도로 확인한다.
 
 ## HTTP 및 인증
 
@@ -143,4 +143,4 @@ START는 같은 users→routine 잠금 순서와 routine FOR SHARE, REPEATABLE_R
 V11은 위 네 테이블만 추가하며 V1~V10을 수정하지 않는다. 기존 계정·종목·설정 재시드나 변환은 없다.
 V11 구현 당시 검증 대상은 격리 Testcontainers PostgreSQL뿐이었다. 이후 개인 로컬 V11 적용·기존 데이터 보존은 사용자 확인 사항이다. 신규 V12는 개인 로컬에 적용하지 않으며 실제 DB 대상 앱을 실행하지 않는다.
 
-위 적용 설명은 V11 단계 당시 기록이다. 현재 승인된 개인 DB 상태는 V17이며 V18·V19·최초 일정 등록 정책을 보완한 V20은 개인 DB에 적용하지 않았다. 격리 migration 검증과 실제 DB 적용 승인을 구분한다.
+위 적용 설명은 V11 단계 당시 기록이다. 이후 V17 적용/V18~V22 미적용이라는 마지막 보고가 있으며6A에서는 개인 DB 상태를 재확인하지 않았다. [DB 안내](../engineering/local-postgresql.md)에 따라 격리 migration 검증과 실제 DB 적용 승인을 구분한다.

@@ -120,7 +120,7 @@ Google-only의 [대표 이메일 최초 등록](reauthentication-email.md)은 �
 `/login/oauth2/code/google-contact` 콜백으로 기존 issuer/sub 및 서명된 verified email 후보만 확인한다.
 추가 OTP까지 검증해야 등록/최근 이메일 재인증을 인정하며, Google 비밀번호 재인증이라고 주장하지 않는다.
 일반 LOGIN 성공은 대표 연락처를 자동 등록하거나 기존 연락처를 Google 이메일로 덮어쓰지 않는다.
-수단 연결·해제는 후속 범위다.
+EMAIL·Google 수단 연결·해제는 후속 구현된 [EMAIL 계약](email-identities.md)과 [Google 계약](google-identities.md)을 따른다. LOGIN 성공만으로 기존 계정의 신원을 자동 연결하지 않는다.
 
 ## 검증·실로그인 구분
 
@@ -134,7 +134,7 @@ PostgreSQL은 독립 Testcontainers 18.6이며 기존 Compose DB·실메일·개
 최종 개수·실패 수정·Git/정리 증거는 [검증 보고서](../tasks/task-007-1c-3a-validation-report.md)를 따른다.
 
 기존 PC 브라우저 로그인은 3A-LIVE 결과와 구분하며 이번 자동화 결과로 실로그인을 새로 검증했다고 주장하지 않는다.
-프론트 전환·iPhone/LAN HTTPS·운영 배포·계정 연결/해제·민감 업무 쓰기는 아직 구현하지 않았다.
+Frontend 인증 연동과 EMAIL/Google 연결·해제는 후속 구현됐다. Google auth_time을 사용하는 민감 업무 쓰기는 별도 미구현 범위다. 최신 코드의 실제 브라우저·iPhone/LAN HTTPS 검증과 운영 배포를 이번 자동화 결과로 완료 처리하지 않는다.
 Google 재인증은 테스트 OIDC/PostgreSQL 검증과 실제 Google 재인증 검증을 구분한다.
 
 ## Task 007-1D-1: 선택적 PWA 복귀

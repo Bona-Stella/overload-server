@@ -1,11 +1,11 @@
 # 로컬 PostgreSQL · Flyway
 
-> **개인 개발 DB V15 재구성 완료 (2026-11-01):** 사용자 명시 승인으로 `127.0.0.1:5433/overload_dev`의 기존 테스트 데이터를 폐기하고 V1~V15를 신규 적용했습니다. Flyway/Hibernate 검증·기본 조회 통과, 계정과 업무 데이터는 모두 비어 있습니다. 기존 컨테이너/볼륨을 유지했고 기동 검증 후 원래 정지 상태로 복원했습니다. [실제 재구성 보고서](../tasks/task-009-dev-v15-rebuild-report.md)를 확인하세요. 다른 DB·후속 파괴적 변경은 별도 승인이 필요합니다.
+> **개인 개발 DB의 마지막 확인 기록:** [2026-11-01 V15 재구성](../tasks/task-009-dev-v15-rebuild-report.md) 뒤 [2026-11-02 승인된 V16·V17 적용](../tasks/standard-exercise-catalog-dev-phase-4-report.md)과 소량의 검증 데이터 등록이 있었습니다. 이후 문서의 V18~V22 미적용 표기는 당시 기록입니다. 6A에서는 개인 DB에 접속하지 않았으며 현재 실행·데이터·Flyway 상태를 재확인하지 않았습니다. 아래 실행 예시를 개인 DB에 적용하면 대기 migration이 실행될 수 있으므로 대상·영향과 별도 승인을 먼저 확인합니다.
 
 Task 007의 개발 환경이다. Windows/WSL에 PostgreSQL을 직접 설치하지 않는다.
-007-1B의 내부 계정·개인 종목 seed는 [별도 문서](account-provisioning.md)를 따른다.
+내부 계정·휴식 기본값은 [프로비저닝 문서](account-provisioning.md)를 따른다. 개인 운동 seed는 중단됐다.
 운영 서버 연결·배포 설정이 아니다. 이메일 OTP와 선택적 Google OIDC 서버 인증은 구현했으며,
-공개 임의 계정 생성 API·운동 기록 기능은 구현하지 않았다.
+공개 임의 계정 생성 API는 없으며, 운동 루틴·세션·기록·통계는 현재 각 [API 계약](../api/workout-sessions.md)에 구현돼 있다. 아래 환경 안내와 과거 검증 기록을 새 검증 결과로 간주하지 않는다.
 
 ## 준비 및 충돌 확인
 

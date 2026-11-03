@@ -49,11 +49,17 @@ Frontend CardioResult/RecordEdit에 optional measurement, CardioTimer에 optiona
 
 ## 실제 통계와 계획 비교
 
-기존 `/statistics`의 응답 형태와 kind+name별 내역은 유지한다. `/statistics/overview`에 `cardioByKind` 배열을 추가한다.
+현재 endpoint는 `GET /api/v1/statistics/overview`다. 제거된 `GET /api/v1/statistics`를 호출하지 않는다. 응답의 `statistics.cardio`는 kind+당시 name별 실제 내역이고, 최상위 `cardioByKind`는 이름이 달라도 같은 kind의 실제 시간·거리·출처를 합친 배열이다. Frontend의 종류별 표시는 `cardioByKind`를 사용하며 이전 배열로 대체하지 않는다.
 
 `{kind,activeMs,distanceKm,manualDistanceKm,calculatedDistanceKm,unknownSourceDistanceKm,manualRecords,calculatedRecords,unknownSourceRecords,recordsWithoutDistance}`
 
 시간/횟수는 Counter 문자열, 거리 합계는 decimal 문자열이며 해당 출처의 근거가 없으면null이다. 전체 유산소 실제 시간은 기존 cardioActiveMs로 합산하지만 **서로 다른 종류의 거리를 합친 총 km는 만들지 않는다**. 같은 종류의 서로 다른 이름·추가 유산소는 종류별 합계에 포함한다. 과거 거리는 합계에 남기되 출처 미확인 소계로 구분한다. 계획에 실제 속도/거리를 저장하거나, 계획값을 실제 수행으로 간주하지 않는다.
+
+ST-48의 활동 상세 시간 비교는 같은 조회 기간의 `statistics.cardioActiveMs`와 날짜별 `plannedDays[].plan.cardioPlacements[].plan.targetSeconds` 합계를 사용한다. 계획은 당시 일정·불변 시작 계획/계획 이력에서 서버가 반환한 날짜별 자료이며 현재 루틴으로 재구성하지 않는다. 전체 계획 근거가 있을 때만 합산하고 REST·BEFORE_REGISTRATION은 제외한다. PARTIAL_SCHEDULE_HISTORY, UNKNOWN 또는 필요한 plan 부재는 `계획 시간 확인 불가`, 확인된 유산소 목표가 없으면 `계획 없음`이다. UNVERIFIABLE은 목표 달성 증거 부족이므로 알려진 시간 목표까지 지우지 않는다.
+
+실제 누적에는 계획 외 유산소도 포함된다. `실제 누적 / 계획`은 기간 전체의 시간 비교이며 종목별 완료·달성률 판정이 아니다. BigInt로 초→밀리초를 변환·합산하고 분·초·밀리초를 정확히 표시한다. 실제 합계 문자열 `"0"`은 유효하지만 누락/null을 0으로 보충하지 않는다. 개별 계획 targetSeconds는1~86400의 정수라 명시적0은 허용하지 않는다. 비교에 새 API·응답 필드·비율·속도/거리 추정을 추가하지 않는다. 화면의 기간·응답 범위는 [통계 계약](statistics.md)을 따른다.
+
+선택 measurement/bodyweightLoad의 생략·명시적 제거와 canonical JSON 보존은 현재 부분 수정·JSONB 복원·고정 요청의 동일성을 지키는 처리다. 이를 구버전 클라이언트 지원 전용으로 취급하지 않는다. IndexedDB1/2 전환 분기의 제거 여부는 별도 승인 사항이며 현재 DB3/schema2를 변경하지 않는다.
 
 주간 목표 판정은 실제 시간이 원래 목표를 충족한 뒤, 실제 속도가 있으면 SPEED 목표 또는 `실제속도 × 목표PACE >= 60`을 비교할 수 있다. 속도가 없으면 계속 UNVERIFIABLE이다. 실제 경사/저항 증거는 이번에 추가하지 않아 해당 목표는 여전히 확인 불가로 남긴다. 공식 웨이트 승인/성과 평가를 변경하지 않는다.
 

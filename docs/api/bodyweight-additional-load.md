@@ -42,7 +42,7 @@
 
 ## 집계와 표시
 
-`StatisticsRepository`는 관계형 미삭제 현재 세트의 `bodyweight_load->>'additionalWeightKg'`만 읽고, `StatisticsCalculator.Count` 하나로 summary·day·exercise·muscle·group에 동일 기준을 적용한다. 두 통계 endpoint 및 주/월 범위에 같은 공식이 적용된다.
+`StatisticsRepository`는 관계형 미삭제 현재 세트의 `bodyweight_load->>'additionalWeightKg'`만 읽고, `StatisticsCalculator.Count` 하나로 summary·day·exercise·muscle·group에 동일 기준을 적용한다. 현재 통계 overview의 주/월 범위에 같은 공식이 적용된다.
 
 - BODYWEIGHT + 명시적 값: `additionalWeightKg × 실제 reps`.
 - BODYWEIGHT + 미기록/제거: 세트·반복은 정상 집계, volume 계산에서 제외.

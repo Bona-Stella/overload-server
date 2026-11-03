@@ -10,6 +10,10 @@
 
 현행 보완: [2B 주간 일정·계획 이력](weekly-schedule.md)과 아래 overview endpoint를 추가했다. 이전 `/api/v1/statistics`는 제거했다. 최신 정책은 [Statistics and Tracking v1.3](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md)이며 v1.1·v1.2 원본은 보존했다.
 
+## 2A 구현 기록 — 과거 계약
+
+아래 2A의 `/api/v1/statistics` 및 당시 미구현 설명은 역사적 기록이다. 현재 호출·계획 범위는 아래 overview 절과 위 2C~2E 계약을 따른다.
+
 2026-11-02 (Asia/Seoul). **통계·추적 2단계의 첫 구현 단위**다. 기준은 [Statistics and Tracking v1.1](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.1.md)이며 제품 본문은 한국어로 유지했다. 디로딩 정책은 [Deloading v1.2](../product/Overload_Deloading_Design_Specification_v1.2.md)를 따른다.
 
 ## 구현 범위와 데이터 안전
@@ -85,7 +89,10 @@ Weight = { plannedSets, completedSets, reps, volumeLoadKg, setsWithoutVolume }
   effectiveWorkoutDays: Decimal|null,
   unknownPlanDays: integer, unverifiableDays: integer,
   plannedDays: [{ date, status, scheduleVersion, plan: RoutineDetail|null,
-                  plannedExercises, completedExercises, effectiveDay, selectedSessionId }] }
+                  plannedExercises, completedExercises, effectiveDay, selectedSessionId }],
+  cardioByKind: [{ kind, activeMs, distanceKm, manualDistanceKm, calculatedDistanceKm,
+                  unknownSourceDistanceKm, manualRecords, calculatedRecords,
+                  unknownSourceRecords, recordsWithoutDistance }] }
 ```
 
 - 날짜별로 해당 날짜에 유효한 최신 일정 version을 찾는다. 최초 등록은 당일 즉시 적용하며 첫 주 등록 전 날짜만 BEFORE_REGISTRATION으로 제외한다. 그 날짜의 plan/count/effectiveDay는 null이고 unknownPlanDays를 증가시키지 않는다. 휴식 또는 소급 계획을 만들지 않는다. 최초 등록 주보다 앞선 주는 UNKNOWN이며 과거 분모를 추정하지 않는다. 명시적 휴식 일정은 REST다.
@@ -96,8 +103,16 @@ Weight = { plannedSets, completedSets, reps, volumeLoadKg, setsWithoutVolume }
 - CARDIO는 최초 시간·거리 목표와 실제 activeMs/distance를 비교한다. 이미 확인된 목표 미달은 미완료다. 실제 속도/경사/저항이나 필요한 거리 값이 없어서 판정할 수 없으면 UNVERIFIABLE로 남긴다. 계획 속도를 실제로 대체하지 않는다. 불확실한 후보의 가능한 최고값이 확실한 최상 후보를 넘지 못하면 그날은 확실한 결과를 사용할 수 있다.
 - plannedDays.status는 UNKNOWN/BEFORE_REGISTRATION/REST/PLANNED/UNVERIFIABLE다. complete count/effectiveDay는 확인 불가일 때 null이며 잘못된0을 만들지 않는다. 표시 계획과 최고 후보의 InitialPlan 버전이 다른 같은 날짜의 경우, plan은 최초 시작 계획, plannedExercises/completedExercises/selectedSessionId는 최고 후보의 최초 계획 기준임을 구분한다.
 - statistics.planCoverage는 FULL_SCHEDULE_HISTORY 또는 PARTIAL_SCHEDULE_HISTORY다. UNKNOWN 날짜가 있으면 plannedWorkoutDays·routineAchievementPercent·effectiveWorkoutDays는 null이다. 최초 등록 주는 등록 전 날짜의 제외 근거가 있으므로 FULL_SCHEDULE_HISTORY이며 등록일~일요일 예정일만 분모에 포함한다. 목요일 월·목·금·토 등록/목·금 완료의 경우 계획일3·유효일2·달성률66.666667%다. 다음 주는 전체4일이다. 모든 날짜의 근거가 있고 계획일이0이면 계획일0/달성률null이다. 숫자가 없는 과거 분모를0이나 현재 루틴으로 채우지 않는다.
-- 모든 날짜의 계획이 알려져도 UNVERIFIABLE 날짜가 있으면 전체 유효일/달성률은 null이다. 확인 가능한 날짜의 상세는 유지한다. 실제 속도 저장은 후속 기능이다.
+- 모든 날짜의 계획이 알려져도 UNVERIFIABLE 날짜가 있으면 전체 유효일/달성률은 null이다. 확인 가능한 날짜의 상세는 유지한다. 실제 속도·거리 출처 저장은2D에서 구현했으며 경사·저항 등 여전히 없는 실제 증거는 추정하지 않는다.
 - 월요일부터 정확히7일인 조회만 주간 루틴 달성률 `min(100, 유효일 합계 / 계획일 ×100)`를 반환한다. 다른 날짜 범위는 계획일/일별 상태만 제공하고 새로운 월간 달성률 정책을 만들지 않는다. 주간 달성률은 소수6자리, 유효일은 소수12자리까지 표시한다.
 - actual 세트·볼륨·유산소·날짜·최근3건은 2A와 같은 현재 유효 원본을 사용한다. 정정/삭제/명시 누락 복구 이후 매 조회에서 재계산하며 최초 평가·승인 중량·운동 동기화 시각은 변경하지 않는다. 통계는 오프라인 미반영 사실을 추정하지 않는다.
 
-실제 계정 UI는 overview를 사용하고 다음 월요일 일정 예약·현재/예정/페이지별 변경 이력, 주간 계획일·달성률, 날짜별 예정/휴식/확인 불가와 당시 계획/수행 상세 이동을 제공한다. 기존 DB3/schema2·타이머·고정 요청·PWA permit은 유지한다. 성장선·실제 속도/계산 거리 저장·명시적 맨몸 추가 부하·디로딩 연결은 여전히 후속이다.
+## 현재 Frontend 연결과 기간·시간 표시
+
+실제 계정 UI는 overview와 [성장 조회](approved-weight-growth.md), [주간 일정](weekly-schedule.md)을 사용한다. 통계 GET4종과 일정 GET2종·PUT1종은 기능 API → AuthController → AuthApi.workoutRequest로 전달된다. Transport는 정확한 경로·메서드·UUID, 필수/허용 query와 중복 여부를 검사하고 GET 본문·미허용 경로를 거절한다. 날짜·기간·시간대·cursor 값의 의미는 기존 기능 API/Backend 검증을 따른다. PUT은 기존 사용자 재확인·CSRF를 거치며 쿠키/no-store·온라인 전용 경계·취소·오래된 응답 보호를 유지한다.
+
+ST-09에 따라 활동·근육 상세는 각각 `week/0`에서 시작해 독립적인 mode/offset을 갖는다. 주간·월간 선택은 해당 상세의 offset만0으로 바꾸며 요약을 거쳐 돌아와도 선택을 유지한다. 요약은 이번 주로 고정하고 성장의1/3/6개월·전체 정책은 별도로 유지한다. 상태는 기존 StatisticsPanel 수명 안에만 있으며 사용자·세대 key 변경으로 다시 마운트되면 초기화한다. 기간을 영구 저장하지 않는다.
+
+ST-48 시간 비교와 `cardioByKind`/`statistics.cardio`의 역할은 [유산소 계약](cardio-actual-measurements.md#실제-통계와-계획-비교)을 따른다. `planning`은 StatisticsView에 전체 Overview 응답을 전달하는 Frontend prop 이름이며 Backend JSON 필드가 아니다. 실제·계획 시간은 활동 상세가 선택한 동일 기간의 검증된 응답을 사용하고 이전 기간의 늦은 응답은 표시하지 않는다.
+
+일정 최초 등록은 당일부터, 기존 변경은 다음 월요일부터 적용한다. 성장선·실제 속도/계산 거리 출처·맨몸 추가 부하는2C~2E에서 구현됐다. 디로딩 도메인 연결, 운영 분류와 실제 브라우저·PWA·실기기 검증은 별도 후속이다. 기존 IndexedDB3/schema2·타이머·고정 요청·PWA permit은 유지한다.

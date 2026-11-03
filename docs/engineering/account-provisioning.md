@@ -3,7 +3,7 @@
 현재는 **인증 검증 후 호출할 서버 내부 경로**만 구현되어 있다.
 `AccountProvisioningService.provision(VerifiedIdentity, nickname)`은 계정 생성·재진입을 처리한다.
 이메일 OTP 접점은 [007-1C-2](email-otp.md), Google OIDC 검증 접점은 [007-1C-3A](google-oidc.md)에 구현했다.
-기존 실제 Google 브라우저 로그인은 [3A-LIVE](../tasks/task-007-1c-3a-live-validation-report.md)에서 검증했고 프론트 연동은 후속 범위다.
+기존 실제 Google 브라우저 로그인 검증은 [3A-LIVE](../tasks/task-007-1c-3a-live-validation-report.md)의 당시 기록이다. 현재 Frontend 연동은 구현됐으며 최신 코드 조합의 실제 연동·실기기 검증은 별도6B 범위다.
 공개 계정 생성 HTTP API, 테스트용 HTTP 우회 경로, 앱 시작 시 임의 계정/seed 생성은 없다.
 007-1C-3B-1의 [인증 수단 조회·이메일 재인증](email-reauthentication.md)은 소유 identity 조회만 사용하며
 프로비저닝/seed를 호출하거나 계정·신원을 연결·병합·이동·삭제하지 않는다.
@@ -34,7 +34,7 @@ IDN·국제화 주소 등 미구현 전달/검증 규칙을 이 단계에서 지
 2. 신원이 없으면 서버 UUID로 users와 auth_identity를 삽입한다.
 3. `auth_identities_credential_unique`를 지정한 `ON CONFLICT DO NOTHING`으로 동일 신원의
    동시 생성 경쟁을 처리한다. 다른 PK/FK/CHECK 오류를 성공으로 바꾸지 않는다.
-4. 신원 삽입 성공 시 개인 종목 20개·설정 1행을 같은 트랜잭션에서 삽입하고 커밋한다.
+4. 신원 삽입 성공 시 휴식 설정1행을 같은 트랜잭션에서 삽입하고 커밋한다. V17 이후 개인 운동 seed는 생성하지 않는다.
    어느 단계에서든 SQL 오류가 나면 전체를 롤백한다.
 5. 경쟁에서 신원 삽입이 0행이면 그 요청의 users도 롤백한 후, 새 트랜잭션에서 승자의 계정을 읽는다.
    승자 계정이 그 사이 제거됐다면 오류를 전달하며 무한 재시도/자동 계정 복구는 하지 않는다.
@@ -47,7 +47,9 @@ IDN·국제화 주소 등 미구현 전달/검증 규칙을 이 단계에서 지
 계정 생성 정책과 충돌 시 전체 롤백은 유지한다. [Google LINK/UNLINK](google-identities.md)도
 별도 기존 계정 변경이며 프로비저닝/seed를 호출하지 않는다.
 
-## V2 스키마와 소유권·세대
+## V2 스키마 이력과 현재 소유권·세대
+
+다음은 V2가 추가한 구조의 기록이다. 이후 루틴·세션 등 스키마는 후속 migration으로 확장됐다. 개인 운동의 Java Entity·Repository·DTO·GET·쓰기 구현은 제거됐지만 `exercise_definitions` 테이블·기존 데이터·Flyway 이력은 남아 있다. 이 문서 정리는 테이블 삭제나 개인 DB 적용 승인이 아니다.
 
 V1은 수정하지 않는다. `V2__create_account_provisioning.sql`은 다음만 추가한다:
 
@@ -57,36 +59,26 @@ V1은 수정하지 않는다. `V2__create_account_provisioning.sql`은 다음만
   계정 유지와 함께 존속하므로 운동 데이터 세대를 복제하지 않는다. 사용자별 참조 탐색을 위한 user_id 인덱스가 있다.
 - `exercise_definitions`: UUID PK, user_id·data_generation·표시명·생성/변경 시각.
   현재 `(user_id, data_generation)`를 users에 복합 FK로 참조한다.
-  이름은 비어 있을 수 없지만 **UNIQUE는 없다**. 기본 목록은 웨이트 정의만 생성하며 유산소 타입을 혼합하지 않는다.
+  이름은 비어 있을 수 없지만 **UNIQUE는 없다**. 당시 개인 웨이트 기본 목록을 저장했으며 현재 가입 경로에서는 삽입하지 않는다.
 - `exercise_definitions`의 `(user_id, data_generation, id)` 복합 UNIQUE는
   종목을 참조하는 관계가 소유자·세대를 함께 검증할 수 있는 키다. 사용자·세대별 탐색도 이 인덱스를 사용한다.
-  현재 운영 스키마에 루틴 등 자식 테이블을 미리 만들지는 않는다.
+  현재 신규 루틴·세션은 공용 표준 카탈로그 UUID를 사용한다.
 - `user_workout_settings`: user_id PK (계정당 1행), 현재 user_id·data_generation 복합 FK,
   휴식 세 필드 INTEGER NOT NULL CHECK > 0, 생성/변경 시각.
 - UUID는 서버에서 새로 생성한다. 생성/변경 시각은 TIMESTAMPTZ와 CURRENT_TIMESTAMP 기본값이며,
   향후 편집 구현에서 updated_at을 명시적으로 갱신한다. 삭제/갱신 cascade는 없다.
 
 FK는 잘못된 소유자·세대의 **관계 연결**을 거부한다. SQL에 임의의 유효한 user_id를 넣는 호출자의
-권한까지 증명하지는 않는다. 현재 repository는 패키지 내부에 제한되어 있고 신원 조회·새 계정 seed만 처리한다.
-향후 읽기/편집은 인증 principal의 user_id와 서버 세대를 조건으로 사용해야 하며 클라이언트 user_id를 신뢰하지 않는다.
+권한까지 증명하지는 않는다. AccountRepository는 패키지 내부에 제한되어 있고 신원 조회·새 계정 기본값을 처리한다.
+운동 읽기/편집은 인증 principal의 user_id와 서버 세대를 조건으로 사용하며 클라이언트 user_id를 신뢰하지 않는다.
 
-전체 초기화는 미구현이다. 향후에는 사용자 행을 `SELECT ... FOR UPDATE`로 먼저 잠그고,
-현재 FK가 가리키는 이전 운동 데이터·설정을 같은 트랜잭션에서 정리한 뒤 세대를 증가시키고 새 seed를 넣는다.
+전체 초기화는 미구현이다. 구현 시 사용자 행의 `SELECT ... FOR UPDATE` 잠금과 이전 운동 데이터·설정·FK 관계를 고려한 명시적 계약이 필요하다. 세대 증가·데이터 삭제·새 기본값 생성 작업을 이 문서로 승인하지 않는다.
 현재의 즉시 검사 FK는 자식 행을 둔 채 세대만 바꾸는 작업을 거부한다.
 신원·닉네임은 유지한다. 기존 신원 재진입은 seed를 다시 실행하지 않으므로 초기화와 새 가입 처리를 혼동하지 않는다.
 
 ## 승인된 운영 초기값
 
-유일한 운영 정의는 `AccountSeed`다. 사용자별로 목록을 복사하며 종목마다 새 UUID를 부여한다.
-같은 종목명도 계정별 UUID가 다르고, 개인 추가 종목에 같은 이름이 있어도 허용한다.
-
-| 분류 (문서 표시용) | 종목 |
-|---|---|
-| 가슴 4 | 벤치프레스, 인클라인 덤벨 프레스, 체스트 프레스, 케이블 플라이 |
-| 등 4 | 랫풀다운, 시티드 케이블 로우, 바벨 로우, 풀업 |
-| 하체 5 | 스쿼트, 레그 프레스, 레그 익스텐션, 레그 컬, 루마니안 데드리프트 |
-| 어깨 3 | 숄더 프레스, 사이드 레터럴 레이즈, 리어 델트 플라이 |
-| 팔 4 | 바벨 컬, 덤벨 컬, 케이블 푸시다운, 오버헤드 트라이셉스 익스텐션 |
+`AccountSeed.WORKOUT_SETTINGS`는 휴식 기본값180/120/90초만 정의한다. 사용자·신원·설정을 생성하며 개인 운동20개를 복사하던 seed는 제거됐다. 운동 선택은 [표준 카탈로그](../api/standard-exercise-catalog.md)를 사용한다.
 
 `WorkoutSettings`의 목표 반복 **상한** 구간은 다음과 같다:
 
@@ -96,8 +88,7 @@ FK는 잘못된 소유자·세대의 **관계 연결**을 거부한다. SQL에 �
 | 11~12 | rest_medium_seconds | 120 |
 | 13 이상 | rest_high_seconds | 90 |
 
-사용자가 편집할 앱 초기값이며 운동 처방이 아니다. 향후 초기화도 이 정의를 재사용하고 UUID를 새로 발급해야 한다.
-루틴·요일 일정·세션·실제 수행·승인 값/사건·메모는 생성하지 않으며 테이블도 아직 없다.
+사용자가 편집할 앱 초기값이며 운동 처방이 아니다. 가입 시 루틴·요일 일정·세션·실제 수행·승인 사건을 자동 생성하지 않는다. 해당 테이블과 API의 현재 구현은 각 [루틴](../api/routine-management.md)·[세션](../api/workout-sessions.md)·[일정](../api/weekly-schedule.md) 계약을 따른다.
 기존 localStorage·`createInitialState()`·개발 목업은 읽거나 이관하지 않는다.
 
 ## 검증과 후속 연동
@@ -106,19 +97,14 @@ FK는 잘못된 소유자·세대의 **관계 연결**을 거부한다. SQL에 �
 테스트는 일회성 실제 PostgreSQL을 사용한다. 프로비저닝 테스트의 SQL 실패 트리거·경쟁 제어 잠금·
 소유권 FK 검사용 참조 테이블은 **테스트 DB에만** 만들며 애플리케이션과 버전 SQL에는 포함하지 않는다.
 
-프론트 읽기 확인 결과 현재 `features/workout/model.ts:restSeconds`는 **≤8 / 9~12 / ≥13**이고
-`features/settings/SettingsScreen.tsx`의 표시 구간도 같다. 이번 승인 정책인 **≤10 / 11~12 / ≥13**과 다르다.
-설정값 180/120/90이 같다는 사실을 정책 근거로 삼지 않았고 승인된 운영값을 별도로 정의했다.
-이번 작업은 프론트 수정 금지이므로 후속 연동에서 구간·라벨을 함께 정리해야 한다.
+실제 계정 운동은 Frontend `features/workout-local/model.ts:restSeconds`의 **≤10 / 11~12 / ≥13**을 사용한다. `features/workout/model.ts`와 `features/settings/SettingsScreen.tsx`의 **≤8 / 9~12 / ≥13**은 `/demo` 경로의 예시이며 실제 계정의 휴식 계약으로 사용하지 않는다. 데모 저장 데이터를 실제 계정으로 이관하거나 전송하지 않는다.
 
 ## 다음 단계 전달 사항
 
 - `VerifiedIdentity` 생성은 실제 인증 성공을 뜻하지 않는다. 007-1C는 Google 토큰 또는 이메일 소유 증명을
   검증한 신원만 프로비저닝 서비스에 전달해야 한다.
 - Google과 이메일 신원은 이메일 주소가 같아도 자동 연결·병합하지 않는다.
-- 프론트의 목표 반복 상한 **9~10회**는 현재 medium(120초) 구간이다. 후속 연동에서 서버의
-  low(초기 180초) 구간에 맞추고 휴식 함수와 설정 화면 라벨을 함께 변경해야 한다.
-  이 전달 메모는 007-1C 및 프론트 구현을 시작한 것이 아니다.
+- 최신 코드의 실제 Backend·Frontend 연결과 브라우저·실기기 검증은6B에서 별도로 수행한다. 과거 단계의 통과를 최신 조합 검증 완료로 간주하지 않는다.
 
 ## 기술 근거
 

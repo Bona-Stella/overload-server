@@ -59,7 +59,7 @@ SQL·예외 원문을 응답에 포함하지 않는다. Security 예외와 MVC�
 
 ## 데이터 등록 경계
 
-V16은 데이터를 INSERT하지 않는다. 직접 SQL 등록은 별도 승인된 환경에서 관리자가 수행할 후속 작업이며 등록 스크립트·관리 UI·ROLE_ADMIN을 추가하지 않았다.
+V16 migration 자체는 데이터를 INSERT하지 않는다. 이후 [개발용 등록 SQL](../dev-data/standard-exercise-catalog.sql)을 승인된 V17 개발 환경에서 사용한 기록이 있으며 운영 카탈로그 확정 자료는 아니다. 관리 UI·ROLE_ADMIN 쓰기 API는 없다. 다른 DB나 후속 등록·변경에는 별도 승인이 필요하며6A에서는 SQL을 실행하지 않는다.
 
 별칭 정규화 규칙은 NFKC→Unicode 공백열을 단일 공백으로→앞뒤 공백 제거→Locale.ROOT 소문자화다. `ExerciseAlias.create`가 이를 적용하고 표시용 원문은 유지한다. 예: `　ＢＥＮＣＨ  PRESS　` → `bench press`.
 

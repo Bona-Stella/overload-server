@@ -7,7 +7,7 @@
 상태: START·조회·takeover·snapshot·승인 요청/해결, FINISH·최초 평가 봉인·24시간 AUTO_CLOSED, 종료 후 수행 정정·삭제·명시 복구·현재 평가·승인 해결 구현. V12~V15 격리 검증 후 2026-11-01 사용자 명시 승인으로 개인 개발 DB도 V1~V15 신규 구성을 완료했다. [실제 재구성 보고서](../tasks/task-009-dev-v15-rebuild-report.md)를 따르며 다른 DB·후속 파괴적 작업에는 별도 승인이 필요하다.
 기준: [현행 설계와 후속 승인 보완](../tasks/task-009-redesign-v1.0.md), [루틴 계약](routine-management.md), 기존 인증·CSRF·Task 008 영속성 경계.
 
-V17 Backend는 [표준 운동 설계](../tasks/standard-exercise-catalog-design-analysis.md)의 단일 UUID·장비 계약을 구현한다. 아래 문서의 운동 계획/평가 schemaVersion은2다. 개인 DB V17 적용과 Frontend/IndexedDB3 연결은 수행하지 않았다. 기존 Frontend5D/5E 구현은 이전 계약이며 후속3단계 전환이 필요하다.
+V17 Backend는 [표준 운동 설계](../tasks/standard-exercise-catalog-design-analysis.md)의 단일 UUID·장비 계약을 구현한다. 아래 문서의 운동 계획/평가 schemaVersion은2다. Frontend/IndexedDB3·local schema2 전환과 당시 V17 개발 DB 연동은 [4단계 보고서](../tasks/standard-exercise-catalog-dev-phase-4-report.md)에 기록돼 있다. 6A에서는 개인 DB를 조회하지 않았으며 최신 조합의 종합 검증은6B에 남아 있다.
 
 ## 현재 제공 범위
 
@@ -462,6 +462,11 @@ GET record-change-events -> {userId,dataGeneration,sessionId,version,events:[
 ```
 
 현재 평가는 readOnly REPEATABLE_READ 한 트랜잭션에서 수행과 과거 후보의 현재 유효 사실을 재평가한다. 기존 첫 N개/순위/시간 조건/권고 규칙과 버전을 유지한다. 과거 후보를 정정·삭제하면 다음 조회에 반영되지만 최초 평가를 연쇄 변경하지 않는다. 평가 JSONB/캐시/백그라운드 재계산 테이블은 없다. 비교 후보 변경은 대상 세션 자체 version을 바꾸지 않으므로 그 version만을 전체 평가 캐시 key로 사용하지 않는다.
+
+현재 WorkoutAssessment는 현재 수행을 먼저 평가하고 eligible 종목이 하나도 없을 때만 과거 비교 조회를 생략한다. eligible이 하나라도 있으면 DECREASE를 포함해 기존 과거 종료 세션 후보·비교·순위·동률 정책을 유지한다. 과거 수행은 전체 후보를100개 세션씩 조회해 세션별로 분류하며 수행이 없는 후보도 평가한다. FINISH 결과 구성 전 변경 가시성은 비교 조회의 자동 flush 또는 조회를 생략하는 분기의 명시적 flush로 유지한다.
+
+평가 함수 내부 SELECT는 코드 경로 기준으로 비교가 불필요하면 현재 수행 조회1회, 필요하면 후보 H개에 대해 `2 + ceil(H/100)`회다(H=0은2회). 호출자의 다른 조회·자동 flush DML은 제외하며 처리 시간 측정값이 아니다. 전체 후보와 JPA 관리 엔티티의 선형 증가는 남아 있으며 운영 성능을 보장하지 않는다. JSON Mapper 구조와 복구·이력·잠금·rollback 계약은 변경하지 않는다.
+
 AUTO_CLOSED/삭제 세션은 EXCLUDED, 이유 AUTO_CLOSED/SESSION_DELETED, advice=UNAVAILABLE, evaluation=null이다. 최초 평가가 없던 AUTO_CLOSED에는 계속 null이다. ACTIVE 평가 조회는409 SESSION_NOT_CLOSED다. 이력은 본인 세션의 운동 중 이력까지 포함하고 recordedAt ASC→UUID ASC로 전체 반환한다. 전역 feed/cursor가 아니다.
 새 사건 changeContext는 `{schemaVersion:1,sessionVersion:Counter,origin?:Origin,claimedWeightContext?:Context}`다. 기존 V13 사건은 context=null 그대로다. RECOVERED는 before=null/after=추가 수행, 삭제 수행은 tombstone과 before를 보존한다. 계정은 불변 session 소유권으로 확인하며 기기 값은 원본 주장으로만 표시한다.
 

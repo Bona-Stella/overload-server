@@ -20,7 +20,7 @@
   <img src="https://img.shields.io/badge/Status-Initial_Setup-6B7280?style=flat-square" alt="Status">
 </div>
 
-> **개인 개발 DB V17 적용·실제 앱 통합 검증 완료:** 2026-11-02 승인된 `127.0.0.1:5433/overload_dev`의 빈 V15를 확인한 뒤 기존 이력을 보존하며 V16·V17을 적용했습니다. 개발용 운동5개와 소량의 별칭·제조사·근육 예시를 등록하고 실제 OTP·루틴·장비·오프라인·종료/복구를 검증했습니다. [4단계 보고서](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)를 따릅니다. [이전 V15 재구성](docs/tasks/task-009-dev-v15-rebuild-report.md)은 역사적 기록이며 현재 DB에는 이번 검증용 계정·루틴·종료 기록이 있습니다. 다른 DB·후속 파괴적 작업은 별도 승인입니다.
+> **개인 개발 DB의 마지막 확인 기록:** 2026-11-02 승인된 `127.0.0.1:5433/overload_dev`의 V15에 V16·V17을 적용하고 개발용 카탈로그·소량의 계정/운동 자료를 등록했습니다. 당시 OTP·루틴·장비·오프라인·종료/복구 확인은 [4단계 보고서](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)를 따릅니다. [이전 V15 재구성](docs/tasks/task-009-dev-v15-rebuild-report.md)은 그보다 앞선 기록입니다. V18~V22 미적용 표기 역시 마지막 보고 기준이며6A에서는 개인 DB의 현재 상태를 조회하지 않았습니다. 최신 조합 검증과 다른 DB·후속 변경 승인은 별도로 구분합니다.
 
 ---
 
@@ -30,7 +30,7 @@
 
 `overload-server`는 사용자 계정, 운동 종목, 운동 세션, 세트별 기록, 루틴 및 통계 데이터를 관리하고 클라이언트 앱에 REST API를 제공하는 백엔드 프로젝트입니다.
 
-> 🚧 Health API, PostgreSQL·Flyway, 계정 프로비저닝·운영 seed, Security·JDBC 세션·CSRF, 이메일 OTP와 선택적 Google OIDC 로그인 서버가 구현되어 있습니다. 이메일은 Resend 실수신·로그인을 검증했고 실발송 기본값은 비활성입니다. Google은 서명된 로컬 OIDC 통합 테스트로 검증했으며 실제 Google 브라우저 로그인·운동 CRUD·프론트 연동은 후속입니다. 아래 주요 기능과 API는 개발 목표입니다.
+> 현재 이메일 OTP·선택적 Google 인증, 세션·CSRF, 표준 카탈로그·휴식 설정, 루틴·운동 세션·기록 정정/삭제/복구, 통계 overview·성장·주간 일정 API를 구현했습니다. 실발송 기본값은 비활성이며 최신 코드의 실제 브라우저·PWA·실기기 종합 검증은6B에 남아 있습니다. 아래 기능 체크리스트는 초기 개발 목표이고 현행 API는 아래 계약 링크를 따릅니다.
 
 ---
 
@@ -107,9 +107,9 @@ Java 및 Spring Boot 기반의 REST API 서버를 개발합니다.
 | Framework | Spring Boot | 4.1.2 |
 | Framework Core | Spring Framework | 7.x |
 | Build Tool | Gradle | 9.8.2 |
-| ORM | Spring Data JPA / Hibernate | 008-0C: 기존 운동 종목·설정 매핑, 인증·계정 JDBC 유지 |
+| ORM | Spring Data JPA / Hibernate | 설정·루틴·세션·수행 저장, 인증·계정 JDBC 및 통계 조회 유지 |
 | Security | Spring Security | 7.1.2, CSRF·OTP·선택적 OIDC 로그인 |
-| Authentication | Google OIDC + 이메일 OTP(Resend) / Spring Session JDBC 쿠키 세션 | 이메일 실수신 검증, Google 서버 구현·실브라우저 검증 전 |
+| Authentication | Google OIDC + 이메일 OTP(Resend) / Spring Session JDBC 쿠키 세션 | 기존 LIVE 기록과 최신 조합6B 검증을 구분 |
 | Validation | Jakarta Validation | Starter 구성 완료 |
 
 ### Database & Infrastructure
@@ -223,45 +223,24 @@ Base URL:
 /api/v1
 ```
 
-### Exercise API
+### 현재 주요 API
 
 | Method | Endpoint | Description |
 |:---|:---|:---|
-| GET | `/api/v1/exercises` | 구현: 로그인 사용자의 현재 세대 운동 종목 전체 조회 |
-| GET | `/api/v1/exercises/{id}` | 운동 종목 상세 조회 |
+| GET | `/api/v1/standard-exercises/search-data`, `/api/v1/manufacturers` | 표준 카탈로그·제조사 |
+| GET / PATCH | `/api/v1/workout-settings` | 사용자별 휴식 설정 |
+| GET / POST | `/api/v1/routines` | 루틴 목록·생성 |
+| GET / PUT / DELETE | `/api/v1/routines/{id}` | 루틴 상세·수정·논리 삭제 |
+| POST | `/api/v1/workout-sessions` | 운동 시작 |
+| GET | `/api/v1/workout-sessions/active`, `/api/v1/workout-sessions/closed`, `/api/v1/workout-sessions/{id}` | 진행·종료 목록·상세 |
+| GET | `/api/v1/statistics/overview` | 선택 기간 통계·계획 근거 |
+| GET | `/api/v1/statistics/growth/exercises` | 성장 종목 검색 |
+| GET | `/api/v1/statistics/growth/exercises/{standardId}` | 루틴 배치 선택 |
+| GET | `/api/v1/statistics/growth/exercises/{standardId}/placements/{placementId}` | 승인 중량 이력 |
+| GET / PUT | `/api/v1/weekly-schedule` | 주간 일정 조회·저장 |
+| GET | `/api/v1/weekly-schedule/history` | 일정 이력 |
 
-### Workout API
-
-| Method | Endpoint | Description |
-|:---|:---|:---|
-| POST | `/api/v1/workouts` | 운동 세션 생성 |
-| GET | `/api/v1/workouts` | 운동 기록 목록 조회 |
-| GET | `/api/v1/workouts/{id}` | 운동 기록 상세 조회 |
-| PATCH | `/api/v1/workouts/{id}` | 운동 세션 수정 |
-| DELETE | `/api/v1/workouts/{id}` | 운동 세션 삭제 |
-| POST | `/api/v1/workouts/{id}/exercises` | 세션에 운동 종목 추가 |
-| POST | `/api/v1/workouts/{id}/sets` | 세트 기록 추가 |
-
-### Routine API
-
-| Method | Endpoint | Description |
-|:---|:---|:---|
-| POST | `/api/v1/routines` | 운동 루틴 생성 |
-| GET | `/api/v1/routines` | 루틴 목록 조회 |
-| GET | `/api/v1/routines/{id}` | 루틴 상세 조회 |
-| PATCH | `/api/v1/routines/{id}` | 루틴 수정 |
-| DELETE | `/api/v1/routines/{id}` | 루틴 삭제 |
-
-### Statistics API
-
-| Method | Endpoint | Description |
-|:---|:---|:---|
-| GET | `/api/v1/statistics/volume` | 기간별 운동 볼륨 조회 |
-| GET | `/api/v1/statistics/frequency` | 운동 빈도 조회 |
-| GET | `/api/v1/statistics/progress` | 운동 기록 변화 조회 |
-| GET | `/api/v1/statistics/records` | 개인 최고 기록 조회 |
-
-> 운동 종목 목록 GET과 휴식 설정 GET `/api/v1/workout-settings`는 [008-1A 계약](docs/tasks/task-008-1a-workout-read-api-report.md)을 유지합니다. 일반 온라인 쓰기는 `POST /api/v1/exercises`, `PATCH /api/v1/exercises/{id}`, `PATCH /api/v1/workout-settings`를 제공합니다. 요청·응답·검증은 [온라인 쓰기 API 계약](docs/api/workout-online-write.md)을 따르며 기존 쿠키 세션·CSRF가 필요합니다. 나머지 위 목록은 초기 설계안이며 미구현입니다.
+요청·응답과 query·인증·CSRF·오류 조건은 [표준 카탈로그](docs/api/standard-exercise-catalog.md), [휴식 설정](docs/api/workout-online-write.md), [루틴](docs/api/routine-management.md), [세션·기록·평가](docs/api/workout-sessions.md), [통계](docs/api/statistics.md), [주간 일정](docs/api/weekly-schedule.md)을 따릅니다. 개인 운동 GET과 구 `/api/v1/statistics`는 제거됐고 개인 운동 POST/PATCH는 보안 차단만 유지합니다. 초기 `/workouts`·통계 volume/frequency/progress/records 예시는 현재 endpoint가 아닙니다.
 
 ---
 
@@ -352,18 +331,17 @@ V3 세션 테이블·실제 HTTP/HTTPS 쿠키·CSRF·90일 절대 만료·10분 
 보안 응답과 프론트의 토큰 조회·갱신 계약은 [보안·세션 문서](docs/engineering/security-session.md)를 참고합니다.
 이메일 OTP 상태·제한·실패 복구·Resend 설정과 실발송 승인 조건은 [이메일 OTP 문서](docs/engineering/email-otp.md)를 따릅니다.
 Google 클라이언트 준비·정확한 localhost 콜백·활성화·세션 상태 조회는 [Google OIDC 문서](docs/engineering/google-oidc.md)를 따릅니다.
-운영 종목 20개와 휴식 구간, 신원/트랜잭션 계약 및 후속 연동 사항은
+휴식 기본값과 신원/트랜잭션 계약, 개인 운동 seed 중단 상태는
 [계정 프로비저닝 문서](docs/engineering/account-provisioning.md)를 참고합니다.
 
 현재 운동 쓰기·진행 세션·복구 기준은 [Task 009 v1.0](docs/tasks/task-009-redesign-v1.0.md)입니다.
 1차 구조 정리에서 구 명령 Controller·Service·Store·Codec·stamp·영수증/feed 런타임과 전용 테스트를 제거했습니다.
-종목 생성·이름 변경·휴식 설정 변경은 범용 명령 없이 일반 Controller·Service·DTO와 기존 JPA 트랜잭션으로 구현했습니다. [온라인 쓰기 API 계약](docs/api/workout-online-write.md)을 참고하세요. 웨이트·유산소 루틴 CRUD·배치 논리 제거/명시 복원·명시적 중량 승인도 [루틴 관리 계약](docs/api/routine-management.md)으로 구현했습니다.
-V11은 루틴 관련 네 테이블만 추가합니다. 개인 로컬 V11 적용·기존 데이터 보존은 후속 사용자 확인 사항입니다.
+휴식 설정 변경은 일반 Controller·Service·DTO와 기존 JPA 트랜잭션을 사용합니다. 개인 운동 생성·이름 변경 구현과 GET은 제거됐으며 [온라인 계약](docs/api/workout-online-write.md)의 차단 정책만 유지합니다. 웨이트·유산소 루틴 CRUD·배치 논리 제거/명시 복원·명시적 중량 승인은 [루틴 관리 계약](docs/api/routine-management.md)을 따릅니다. V11 루틴 스키마의 개인 DB 적용은 아래 V15·V17 적용 당시 기록과 구분합니다.
 세션 [START·조회·takeover·snapshot·승인 해결·FINISH·자동 종료 및 종료 후 정정·복구](docs/api/workout-sessions.md)는 V12~V15를 사용합니다. InitialPlan은 불변 JSONB 하나에 보존하고 ACTIVE는 세대와 무관하게 사용자당 하나입니다. 수행은 관계형 저장하며 승인 충돌이 유효 수행 저장을 막지 않습니다. 명시 종료는 최초 평가·AppliedPlan을 봉인하고 AUTO_CLOSED는 마지막 서버 기록만 보존합니다. 종료 후 정정·명시 복구·논리 삭제와 현재 평가는 봉인 사실과 분리하며, 확인 불가 복구 승인 주장은 UNVERIFIED로 보존합니다.
 **V12~V15 격리 검증 후, 2026-11-01 개인 개발 DB의 승인된 V15 신규 구성도 완료했습니다.** [재구성 보고서](docs/tasks/task-009-dev-v15-rebuild-report.md)를 따릅니다. 앱 시작 시 대기 migration이 자동 적용되므로 다른 DB·후속 파괴적 작업에는 별도 승인이 필요합니다.
 현재는 V17 표준 UUID·장비 계약과 Frontend/IndexedDB3·설치형 PWA를 연결했고 [실제 개발 환경 검증](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)도 완료했습니다. 조회·takeover·중복·무변경 snapshot·승인 해결은 운동 동기화 시각을 연장하지 않습니다. 기존 인증·휴식 기본값은 유지하며 개인 운동 가입 seed는 중단했습니다.
 
-통계·추적/디로딩은 [0·1단계 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)부터 확인하세요. V18은 미분류 null을 보존하는 표준 운동 `joint_type`을 추가하며 기존 검색 API는 유지합니다. 개인 DB에는 이번 작업에서 적용하지 않았습니다. 통계 대시보드·디로딩 제품 기능과 정확한 운영 카탈로그 분류는 아직 미완료입니다. 새 코드로 local Backend를 시작하면 대기 중인 V18이 자동 적용되므로 개인 DB 적용과 격리 검증을 구분하세요.
+통계·추적/디로딩의 [0·1단계 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)는 당시 기록입니다. 통계 대시보드와2B~2E는 이후 구현됐으며 디로딩 도메인 연결과 정확한 운영 카탈로그 분류는 미완료입니다. V18~V22는 코드·격리 검증과 개인 DB 적용을 구분합니다. 개인 DB의 마지막 기록은V17 적용/V18~V22 미적용이며6A에서는 접속·재확인하지 않았습니다. 새 앱을 해당 DB에 연결하면 대기 migration이 실행될 수 있습니다.
 
 [통계·추적 2E](docs/tasks/statistics-tracking-phase-2e-report.md)에서 맨몸 운동의 명시적 추가 중량 기록·정정·오프라인 보존과 실제 반복 기반 총중량 계산을 연결했습니다. 기존 숫자 중량이나 체중을 추가 부하로 해석하지 않고, 근거가 없으면 세트·반복만 표시합니다. 승인 평가와 근육 다중 매핑/대분류 중복 제거를 유지합니다. [실제 DB/API 계약](docs/api/bodyweight-additional-load.md)을 따르며 개인 DB V18~V22는 미적용입니다. 운영 분류·디로딩3단계·실기기 검증은 남아 있습니다.
 
