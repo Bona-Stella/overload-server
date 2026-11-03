@@ -1365,10 +1365,11 @@ class WorkoutSessionIntegrationTests {
         assertThat(currentExercise()).isEqualTo(before);assertThat(closureFacts()).isEqualTo(sealed);assertThat(eventCount()).isZero();
         assertThat(bodyweightStatistics().get("volumeLoadKg").asString()).isEqualTo("320");
     }
-    @Test void bodyweightMissingRecoveryRetainsExtraAndDeletionNeverResurrectsIt() throws Exception {
+    @ParameterizedTest @ValueSource(strings={"5","0","0.000001"})
+    void bodyweightMissingRecoveryRetainsExtraAndDeletionNeverResurrectsIt(String amount) throws Exception {
         routineEquipment(null,"BODYWEIGHT",0);var base=initialState();node(finish(1,base));var sealed=closureFacts();
-        var missing=bodyweight(set(base,UUID.randomUUID(),1,"80",8,new Context("TODAY_ONLY",null)),new BodyweightLoad("5"));
-        node(recover(List.of(missing),List.of()));assertThat(bodyweightStatistics().get("volumeLoadKg").asString()).isEqualTo("40");
+        var missing=bodyweight(set(base,UUID.randomUUID(),1,"80",8,new Context("TODAY_ONLY",null)),new BodyweightLoad(amount));
+        node(recover(List.of(missing),List.of()));assertThat(bodyweightStatistics().get("volumeLoadKg").asString()).isEqualTo(decimal(new java.math.BigDecimal(amount).multiply(java.math.BigDecimal.valueOf(8))));
         assertThat(node(recover(List.of(missing),List.of())).get("changed").asBoolean()).isFalse();
         error(recover(List.of(bodyweight(missing,new BodyweightLoad("6"))),List.of()),409,"RECORD_ID_CONFLICT");
         error(recover(List.of(bodyweight(missing,null)),List.of()),409,"RECORD_ID_CONFLICT");

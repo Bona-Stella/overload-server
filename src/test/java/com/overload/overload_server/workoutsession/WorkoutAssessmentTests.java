@@ -3,11 +3,13 @@ package com.overload.overload_server.workoutsession;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 import static com.overload.overload_server.workoutsession.WorkoutSnapshotData.*;
+import static org.mockito.Mockito.*;
 
 class WorkoutAssessmentTests {
     final UUID item=UUID.randomUUID(),placement=UUID.randomUUID(),definition=UUID.randomUUID(),routine=UUID.randomUUID();
@@ -55,5 +57,130 @@ class WorkoutAssessmentTests {
         assertThat(WorkoutAssessment.benchmarkOrder(a,b)).isNegative();
         var recent=new WorkoutAssessment.Benchmark(b.sessionId(),"1",at.plusSeconds(1),List.of(),List.of(),"30","test");
         assertThat(WorkoutAssessment.benchmarkOrder(recent,a)).isNegative();
+    }
+
+    @ParameterizedTest @ValueSource(strings={"empty","extra-only","temporary","pending","mixed","deleted","count","range","removed","incomplete-second","partial","both","eligible","below-min","above-max"})
+    void historyIsReadOnlyWhenTheExistingEvaluationHasAnEligibleExercise(String scenario) {
+        var sessions=mock(WorkoutSessionRepository.class);var records=mock(WorkoutSnapshotRepository.class);
+        var session=new WorkoutSession();session.id=UUID.randomUUID();session.version=7;
+        var original=initial();var applied=plan(3);var stored=new ArrayList<>(List.of(set(1,8),set(2,8),set(3,8)));
+        var pastSets=new ArrayList<>(List.of(set(1,8),set(2,8),set(3,8)));
+        if(Set.of("incomplete-second","partial","both").contains(scenario)) {
+            UUID second=UUID.randomUUID();var first=original.weightExercises().getFirst();
+            original=new InitialPlan(2,routine,"test","0",List.of(first,new InitialPlan.Weight(second,UUID.randomUUID(),definition,"second",null,null,3,6,10,"60","60")),List.of());
+            applied=WorkoutSnapshotData.initial(original);
+            for(int n=1;n<=3;n++) {var next=set(n,8);next.exerciseId=second;stored.add(next);var prior=set(n,8);prior.exerciseId=second;pastSets.add(prior);}
+        }
+        var pastInitial=original;var pastApplied=WorkoutSnapshotData.initial(original);
+        switch(scenario) {
+            case "empty"->stored.clear();
+            case "extra-only"->{original=new InitialPlan(2,routine,"test","0",List.of(),List.of());applied=WorkoutSnapshotData.initial(original);}
+            case "temporary","partial"->{var first=stored.getFirst();first.contextKind="TODAY_ONLY";first.approvalState="TODAY_ONLY";first.approvedWeight=null;}
+            case "pending"->{stored.getFirst().approvalState="PENDING";stored.getFirst().approvedWeight=null;}
+            case "mixed"->stored.getFirst().weight=new BigDecimal("65");
+            case "deleted"->stored.getFirst().deletedAt=Instant.parse("2026-10-31T10:01:00Z");
+            case "count"->applied=plan(4);
+            case "range"->applied=new Plan(2,List.of(new WeightPlan(item,3,6,11,null,null)),List.of());
+            case "removed"->applied=new Plan(2,List.of(),List.of());
+            case "incomplete-second"->stored.removeLast();
+            case "below-min"->stored.getFirst().reps=5;
+            case "above-max"->stored.forEach(s->s.reps=11);
+        }
+        session.initialPlan=original.json();session.appliedPlan=json(applied);
+        var current=WorkoutAssessment.evaluate(original,applied,stored);
+        boolean eligible=Set.of("partial","both","eligible","below-min","above-max").contains(scenario);
+        assertThat(current.exercises().stream().anyMatch(WorkoutAssessment.ExerciseResult::eligible)).isEqualTo(eligible);
+        if(scenario.equals("partial"))assertThat(current.exercises().stream().filter(WorkoutAssessment.ExerciseResult::eligible)).hasSize(1);
+        when(records.sets(session.id)).thenReturn(stored);
+        var assessedAt=Instant.parse("2026-11-01T00:00:00Z");
+        for(int historyCount:List.of(0,2)) {
+            var past=new ArrayList<WorkoutSession>();
+            for(int n=0;n<historyCount;n++) {
+                var prior=new WorkoutSession();prior.id=UUID.randomUUID();prior.version=n+1;prior.endedAt=assessedAt.minusSeconds(7200-n*3600);
+                prior.initialPlan=pastInitial.json();prior.appliedPlan=json(pastApplied);past.add(prior);
+            }
+            var batchSets=new ArrayList<PerformedSet>();
+            for(var prior:past)for(var source:pastSets) {
+                var row=set(source.ordinal,source.reps);row.exerciseId=source.exerciseId;row.sessionId=prior.id;row.id=source.id;batchSets.add(row);
+            }
+            when(records.setsForSessions(past.stream().map(s->s.id).toList())).thenReturn(batchSets);
+            when(sessions.finishedBefore(session)).thenReturn(past);
+            var expected=originalResult(session,assessedAt,current,past,pastSets);
+            clearInvocations(sessions,records);
+            var actual=new WorkoutAssessment(sessions,records).assess(session,assessedAt);
+            assertThat(actual).isEqualTo(expected);verify(records).sets(session.id);
+            if(eligible) {verify(sessions).finishedBefore(session);if(historyCount>0)verify(records).setsForSessions(past.stream().map(s->s.id).toList());}
+            else {verify(sessions,never()).finishedBefore(any());verify(records,never()).setsForSessions(anyList());}
+            for(var prior:past)verify(records,never()).sets(prior.id);
+        }
+    }
+
+    @ParameterizedTest @ValueSource(ints={0,1,99,100,101,200,201})
+    void historyBatchesKeepEmptySessionsAndTheLastPartialBatch(int count) {
+        var sessions=mock(WorkoutSessionRepository.class);var records=mock(WorkoutSnapshotRepository.class);
+        var session=new WorkoutSession();session.id=UUID.randomUUID();session.initialPlan=initial().json();session.appliedPlan=json(plan(3));
+        when(records.sets(session.id)).thenReturn(List.of(set(1,8),set(2,8),set(3,8)));
+        var past=new ArrayList<WorkoutSession>();
+        for(int n=0;n<count;n++) {var p=new WorkoutSession();p.id=UUID.randomUUID();p.initialPlan=initial().json();p.appliedPlan=json(plan(3));past.add(p);}
+        when(sessions.finishedBefore(session)).thenReturn(past);
+        var batches=new ArrayList<List<UUID>>();
+        when(records.setsForSessions(anyList())).thenAnswer(call->{batches.add(List.copyOf(call.getArgument(0)));return List.of();});
+        var result=new WorkoutAssessment(sessions,records).assess(session,Instant.EPOCH);
+        assertThat(result.exercises().getFirst().eligible()).isTrue();assertThat(result.exercises().getFirst().benchmarkEvidence()).isNull();
+        assertThat(batches.stream().flatMap(List::stream).toList()).containsExactlyElementsOf(past.stream().map(p->p.id).toList());
+        assertThat(batches).allSatisfy(ids->assertThat(ids.size()).isBetween(1,WorkoutAssessment.HISTORY_BATCH_SIZE));
+        assertThat(batches).hasSize((count+WorkoutAssessment.HISTORY_BATCH_SIZE-1)/WorkoutAssessment.HISTORY_BATCH_SIZE);
+        if(count>0) {past.getLast().initialPlan="[]";assertThatThrownBy(()->new WorkoutAssessment(sessions,records).assess(session,Instant.EPOCH)).isInstanceOf(tools.jackson.core.JacksonException.class);}
+    }
+
+    @ParameterizedTest @ValueSource(ints={101,200,201})
+    void bestEvidenceCanComeFromTheLastBatchWhileOtherSessionsAreEmpty(int count) {
+        var sessions=mock(WorkoutSessionRepository.class);var records=mock(WorkoutSnapshotRepository.class);
+        var session=new WorkoutSession();session.id=UUID.randomUUID();session.initialPlan=initial().json();session.appliedPlan=json(plan(3));
+        when(records.sets(session.id)).thenReturn(List.of(set(1,8),set(2,8),set(3,8)));
+        var past=new ArrayList<WorkoutSession>();var stored=new HashMap<UUID,List<PerformedSet>>();
+        for(int n=0;n<count;n++) {
+            var prior=new WorkoutSession();prior.id=UUID.randomUUID();prior.initialPlan=initial().json();prior.appliedPlan=json(plan(3));prior.endedAt=Instant.EPOCH;past.add(prior);
+            if(n==0||n==count-1) {var rows=List.of(set(1,n==0?8:10),set(2,n==0?8:10),set(3,n==0?8:10));rows.forEach(s->s.sessionId=prior.id);stored.put(prior.id,rows);}
+        }
+        when(sessions.finishedBefore(session)).thenReturn(past);
+        when(records.setsForSessions(anyList())).thenAnswer(call->{List<UUID> ids=call.getArgument(0);return ids.stream().flatMap(id->stored.getOrDefault(id,List.of()).stream()).toList();});
+        var evidence=new WorkoutAssessment(sessions,records).assess(session,Instant.EPOCH).exercises().getFirst().benchmarkEvidence();
+        assertThat(evidence.sessionId()).isEqualTo(past.getLast().id);assertThat(evidence.repsSum()).isEqualTo("30");
+        assertThat(evidence.performedSetIds()).containsExactlyElementsOf(stored.get(past.getLast().id).stream().map(s->s.id).toList());
+    }
+
+    @ParameterizedTest @ValueSource(strings={"initial","applied"})
+    void currentPlanFailuresStillHappenBeforeAnyHistoryRead(String corrupt) {
+        var sessions=mock(WorkoutSessionRepository.class);var records=mock(WorkoutSnapshotRepository.class);
+        var session=new WorkoutSession();session.initialPlan=corrupt.equals("initial")?"[]":initial().json();session.appliedPlan=corrupt.equals("applied")?"[]":json(plan(3));
+        assertThatThrownBy(()->new WorkoutAssessment(sessions,records).assess(session,Instant.EPOCH)).isInstanceOf(tools.jackson.core.JacksonException.class);
+        verifyNoInteractions(sessions,records);
+    }
+
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void unreadableHistoricalPlanIsObservedOnlyWhenHistoricalEvidenceIsNeeded(boolean eligible) {
+        var sessions=mock(WorkoutSessionRepository.class);var records=mock(WorkoutSnapshotRepository.class);
+        var session=new WorkoutSession();session.id=UUID.randomUUID();session.initialPlan=initial().json();session.appliedPlan=json(plan(3));
+        when(records.sets(session.id)).thenReturn(eligible?List.of(set(1,8),set(2,8),set(3,8)):List.of());
+        var prior=new WorkoutSession();prior.initialPlan="{\"schemaVersion\":2,\"weightExercises\":\"broken\"}";
+        when(sessions.finishedBefore(session)).thenReturn(List.of(prior));
+        if(eligible)assertThatThrownBy(()->new WorkoutAssessment(sessions,records).assess(session,Instant.EPOCH)).isInstanceOf(tools.jackson.core.JacksonException.class);
+        else {assertThat(new WorkoutAssessment(sessions,records).assess(session,Instant.EPOCH).overallWeightPlanComplete()).isFalse();verify(sessions,never()).finishedBefore(any());}
+    }
+
+    // Reference assembly from the original eager-history path, for identical-input result comparisons.
+    WorkoutAssessment.Result originalResult(WorkoutSession session,Instant at,WorkoutAssessment.Evaluation current,List<WorkoutSession> past,List<PerformedSet> stored) {
+        var results=new ArrayList<WorkoutAssessment.ExerciseResult>();
+        for(var item:current.exercises()) {
+            WorkoutAssessment.Benchmark best=null;
+            for(var prior:past)for(var exercise:WorkoutAssessment.evaluate(InitialPlan.read(prior.initialPlan),JSON.readValue(prior.appliedPlan,Plan.class),stored).exercises()) {
+                if(!item.eligible()||!exercise.eligible()||!exercise.comparisonContext().equals(item.comparisonContext()))continue;
+                var evidence=new WorkoutAssessment.Benchmark(prior.id,Long.toString(prior.version),prior.endedAt,exercise.evaluatedPerformedSetIds(),exercise.evaluatedReps(),exercise.repsSum(),WorkoutAssessment.RULE_VERSION);
+                if(best==null||WorkoutAssessment.benchmarkOrder(evidence,best)<0)best=evidence;
+            }
+            results.add(new WorkoutAssessment.ExerciseResult(item.sessionExerciseId(),item.eligible(),item.reasonCodes(),item.comparisonContext(),item.evaluatedPerformedSetIds(),item.evaluatedReps(),item.repsSum(),best,item.advice(),item.adviceReason()));
+        }
+        return new WorkoutAssessment.Result(2,WorkoutAssessment.RULE_VERSION,at,Long.toString(session.version),current.complete(),List.copyOf(results));
     }
 }

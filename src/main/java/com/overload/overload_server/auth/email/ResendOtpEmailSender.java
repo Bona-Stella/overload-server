@@ -55,9 +55,11 @@ final class ResendOtpEmailSender implements OtpEmailSender {
 				.POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body))).build();
 		try {
 			var response = client.send(request, HttpResponse.BodyHandlers.ofString());
-			if (response.statusCode() < 200 || response.statusCode() >= 300
-					|| !JSON.readTree(response.body()).path("id").isString()
-					|| JSON.readTree(response.body()).path("id").asString().isBlank()) {
+			if (response.statusCode() < 200 || response.statusCode() >= 300) {
+				throw new OtpFailure(503, "OTP_UNAVAILABLE");
+			}
+			var id = JSON.readTree(response.body()).path("id");
+			if (!id.isString() || id.asString().isBlank()) {
 				throw new OtpFailure(503, "OTP_UNAVAILABLE");
 			}
 		} catch (InterruptedException exception) {

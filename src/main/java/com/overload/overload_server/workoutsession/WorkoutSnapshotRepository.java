@@ -25,6 +25,12 @@ public class WorkoutSnapshotRepository {
     List<PerformedSet> sets(UUID session) {
         return em.createQuery("select e from PerformedSet e where e.sessionId=:id order by e.id", PerformedSet.class).setParameter("id", session).getResultList();
     }
+    List<PerformedSet> setsForSessions(List<UUID> sessions) {
+        if (sessions.isEmpty()) return List.of();
+        if (sessions.size()==1) return sets(sessions.getFirst());
+        return em.createQuery("select e from PerformedSet e where e.sessionId in :ids order by e.sessionId,e.id", PerformedSet.class)
+                .setParameter("ids", sessions).getResultList();
+    }
     List<CardioResult> cardio(UUID session) {
         return em.createQuery("select e from CardioResult e where e.sessionId=:id order by e.id", CardioResult.class).setParameter("id", session).getResultList();
     }

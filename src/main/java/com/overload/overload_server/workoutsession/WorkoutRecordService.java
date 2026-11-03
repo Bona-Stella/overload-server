@@ -85,8 +85,9 @@ public class WorkoutRecordService {
                 var old=sets.get(value.id());
                 if(old!=null) {
                     alive(old.deletedAt);
-                    var claim=recoveredClaims.getOrDefault(old.id,old.value().weightContext());
-                    var expected=new SetValue(old.id,old.exerciseId,old.ordinal,decimal(old.weight),old.reps,old.completedAt,claim,old.manufacturerId,old.loadType,old.value().bodyweightLoad());
+                    var oldValue=old.value();
+                    var claim=recoveredClaims.getOrDefault(old.id,oldValue.weightContext());
+                    var expected=new SetValue(old.id,old.exerciseId,old.ordinal,decimal(old.weight),old.reps,old.completedAt,claim,old.manufacturerId,old.loadType,oldValue.bodyweightLoad());
                     if(!expected.equals(value))throw failure(RECORD_ID_CONFLICT);
                     existing.add(old.id);continue;
                 }

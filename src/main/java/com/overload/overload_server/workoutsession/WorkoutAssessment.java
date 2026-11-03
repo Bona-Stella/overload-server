@@ -4,12 +4,14 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 import static com.overload.overload_server.workoutsession.WorkoutSnapshotData.*;
 
 /** Pure domain evaluation plus scoped historical evidence lookup. Never changes approval or performance. */
 @Service
 public class WorkoutAssessment {
     public static final String RULE_VERSION="task009-completion-v1";
+    static final int HISTORY_BATCH_SIZE=100;
     private final WorkoutSessionRepository sessions;
     private final WorkoutSnapshotRepository records;
 
@@ -30,22 +32,31 @@ public class WorkoutAssessment {
 
     Result assess(WorkoutSession session,Instant assessedAt) {
         var current=evaluate(InitialPlan.read(session.initialPlan),JSON.readValue(session.appliedPlan,Plan.class),records.sets(session.id));
-        var past=new ArrayList<Map.Entry<WorkoutSession,Evaluation>>();
-        for (var candidate:sessions.finishedBefore(session)) {
-            past.add(Map.entry(candidate,evaluate(InitialPlan.read(candidate.initialPlan),JSON.readValue(candidate.appliedPlan,Plan.class),records.sets(candidate.id))));
+        var benchmarks=new HashMap<Context,Benchmark>();
+        if (current.exercises().stream().anyMatch(ExerciseResult::eligible)) {
+            var contexts=current.exercises().stream().filter(ExerciseResult::eligible).map(ExerciseResult::comparisonContext).collect(Collectors.toSet());
+            var past=sessions.finishedBefore(session);
+            // Bound each query's UUID parameters and temporary result lists; retain JPA-managed entities.
+            for (int offset=0;offset<past.size();offset+=HISTORY_BATCH_SIZE) {
+                var batch=past.subList(offset,Math.min(offset+HISTORY_BATCH_SIZE,past.size()));
+                var sets=records.setsForSessions(batch.stream().map(s->s.id).toList()).stream().collect(Collectors.groupingBy(s->s.sessionId));
+                for (var candidate:batch) {
+                    var previous=evaluate(InitialPlan.read(candidate.initialPlan),JSON.readValue(candidate.appliedPlan,Plan.class),sets.getOrDefault(candidate.id,List.of()));
+                    for (var prior:previous.exercises()) {
+                        if (!prior.eligible()||!contexts.contains(prior.comparisonContext())) continue;
+                        var evidence=new Benchmark(candidate.id,Long.toString(candidate.version),candidate.endedAt,prior.evaluatedPerformedSetIds(),
+                                prior.evaluatedReps(),prior.repsSum(),RULE_VERSION);
+                        benchmarks.merge(prior.comparisonContext(),evidence,(a,b)->benchmarkOrder(a,b)<=0?a:b);
+                    }
+                }
+            }
+        } else {
+            // The history query also flushes pending FINISH session changes before result construction.
+            sessions.flush();
         }
         var exercises=new ArrayList<ExerciseResult>();
         for (var item:current.exercises()) {
-            Benchmark benchmark=null;
-            if (item.eligible()) {
-                for (var candidate:past) for (var prior:candidate.getValue().exercises()) {
-                    if (!prior.eligible()||!prior.comparisonContext().equals(item.comparisonContext())) continue;
-                    var s=candidate.getKey();
-                    var evidence=new Benchmark(s.id,Long.toString(s.version),s.endedAt,prior.evaluatedPerformedSetIds(),
-                            prior.evaluatedReps(),prior.repsSum(),RULE_VERSION);
-                    if (benchmark==null||benchmarkOrder(evidence,benchmark)<0) benchmark=evidence;
-                }
-            }
+            Benchmark benchmark=item.eligible()?benchmarks.get(item.comparisonContext()):null;
             exercises.add(new ExerciseResult(item.sessionExerciseId(),item.eligible(),item.reasonCodes(),item.comparisonContext(),
                     item.evaluatedPerformedSetIds(),item.evaluatedReps(),item.repsSum(),benchmark,item.advice(),item.adviceReason()));
         }

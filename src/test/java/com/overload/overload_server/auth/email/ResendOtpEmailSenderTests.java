@@ -39,8 +39,9 @@ class ResendOtpEmailSenderTests {
 		} finally { server.stop(0); }
 	}
 
-	@Test
-	void sendsStablePayloadAndIdempotencyKeyOnlyToTheLocalProtocolStub() throws Exception {
+	@ParameterizedTest
+	@ValueSource(ints = {200, 201, 299})
+	void sendsStablePayloadAndIdempotencyKeyOnlyToTheLocalProtocolStub(int status) throws Exception {
 		var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 		var calls = new AtomicInteger(); var firstBody = new AtomicReference<String>();
 		var firstKey = new AtomicReference<String>(); var stable = new AtomicReference<>(true);
@@ -50,7 +51,7 @@ class ResendOtpEmailSenderTests {
 			if (calls.incrementAndGet() == 1) { firstBody.set(body); firstKey.set(key); }
 			else { stable.set(firstBody.get().equals(body) && firstKey.get().equals(key)); }
 			var response = "{\"id\":\"local-test-message\"}".getBytes(StandardCharsets.UTF_8);
-			exchange.sendResponseHeaders(200, response.length); exchange.getResponseBody().write(response); exchange.close();
+			exchange.sendResponseHeaders(status, response.length); exchange.getResponseBody().write(response); exchange.close();
 		});
 		server.start();
 		try (var client = HttpClient.newHttpClient()) {
@@ -66,19 +67,47 @@ class ResendOtpEmailSenderTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(ints = {401, 403, 422, 429, 500, 200})
-	void providerErrorsOrAmbiguousSuccessDoNotBecomeAcceptedMail(int status) throws Exception {
+	@ValueSource(ints = {300, 401, 403, 422, 429, 500})
+	void providerErrorsDoNotBecomeAcceptedMailEvenWithAnId(int status) throws Exception {
 		var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 		server.createContext("/emails", exchange -> {
 			exchange.getRequestBody().readAllBytes();
-			var body = "{\"error\":\"do not propagate provider body\"}".getBytes(StandardCharsets.UTF_8);
+			var body = "{\"id\":\"local-test-message\",\"error\":\"do not propagate provider body\"}".getBytes(StandardCharsets.UTF_8);
 			exchange.sendResponseHeaders(status, body.length); exchange.getResponseBody().write(body); exchange.close();
 		});
 		server.start();
 		try (var client = HttpClient.newHttpClient()) {
 			var sender = new ResendOtpEmailSender(true, UUID.randomUUID().toString(), "sender@example.invalid", client,
 					endpoint(server), Duration.ofSeconds(1));
-			assertThatThrownBy(() -> sender.send(message())).isInstanceOf(OtpFailure.class).hasMessage("OTP_UNAVAILABLE");
+			assertThatThrownBy(() -> sender.send(message())).isInstanceOfSatisfying(OtpFailure.class, failure -> {
+				assertThat(failure.status).isEqualTo(503);
+				assertThat(failure.code).isEqualTo("OTP_UNAVAILABLE");
+				assertThat(failure).hasMessage("OTP_UNAVAILABLE").hasNoCause();
+			});
+		} finally { server.stop(0); }
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"not json", "{\"id\":", "{}", "{\"error\":\"do not propagate provider body\"}",
+			"{\"id\":null}", "{\"id\":123}", "{\"id\":true}", "{\"id\":{}}", "{\"id\":[]}",
+			"{\"id\":\"\"}", "{\"id\":\" \\t\\n\"}"})
+	void invalidSuccessBodiesKeepTheGenericUnavailableFailure(String responseBody) throws Exception {
+		var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+		server.createContext("/emails", exchange -> {
+			exchange.getRequestBody().readAllBytes();
+			var body = responseBody.getBytes(StandardCharsets.UTF_8);
+			exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body); exchange.close();
+		});
+		server.start();
+		try (var client = HttpClient.newHttpClient()) {
+			var sender = new ResendOtpEmailSender(true, UUID.randomUUID().toString(), "sender@example.invalid", client,
+					endpoint(server), Duration.ofSeconds(1));
+			assertThatThrownBy(() -> sender.send(message())).isInstanceOfSatisfying(OtpFailure.class, failure -> {
+				assertThat(failure.status).isEqualTo(503);
+				assertThat(failure.code).isEqualTo("OTP_UNAVAILABLE");
+				assertThat(failure.retryAfter).isZero();
+				assertThat(failure).hasMessage("OTP_UNAVAILABLE").hasNoCause();
+			});
 		} finally { server.stop(0); }
 	}
 
