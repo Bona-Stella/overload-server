@@ -9,5 +9,15 @@ allprojects {
 			mainClass = 'com.overload.testfixture.WorkoutBrowserEnvironment'
 			javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(25) }
 		}
+
+		tasks.register('v22BrowserEnvironment', JavaExec) {
+			group = 'verification'
+			description = 'Runs a fresh V22-only verification backend; never reuses the historical browser fixture.'
+			dependsOn tasks.named('testClasses')
+			classpath = sourceSets.test.runtimeClasspath
+			mainClass = 'com.overload.testfixture.V22BrowserEnvironment'
+			javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(25) }
+			doFirst { args = [providers.gradleProperty('verificationRunId').get()] }
+		}
 	}
 }
