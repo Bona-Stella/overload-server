@@ -1,0 +1,12 @@
+// Opt-in test-classpath launcher support. Never part of bootRun or production packaging.
+gradle.projectsEvaluated {
+    def root = gradle.rootProject
+    root.tasks.register('homeReviewClasspath') {
+        dependsOn root.tasks.named('testClasses')
+        doLast {
+            def output = root.layout.buildDirectory.file('home-review/classpath.txt').get().asFile
+            output.parentFile.mkdirs()
+            output.text = root.sourceSets.test.runtimeClasspath.asPath
+        }
+    }
+}

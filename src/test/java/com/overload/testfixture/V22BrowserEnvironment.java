@@ -54,13 +54,17 @@ public final class V22BrowserEnvironment implements AutoCloseable {
     }
 
     public static V22BrowserEnvironment start(UUID runId, boolean failBeforeReady) throws Exception {
+        return start(runId, failBeforeReady, new Class<?>[0]);
+    }
+
+    static V22BrowserEnvironment start(UUID runId, boolean failBeforeReady, Class<?>... additionalSources) throws Exception {
         // The local HTTP cookie profile is safe only with the test resource overlay.
         var overlay = V22BrowserEnvironment.class.getClassLoader().getResource("application-local.yaml");
         require(overlay != null && overlay.toString().contains("/build/resources/test/"), "Test resource overlay required");
         require(System.getenv().keySet().stream().noneMatch(k -> k.matches("^(SPRING_|OTP_|RESEND_|GOOGLE_|AUTH_|OVERLOAD_).*")), "Clean child environment required");
         var environment = new V22BrowserEnvironment(runId);
         try {
-            environment.startBackend();
+            environment.startBackend(additionalSources);
             if (failBeforeReady) throw new IllegalStateException("Requested pre-ready failure");
             environment.evidence.put("readyAt", Instant.now().toString());
             environment.ready = true;
@@ -73,7 +77,7 @@ public final class V22BrowserEnvironment implements AutoCloseable {
         }
     }
 
-    private void startBackend() throws Exception {
+    private void startBackend(Class<?>... additionalSources) throws Exception {
         postgres = new PostgreSQLContainer("postgres:18.6-alpine")
                 .withDatabaseName(DATABASE).withUsername("overload_test").withPassword(UUID.randomUUID().toString())
                 .withReuse(false).withLabel(RUN_LABEL, runId.toString())
@@ -106,6 +110,7 @@ public final class V22BrowserEnvironment implements AutoCloseable {
 
         var key = new byte[32]; new SecureRandom().nextBytes(key);
         app = new SpringApplicationBuilder(OverloadServerApplication.class, WorkoutBrowserEnvironment.TestEmail.class)
+                .sources(additionalSources)
                 .initializers(context -> {
                     var identity = new FilterRegistrationBean<Filter>((request, response, chain) -> {
                         var incoming = (HttpServletRequest) request;
@@ -217,6 +222,7 @@ public final class V22BrowserEnvironment implements AutoCloseable {
     }
 
     public Map<String, Object> evidence() { return Map.copyOf(evidence); }
+    ConfigurableApplicationContext context() { return app; }
     public Path directory() { return directory; }
     private void write(String name, Object value) throws Exception {
         Files.writeString(directory.resolve(name), JSON.writeValueAsString(value), StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
@@ -228,7 +234,14 @@ public final class V22BrowserEnvironment implements AutoCloseable {
         closed = true;
         try { if (control != null) control.close(); if (app != null) app.close(); }
         finally {
-            try { if (postgres != null) postgres.close(); }
+            try {
+                // Explicit archive shutdown only: never dispose a user-approved review container.
+                // A verified backup/restore and local shutdown agent establish this marker first.
+                var preservation = directory.resolve("preserve-review-db");
+                boolean preserve = Files.exists(preservation) && Files.readString(preservation).trim().equals(runId.toString());
+                if (preserve) evidence.put("containerPreserved", true);
+                else if (postgres != null) postgres.close();
+            }
             finally {
                 Files.deleteIfExists(directory.resolve("ready.json"));
                 evidence.remove("instanceId");
