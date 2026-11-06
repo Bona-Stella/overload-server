@@ -1,5 +1,7 @@
 # Expiry tests drive the same job explicitly with the injectable clock.
 overload:
   workout:
+    review:
+      enabled: false
     expiry:
       enabled: false

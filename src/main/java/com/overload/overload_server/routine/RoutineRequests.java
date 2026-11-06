@@ -19,29 +19,29 @@ public final class RoutineRequests {
 			var p = cardioPlan(value);
 			return Optional.of(JSON.valueToTree(new RoutineResponses.Plan(p.kind(),p.name(),p.targetSeconds(),RoutineResponses.decimal(p.targetDistanceKm()),
 					p.intensityMode()==null?null:new RoutineResponses.Intensity(p.intensityMode(),RoutineResponses.decimal(p.intensityValue())),
-					RoutineResponses.decimal(p.inclinePercent()),RoutineResponses.decimal(p.resistance()))));
+					RoutineResponses.decimal(p.inclinePercent()),RoutineResponses.decimal(p.resistance()),p.activityId())));
 		} catch (RoutineFailure failure) { return Optional.empty(); }
 	}
 	public record Weight(Mode mode, UUID id, UUID standardExerciseId, UUID manufacturerId, String loadType,
 			int setCount, int minReps, int maxReps, BigDecimal initialWeightKg) { }
 	public record Plan(String kind, String name, int targetSeconds, BigDecimal targetDistanceKm,
-			String intensityMode, BigDecimal intensityValue, BigDecimal inclinePercent, BigDecimal resistance) { }
+			String intensityMode, BigDecimal intensityValue, BigDecimal inclinePercent, BigDecimal resistance, UUID activityId) { public Plan(String k,String n,int t,BigDecimal d,String m,BigDecimal v,BigDecimal i,BigDecimal r){this(k,n,t,d,m,v,i,r,null);} }
 	public record Cardio(Mode mode, UUID id, Plan plan) { }
 	public record Approval(UUID placementId, BigDecimal nextApprovedWeightKg, Instant occurredAt) { }
-	public record Create(UUID id, long dataGeneration, String name, List<Weight> weightPlacements, List<Cardio> cardioPlacements) { }
+	public record Create(UUID id, long dataGeneration, String name, List<Weight> weightPlacements, List<Cardio> cardioPlacements, String tag) { public Create(UUID id,long dataGeneration,String name,List<Weight> weights,List<Cardio> cardio){this(id,dataGeneration,name,weights,cardio,null);} }
 	public record Update(long dataGeneration, long expectedVersion, String name, List<Weight> weightPlacements,
-			List<Cardio> cardioPlacements, List<Approval> weightApprovals) { }
+			List<Cardio> cardioPlacements, List<Approval> weightApprovals, String tag, boolean tagProvided) { public Update(long g,long v,String n,List<Weight>w,List<Cardio>c,List<Approval>a){this(g,v,n,w,c,a,null,false);} }
 	public record Delete(long dataGeneration, long expectedVersion) { }
 
 	public static Create create(String raw) {
 		var body = parse(raw);
-		fields(body, "id", "dataGeneration", "name", "weightPlacements", "cardioPlacements");
+		fieldsWithTag(body, "id", "dataGeneration", "name", "weightPlacements", "cardioPlacements");
 		var weights = weights(body, true); var cardio = cardio(body, true); composition(weights, cardio);
-		return new Create(uuid(text(body, "id")), counter(body, "dataGeneration"), name(body, "name"), weights, cardio);
+		return new Create(uuid(text(body, "id")), counter(body, "dataGeneration"), name(body, "name"), weights, cardio, tag(body));
 	}
 	public static Update update(String raw) {
 		var body = parse(raw);
-		fields(body, "dataGeneration", "expectedVersion", "name", "weightPlacements", "cardioPlacements", "weightApprovals");
+		fieldsWithTag(body, "dataGeneration", "expectedVersion", "name", "weightPlacements", "cardioPlacements", "weightApprovals");
 		var weights = weights(body, false); var cardio = cardio(body, false); composition(weights, cardio);
 		var approvals = new ArrayList<Approval>(); var seen = new HashSet<UUID>();
 		for (var item : array(body, "weightApprovals")) {
@@ -53,7 +53,7 @@ public final class RoutineRequests {
 			try { approvals.add(new Approval(id, decimal(item, "nextApprovedWeightKg"), Instant.parse(time))); }
 			catch (java.time.DateTimeException failure) { throw invalid(); }
 		}
-		return new Update(counter(body, "dataGeneration"), counter(body, "expectedVersion"), name(body, "name"), weights, cardio, List.copyOf(approvals));
+		return new Update(counter(body, "dataGeneration"), counter(body, "expectedVersion"), name(body, "name"), weights, cardio, List.copyOf(approvals),tag(body),body.has("tag"));
 	}
 	public static Delete delete(String raw) {
 		var body = parse(raw); fields(body, "dataGeneration", "expectedVersion");
@@ -70,6 +70,8 @@ public final class RoutineRequests {
 		try { return JSON.readTree(raw); }
 		catch (tools.jackson.core.JacksonException failure) { throw invalid(); }
 	}
+	private static void fieldsWithTag(JsonNode node,String... required){if(node==null||!node.isObject())throw invalid();if(node.has("tag")){var names=new ArrayList<>(List.of(required));names.add("tag");fields(node,names.toArray(String[]::new));}else fields(node,required);}
+	private static String tag(JsonNode node){var v=node.get("tag");if(v==null||v.isNull())return null;if(!v.isString()||!Set.of("PUSH","PULL","LEGS","FRONT","BACK","FULL","UPPER","LOWER","CARDIO","MIXED").contains(v.asString()))throw invalid();return v.asString();}
 	private static void fields(JsonNode node, String... required) {
 		if (node == null || !node.isObject() || node.size() != required.length) throw invalid();
 		var names = Set.of(required);
@@ -145,7 +147,7 @@ public final class RoutineRequests {
 		return List.copyOf(result);
 	}
 	private static Plan cardioPlan(JsonNode plan) {
-		fields(plan, "kind", "name", "targetSeconds", "targetDistanceKm", "intensity", "inclinePercent", "resistance");
+		if(plan!=null&&plan.has("activityId")){fields(plan,"kind","name","targetSeconds","targetDistanceKm","intensity","inclinePercent","resistance","activityId");}else fields(plan, "kind", "name", "targetSeconds", "targetDistanceKm", "intensity", "inclinePercent", "resistance");
 		String kind = text(plan, "kind"), name = name(plan, "name");
 		if (!Set.of("TREADMILL", "BIKE", "OUTDOOR", "STAIRS", "OTHER").contains(kind) || name.length() > 100) throw invalid();
 		int seconds = count(plan, "targetSeconds"); if (seconds > 86400) throw invalid();
@@ -161,7 +163,7 @@ public final class RoutineRequests {
 		}
 		if ((!Set.of("TREADMILL", "BIKE", "OUTDOOR").contains(kind) && (distance != null || intensityMode != null))
 				|| (!kind.equals("TREADMILL") && incline != null) || (!kind.equals("BIKE") && resistance != null)) throw invalid();
-		return new Plan(kind, name, seconds, distance, intensityMode, intensityValue, incline, resistance);
+		return new Plan(kind, name, seconds, distance, intensityMode, intensityValue, incline, resistance, plan.has("activityId")?uuid(text(plan,"activityId")):null);
 	}
 	private static void composition(List<Weight> weights, List<Cardio> cardio) {
 		if (weights.isEmpty() && cardio.isEmpty()) throw invalid();

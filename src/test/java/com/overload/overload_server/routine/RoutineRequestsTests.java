@@ -81,4 +81,17 @@ class RoutineRequestsTests {
 			assertThatThrownBy(() -> RoutineRequests.create(invalid)).isInstanceOf(RoutineFailure.class);
 		}
 	}
+
+ @Test void tagIsOptionalNullableAndRestrictedToTheConfirmedTenValues(){
+   var body=new LinkedHashMap<String,Object>(create(List.of(weight()),List.of()));
+   assertThat(RoutineRequests.create(json(body)).tag()).isNull();
+   for(String tag:List.of("PUSH","PULL","LEGS","FRONT","BACK","FULL","UPPER","LOWER","CARDIO","MIXED")){body.put("tag",tag);assertThat(RoutineRequests.create(json(body)).tag()).isEqualTo(tag);}
+   body.put("tag",null);assertThat(RoutineRequests.create(json(body)).tag()).isNull();
+   for(Object invalid:List.of("ANTERIOR","POSTERIOR","push","",1,true)){body.put("tag",invalid);assertThatThrownBy(()->RoutineRequests.create(json(body))).isInstanceOf(RoutineFailure.class);}
+ }
+ @Test void optionalCatalogIdentityPreservesOldCanonicalCardioJson(){
+   var old=JSON.valueToTree(plan());var canonical=RoutineRequests.canonicalCardioPlan(old).orElseThrow();assertThat(canonical.has("activityId")).isFalse();
+   var withId=plan();withId.put("activityId",ID);assertThat(RoutineRequests.canonicalCardioPlan(JSON.valueToTree(withId)).orElseThrow().get("activityId").asString()).isEqualTo(ID);
+   withId.put("activityId",null);assertThat(RoutineRequests.canonicalCardioPlan(JSON.valueToTree(withId))).isEmpty();
+ }
 }

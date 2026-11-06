@@ -22,7 +22,7 @@ import java.util.*;
 /** Manual resume of an already-restored, explicitly verified local DB. Never starts Testcontainers or seeds. */
 public final class HomeReviewResumeEnvironment {
     public static void main(String[] args) throws Exception {
-        if (args.length != 2 || !args[1].equals("--after-t02b-first-ui")) throw new IllegalArgumentException("Explicit T02-B first UI completion required");
+        if ((args.length != 2 && args.length != 3) || !args[1].equals("--after-t02b-first-ui")) throw new IllegalArgumentException("Explicit T02-B first UI completion required");
         if (System.getenv().keySet().stream().anyMatch(k -> k.matches("^(SPRING_|OTP_|RESEND_|GOOGLE_|AUTH_|OVERLOAD_).*")))
             throw new IllegalStateException("Clean child environment required");
         var json = JsonMapper.builder().build();
@@ -39,7 +39,18 @@ public final class HomeReviewResumeEnvironment {
         var direct = new JdbcTemplate(dataSource);
         if (!direct.queryForObject("SELECT current_database()", String.class).equals("overload_v22_isolated")) throw new IllegalStateException("DB identity mismatch");
         if (direct.queryForObject("SELECT count(*) FROM routines", Integer.class) == 0) throw new IllegalStateException("Existing review data required; never seed an empty DB");
-        Flyway.configure().dataSource(dataSource).load().validate(); // No migrate, clean, schema or seed writes.
+        var flyway=Flyway.configure().dataSource(dataSource).load();
+        if(args.length==3){
+            if(!args[2].equals("--migrate-t02b-v23"))throw new IllegalArgumentException("Explicit additive V23 flag required");
+            var before=fingerprints(direct);
+            var current=flyway.info().current();
+            if(current==null||!List.of("22","23").contains(current.getVersion().toString()))throw new IllegalStateException("Only preserved V22 or V23 review DB accepted");
+            if(Arrays.stream(flyway.info().pending()).anyMatch(m->!m.getVersion().toString().equals("23")))throw new IllegalStateException("Only reviewed V23 may be applied");
+            var result=flyway.migrate();
+            if(!before.equals(fingerprints(direct)))throw new IllegalStateException("Existing domain rows changed during additive migration");
+            var proof=Path.of("build/home-review/t02b-v23-preservation.json");Files.createDirectories(proof.getParent());Files.writeString(proof,json.writeValueAsString(Map.of("migrationsExecuted",result.migrationsExecuted,"existingDomainFingerprints",before,"unchanged",true,"database","overload_v22_isolated")));
+        }
+        flyway.validate();
         String run = UUID.fromString(c.get("resumeRun").asString()).toString(), instance = UUID.randomUUID().toString();
         var directory = Path.of("build/verification-v22", run).toAbsolutePath().normalize();
         Files.createDirectories(directory);Files.deleteIfExists(directory.resolve("preserve-stop"));
@@ -79,6 +90,13 @@ public final class HomeReviewResumeEnvironment {
         var hook=new Thread(()->{inbox.stop(0);control.close();app.close();});Runtime.getRuntime().addShutdownHook(hook);
         try { while(!Files.exists(directory.resolve("preserve-stop")))Thread.sleep(250); }
         finally { Runtime.getRuntime().removeShutdownHook(hook);inbox.stop(0);control.close();app.close(); }
+    }
+    private static Map<String,String> fingerprints(JdbcTemplate jdbc){
+        var result=new TreeMap<String,String>();
+        for(String table:List.of("routines","routine_weight_placements","routine_cardio_placements","routine_plan_history","weekly_schedule_versions","workout_sessions","session_exercises","performed_sets","cardio_results","progress_change_events","session_weight_approval_requests","record_change_events")){
+            String fields=table.equals("routines")?"to_jsonb(r)-'tag'":table.equals("routine_cardio_placements")?"to_jsonb(r)-'activity_id'":"to_jsonb(r)";
+            result.put(table,jdbc.queryForObject("SELECT count(*)::text||':'||md5(COALESCE(string_agg(md5(("+fields+")::text),'' ORDER BY md5(("+fields+")::text)),'')) FROM "+table+" r",String.class));
+        }return result;
     }
     private static Map<String,String> headers(String run,String instance,long pid,String origin){return Map.of("X-V22-Run",run,"X-V22-Instance",instance,"X-V22-Pid",Long.toString(pid),"X-V22-Backend",origin);}
 }

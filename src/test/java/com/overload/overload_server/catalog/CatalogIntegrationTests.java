@@ -55,7 +55,7 @@ class CatalogIntegrationTests {
         MixedPersistenceAssertions.verify(app);
         assertThat(app.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         app.getBean(Flyway.class).validate();
-        assertThat(app.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("22");
+        assertThat(app.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("24");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM standard_exercise", Integer.class)).isZero();
     }
 
@@ -89,7 +89,8 @@ class CatalogIntegrationTests {
         var values = data.get("exercises"); assertThat(values.size()).isEqualTo(3);
         for (int i = 0; i < 3; i++) {
             assertThat(values.get(i).get("id").asString()).isEqualTo(id(i + 1).toString());
-            assertThat(values.get(i).size()).isEqualTo(3);
+            assertThat(values.get(i).size()).isEqualTo(4);
+            assertThat(values.get(i).get("muscles").isArray()).isTrue();
         }
         assertThat(values.get(0).get("aliases")).isEqualTo(JSON.readTree("[\"barbell bench press\",\"벤치\"]"));
         assertThat(values.get(1).get("aliases")).isEqualTo(JSON.readTree("[\"벤치\"]"));
@@ -122,7 +123,7 @@ class CatalogIntegrationTests {
         assertThat(repository.findById(id(4))).get().extracting(StandardExercise::getJointType).isNull();
         var values = success(browser.get(SEARCH)).get("exercises");
         assertThat(values.size()).isEqualTo(4);
-        for (var value : values) assertThat(value.size()).isEqualTo(3);
+        for (var value : values) {assertThat(value.size()).isEqualTo(4);assertThat(value.get("muscles").isEmpty()).isTrue();}
     }
 
     @Test void allFiveJpaMappingsRoundTripCompositeKeysAndMultiplePrimaryMuscles() {

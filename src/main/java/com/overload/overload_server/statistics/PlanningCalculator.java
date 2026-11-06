@@ -10,8 +10,14 @@ import static com.overload.overload_server.statistics.StatisticsOverview.Planned
 /** Schedule evidence supplies the denominator; each candidate is judged against its own InitialPlan. */
 final class PlanningCalculator {
     record Revision(Instant recordedAt,boolean deleted,RoutineResponses.Detail plan) { }
-    record Anchor(UUID id,LocalDate date,Instant startedAt,InitialPlan initial) { }
-    record Evidence(List<WeeklySchedule.Version> schedules,List<Revision> plans,List<Anchor> anchors) { }
+    record Anchor(UUID id,LocalDate date,Instant startedAt,InitialPlan initial,Long scheduleVersion) {
+        Anchor(UUID id,LocalDate date,Instant at,InitialPlan plan){this(id,date,at,plan,null);}
+    }
+    record Daily(UUID firstSession,Instant firstMissed,String missedSchedule,UUID missedRoutine,String missedPlan,String state,long revision,boolean dirty) { }
+    record Evidence(List<WeeklySchedule.Version> schedules,List<Revision> plans,List<Anchor> anchors,
+                    Long boundaryVersion,Instant boundary,Map<LocalDate,Daily> daily,Set<LocalDate> activeDates) {
+        Evidence(List<WeeklySchedule.Version> schedules,List<Revision> plans,List<Anchor> anchors){this(schedules,plans,anchors,null,null,Map.of(),Set.of());}
+    }
     record Result(List<PlannedDay> days,int knownPlannedDays,int unknownDays,int unverifiableDays,Fraction effective) { }
     private record Candidate(UUID session,int completed,int unknown,int planned) {
         Fraction lower(){return planned==0?Fraction.ZERO:Fraction.of(completed,planned);}
@@ -36,8 +42,10 @@ final class PlanningCalculator {
         var registration=evidence.schedules().stream().filter(s->s.version().equals("1")).map(WeeklySchedule.Version::effectiveFrom).findFirst().orElse(null);
         var firstMonday=registration==null?null:registration.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         for(LocalDate date:query.fromDate().datesUntil(query.toDateExclusive()).toList()) {
-            var schedule=evidence.schedules().stream().filter(s->!s.effectiveFrom().isAfter(date))
-                    .max(Comparator.comparing(WeeklySchedule.Version::effectiveFrom).thenComparing(s->new BigInteger(s.version()))).orElse(null);
+            var daily=evidence.daily().get(date);
+            var pinned=firstStart(evidence,date);
+            var schedule=pinned!=null?atStart(evidence,pinned):daily!=null&&daily.firstMissed()!=null?
+                    evidence.schedules().stream().filter(s->s.version().equals(daily.missedSchedule())).findFirst().orElse(null):atDayEnd(evidence,date);
             if(schedule==null){
                 if(registration!=null&&date.isBefore(registration)&&!date.isBefore(firstMonday))
                     result.add(new PlannedDay(date,"BEFORE_REGISTRATION",null,null,null,null,null,null));
@@ -46,16 +54,14 @@ final class PlanningCalculator {
             }
             UUID routine=schedule.assignments().stream().filter(a->a.dayOfWeek()==date.getDayOfWeek().getValue()).map(WeeklySchedule.Assignment::routineId).findFirst().orElse(null);
             if(routine==null){result.add(rest(date,schedule.version()));continue;}
-            var anchor=evidence.anchors().stream().filter(a->a.date().equals(date)&&a.initial().routineId().equals(routine))
-                    .min(Comparator.comparing(Anchor::startedAt).thenComparing(Anchor::id)).orElse(null);
             RoutineResponses.Detail plan;
-            if(anchor!=null)plan=detail(owner,generation,anchor.initial());
+            if(pinned!=null)plan=detail(owner,generation,pinned.initial());
             else {
                 Instant cutoff=date.plusDays(1).atStartOfDay(ZoneId.of(schedule.timeZone())).toInstant();
-                var revision=evidence.plans().stream().filter(p->p.plan().id().equals(routine)&&p.recordedAt().isBefore(cutoff))
+                var revision=evidence.plans().stream().filter(p->p.plan().id().equals(routine)&&p.recordedAt().isBefore(cutoff)
+                            &&(daily==null||daily.firstMissed()==null||daily.missedPlan()==null||p.plan().version().equals(daily.missedPlan())))
                         .max(Comparator.comparing(Revision::recordedAt).thenComparing(p->new BigInteger(p.plan().version()))).orElse(null);
                 if(revision==null){unknown++;result.add(new PlannedDay(date,"UNKNOWN",schedule.version(),null,null,null,null,null));continue;}
-                // Deletion reserves schedule removal for next Monday; this week's denominator survives.
                 plan=revision.plan();
             }
             planned++;
@@ -65,14 +71,36 @@ final class PlanningCalculator {
             var lower=best==null?Fraction.ZERO:best.lower();
             var upper=candidates.stream().map(Candidate::upper).max(Comparator.naturalOrder()).orElse(Fraction.ZERO);
             int size=plan.weightPlacements().size()+plan.cardioPlacements().size();
-            boolean known=upper.compareTo(lower)==0&&size>0;
+            boolean pending=evidence.activeDates().contains(date);
+            boolean known=!pending&&upper.compareTo(lower)==0&&size>0;
             if(!known)unverifiable++;else effective=effective.add(lower);
-            result.add(new PlannedDay(date,known?"PLANNED":"UNVERIFIABLE",schedule.version(),plan,
-                    best==null?size:best.planned(),known?(best==null?0:best.completed()):null,known?lower.decimal():null,best==null?null:best.session()));
+            result.add(new PlannedDay(date,pending?"PENDING":known?"PLANNED":"UNVERIFIABLE",schedule.version(),plan,
+                    best==null?size:best.planned(),known?(best==null?0:best.completed()):null,known?lower.decimal():null,best==null?null:best.session(),
+                    daily==null?null:daily.dirty()?"PENDING":daily.state(),daily==null?null:Long.toString(daily.revision())));
         }
         return new Result(List.copyOf(result),planned,unknown,unverifiable,effective);
     }
     private static PlannedDay rest(LocalDate day,String version){return new PlannedDay(day,"REST",version,null,0,0,"0",null);}
+    static Anchor firstStart(Evidence e,LocalDate day){
+        var d=e.daily().get(day);
+        if(d!=null&&d.firstSession()!=null)return e.anchors().stream().filter(a->a.id().equals(d.firstSession())).findFirst().orElse(null);
+        if(d!=null&&d.firstMissed()!=null)return null;
+        return e.anchors().stream().filter(a->a.date().equals(day)&&scheduled(e,a)).min(Comparator.comparing(Anchor::startedAt).thenComparing(Anchor::id)).orElse(null);
+    }
+    private static UUID assigned(WeeklySchedule.Version s,LocalDate day){return s==null?null:s.assignments().stream().filter(a->a.dayOfWeek()==day.getDayOfWeek().getValue()).map(WeeklySchedule.Assignment::routineId).findFirst().orElse(null);}
+    private static WeeklySchedule.Version legacy(Evidence e,LocalDate day){return e.schedules().stream().filter(s->(e.boundaryVersion()==null||Long.parseLong(s.version())<e.boundaryVersion())&&!s.effectiveFrom().isAfter(day)).max(Comparator.comparing(WeeklySchedule.Version::effectiveFrom).thenComparing(s->new BigInteger(s.version()))).orElse(null);}
+    private static WeeklySchedule.Version atStart(Evidence e,Anchor a){
+        if(a.scheduleVersion()!=null)return e.schedules().stream().filter(s->s.version().equals(a.scheduleVersion().toString())).findFirst().orElse(null);
+        return e.boundary()==null||a.startedAt().isBefore(e.boundary())?legacy(e,a.date()):null;
+    }
+    private static boolean scheduled(Evidence e,Anchor a){return a.initial().routineId().equals(assigned(atStart(e,a),a.date()));}
+    private static WeeklySchedule.Version atDayEnd(Evidence e,LocalDate day){
+        if(e.boundaryVersion()==null)return legacy(e,day);
+        String zone=e.schedules().stream().filter(s->s.version().equals(e.boundaryVersion().toString())).map(WeeklySchedule.Version::timeZone).findFirst().orElse("UTC");
+        Instant end=day.plusDays(1).atStartOfDay(ZoneId.of(zone)).toInstant();
+        if(!end.isAfter(e.boundary()))return legacy(e,day);
+        return e.schedules().stream().filter(s->Long.parseLong(s.version())>=e.boundaryVersion()&&s.recordedAt().isBefore(end)).max(Comparator.comparing(WeeklySchedule.Version::recordedAt).thenComparing(s->new BigInteger(s.version()))).orElse(null);
+    }
     private static Candidate judge(StatisticsCalculator.Session session,Map<UUID,Integer> sets,Map<UUID,StatisticsCalculator.CardioFact> cardio) {
         int done=0,unknown=0;
         for(var weight:session.initial().weightExercises())if(sets.getOrDefault(weight.sessionExerciseId(),0)>=weight.setCount())done++;

@@ -12,6 +12,7 @@ public class Routine {
 	@Column(name = "user_id", nullable = false, updatable = false) UUID userId;
 	@Column(name = "data_generation", nullable = false, updatable = false) long dataGeneration;
 	@Column(nullable = false, columnDefinition = "text") String name;
+	@Column(columnDefinition = "text") String tag;
 	// One counter owner: the service increments under FOR UPDATE, not @Version plus a second increment.
 	@Column(nullable = false) long version;
 	@Column(name = "created_at", nullable = false, updatable = false) Instant createdAt;

@@ -139,7 +139,7 @@ public final class V22BrowserEnvironment implements AutoCloseable {
         }
         app.getBean(Flyway.class).validate();
         var versions = jdbc.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
-        require(versions.equals(java.util.stream.IntStream.rangeClosed(1, 22).mapToObj(Integer::toString).toList()), "V1 through V22 required");
+        require(versions.equals(java.util.stream.IntStream.rangeClosed(1, 24).mapToObj(Integer::toString).toList()), "V1 through V24 required");
         require(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class) == 0, "Failed migration");
         require(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class) == 0, "Fresh users required");
         require(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions", Integer.class) == 0, "Personal seed prohibited");
@@ -150,7 +150,8 @@ public final class V22BrowserEnvironment implements AutoCloseable {
             var parts = column.split("\\.");
             require("jsonb".equals(jdbc.queryForObject("SELECT data_type FROM information_schema.columns WHERE table_schema='public' AND table_name=? AND column_name=?", String.class, parts[0], parts[1])), "V21/V22 JSONB required");
         }
-        require(jdbc.queryForObject("SELECT count(*) FROM pg_constraint WHERE conname IN ('standard_exercise_joint_type_check','cardio_measurement_shape','performed_sets_bodyweight_load_check','weekly_schedule_versions_effective_from_check')", Integer.class) == 4, "V18/V20/V21/V22 constraints required");
+        require(jdbc.queryForObject("SELECT count(*) FROM pg_constraint WHERE conname IN ('standard_exercise_joint_type_check','cardio_measurement_shape','performed_sets_bodyweight_load_check','workout_start_schedule_scope')", Integer.class) == 4, "V18/V21/V22/V24 constraints required");
+        require(jdbc.queryForObject("SELECT count(*) FROM pg_constraint WHERE conname='weekly_schedule_versions_effective_from_check'",Integer.class)==0,"V24 removes the old Monday restriction");
         evidence.put("initialUsers", 0);
         evidence.put("migrations", versions.size());
         evidence.put("migrationVersions", versions);

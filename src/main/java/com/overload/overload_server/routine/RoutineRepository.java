@@ -75,8 +75,13 @@ public class RoutineRepository {
 		var rows=jdbc.query("SELECT data_generation FROM users WHERE id=? FOR UPDATE",(r,i)->r.getLong(1),owner);
 		if(rows.isEmpty())throw new RoutineFailure(RoutineFailure.Reason.AUTHENTICATION_REQUIRED);return rows.getFirst();
 	}
+	void requireEditableSource(UUID owner,long generation,UUID routine) {
+		if(Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE user_id=? AND data_generation=? AND source_routine_id=? AND status='ACTIVE')",
+				Boolean.class,owner,generation,routine)))throw new RoutineFailure(RoutineFailure.Reason.ACTIVE_SESSION_EXISTS);
+	}
+	boolean validCardio(RoutineRequests.Plan p){return p.activityId()==null || Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM cardio_activity_catalog WHERE id=? AND active AND kind=? AND name=?)",Boolean.class,p.activityId(),p.kind(),p.name()));}
 	List<Routine> list(UUID owner, long generation) {
-		return entityManager.createQuery("select r from Routine r where r.userId=:owner and r.dataGeneration=:generation and r.deletedAt is null order by r.id", Routine.class)
+		return entityManager.createQuery("select r from Routine r where r.userId=:owner and r.dataGeneration=:generation and r.deletedAt is null order by r.createdAt desc, r.id desc", Routine.class)
 				.setParameter("owner", owner).setParameter("generation", generation).getResultList();
 	}
 	Routine find(UUID owner, long generation, UUID id, boolean lock) {

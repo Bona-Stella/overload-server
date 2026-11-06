@@ -59,6 +59,22 @@ class RoutineIntegrationTests {
 	@AfterEach void cleanup() { WorkoutReadFixtures.observer = null; if (browser != null) browser.close(); }
 	@AfterAll static void stop() { if (app != null) app.close(); }
 
+ @Test void tagsCatalogIdentityAndNewestCreationOrderRoundTripWithoutRewritingOldPlans() throws Exception {
+   create();var before=jdbc.queryForMap("SELECT * FROM routine_cardio_placements WHERE id=?",cardio);
+   var old=node(browser.get(path()));assertThat(old.get("tag").isNull()).isTrue();assertThat(old.get("createdAt").asString()).isNotBlank();
+   var body=updateBody(0);body.put("tag","MIXED");var tagged=node(put(body));assertThat(tagged.get("tag").asString()).isEqualTo("MIXED");
+   assertThat(jdbc.queryForMap("SELECT * FROM routine_cardio_placements WHERE id=?",cardio)).isEqualTo(before);
+   body=updateBody(1);assertThat(node(put(body)).get("tag").asString()).isEqualTo("MIXED");
+   body.put("tag",null);assertThat(node(put(body)).get("tag").isNull()).isTrue();
+   var catalog=node(browser.get("/api/v1/cardio-activities"));assertThat(catalog.get("activities").size()).isEqualTo(8);
+   EmailOtpFixtures.CLOCK.advance(Duration.ofSeconds(1));
+   var newer=createBody();var next=UUID.randomUUID();newer.put("id",next);newer.put("tag","CARDIO");newer.put("weightPlacements",List.of());
+   var p=new LinkedHashMap<String,Object>();p.put("kind","TREADMILL");p.put("name","러닝머신");p.put("targetSeconds",600);p.put("targetDistanceKm",null);p.put("intensity",null);p.put("inclinePercent",null);p.put("resistance",null);p.put("activityId","ca000000-0000-4000-8000-000000000001");
+   newer.put("cardioPlacements",List.of(Map.of("id",UUID.randomUUID(),"plan",p)));assertThat(browser.send("POST","/api/v1/routines",json(newer),csrf).statusCode()).isEqualTo(201);
+   assertThat(node(browser.get("/api/v1/routines")).get("routines").get(0).get("id").asString()).isEqualTo(next.toString());
+   p.put("name","mismatch");newer.put("id",UUID.randomUUID());newer.put("cardioPlacements",List.of(Map.of("id",UUID.randomUUID(),"plan",p)));assertThat(browser.send("POST","/api/v1/routines",json(newer),csrf).statusCode()).isEqualTo(400);
+ }
+
 	@Test void emptyAccountHasNoRoutinesAndMixedCreateAllowsDuplicateNamesAndRepeatedExercise() throws Exception {
 		assertThat(node(browser.get("/api/v1/routines")).get("routines").size()).isZero();
 		var oldExercise = jdbc.queryForMap("SELECT * FROM standard_exercise WHERE id=?", exercise);
@@ -160,10 +176,10 @@ class RoutineIntegrationTests {
 		assertThat(observed).isTrue(); assertThat(snapshot()).isEqualTo(before);
 	}
 	@ParameterizedTest @ValueSource(strings = {"PUT", "DELETE"})
-	void concurrentRequestsWaitOnRoutineAndOnlyOneExpectedVersionCanChangeIt(String competingMethod) throws Exception {
+	void concurrentRequestsWaitOnOwnerAndOnlyOneExpectedVersionCanChangeIt(String competingMethod) throws Exception {
 		create(); var barrier = new CyclicBarrier(2); var locked = new CountDownLatch(1); var release = new CountDownLatch(1);
-		// DELETE now serializes the owner first to reserve next week's schedule removal atomically.
-		String lockTable = competingMethod.equals("DELETE") ? "users" : "routines";
+		// Both management writes serialize on the same owner as START.
+		String lockTable = "users";
 		var firstLocked = new AtomicBoolean();
 		WorkoutReadFixtures.observer = event -> {
 			String sql = event.sql().toLowerCase(Locale.ROOT);

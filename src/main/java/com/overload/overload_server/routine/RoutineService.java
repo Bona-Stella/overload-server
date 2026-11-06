@@ -25,6 +25,7 @@ public class RoutineService {
 			@Qualifier("workoutTransactionManager") PlatformTransactionManager manager) {
 		this.repository = repository; this.history = history; this.clock = clocks.getIfAvailable(Clock::systemUTC);
 		writes = new TransactionTemplate(manager);
+		writes.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
 		reads = new TransactionTemplate(manager); reads.setReadOnly(true);
 		reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
 	}
@@ -32,7 +33,7 @@ public class RoutineService {
 		return TransactionExecution.execute(reads, () -> {
 			long generation = repository.generation(user, false);
 			return new RoutineResponses.Listing(user, Long.toString(generation), repository.list(user, generation).stream()
-					.map(value -> new RoutineResponses.Summary(value.id, value.name, Long.toString(value.version))).toList());
+					.map(value -> new RoutineResponses.Summary(value.id, value.name, Long.toString(value.version),value.tag,value.createdAt)).toList());
 		});
 	}
 	public RoutineResponses.Detail detail(UUID user, UUID id, boolean removed) {
@@ -45,8 +46,9 @@ public class RoutineService {
 		return TransactionExecution.execute(writes, () -> {
 			owner(user, request.dataGeneration());
 			if (repository.occupied("routines", request.id())) throw new RoutineFailure(ROUTINE_ID_CONFLICT);
-			Instant now = clock.instant();
+			Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
 			var routine = Routine.create(request.id(), user, request.dataGeneration(), request.name(), now);
+			routine.tag=request.tag();
 			repository.insert(routine);
 			apply(routine, request.weightPlacements(), request.cardioPlacements(), List.of(), now);
 			repository.flush();
@@ -55,10 +57,11 @@ public class RoutineService {
 	}
 	public RoutineResponses.Detail update(UUID user, UUID id, RoutineRequests.Update request) {
 		return TransactionExecution.execute(writes, () -> {
-			owner(user, request.dataGeneration());
+			if(repository.lockOwnerForScheduleChange(user)!=request.dataGeneration())throw new RoutineFailure(DATA_GENERATION_MISMATCH);
 			var routine = active(repository.find(user, request.dataGeneration(), id, true));
 			version(routine, request.expectedVersion());
-			Instant now = clock.instant(); boolean renamed = !routine.name.equals(request.name());
+			Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS); boolean renamed = !routine.name.equals(request.name()) || request.tagProvided() && !Objects.equals(routine.tag,request.tag());
+			if(request.tagProvided())routine.tag=request.tag();
 			routine.name = request.name();
 			boolean changed = apply(routine, request.weightPlacements(), request.cardioPlacements(), request.weightApprovals(), now);
 			if (renamed || changed) routine.changed(now);
@@ -72,10 +75,11 @@ public class RoutineService {
 			var routine = repository.find(user, request.dataGeneration(), id, true);
 			if (routine.deletedAt == null) {
 				version(routine, request.expectedVersion());
-				Instant now = clock.instant(); routine.deletedAt = now; routine.changed(now);
+				repository.requireEditableSource(user,request.dataGeneration(),id);
+				Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS); routine.deletedAt = now; routine.changed(now);
 				repository.flush();
 				history.record(response(routine, false), now, true);
-				history.removeFromNextSchedule(user,request.dataGeneration(),id,now);
+				history.removeFromSchedule(user,request.dataGeneration(),id,now);
 			}
 			return null;
 		});
@@ -111,6 +115,7 @@ public class RoutineService {
 		}
 		for (int i = 0; i < cardio.size(); i++) {
 			var input = cardio.get(i); var old = cardioById.get(input.id());
+			if(input.plan().activityId()!=null&&!repository.validCardio(input.plan()))throw new RoutineFailure(INVALID_REQUEST);
 			placement(input.mode(), old == null, old != null && old.deletedAt != null);
 			if (input.mode() == RoutineRequests.Mode.NEW) { available(input.id()); changedCardio.add(input.id()); }
 			else if (old.differs(input, i)) changedCardio.add(input.id());
@@ -124,10 +129,13 @@ public class RoutineService {
 		}
 		var weightIds = weights.stream().map(RoutineRequests.Weight::id).collect(Collectors.toSet());
 		var cardioIds = cardio.stream().map(RoutineRequests.Cardio::id).collect(Collectors.toSet());
-		boolean removed = false;
-		for (var value : oldWeights) if (value.deletedAt == null && !weightIds.contains(value.id)) { value.deletedAt = now; value.updatedAt = now; removed = true; }
-		for (var value : oldCardio) if (value.deletedAt == null && !cardioIds.contains(value.id)) { value.deletedAt = now; value.updatedAt = now; removed = true; }
+		boolean removed = oldWeights.stream().anyMatch(p -> p.deletedAt == null && !weightIds.contains(p.id))
+				|| oldCardio.stream().anyMatch(p -> p.deletedAt == null && !cardioIds.contains(p.id));
 		boolean changed = removed || !changedWeights.isEmpty() || !changedCardio.isEmpty();
+		// Approval-only and metadata/no-op writes keep their existing semantics.
+		if (changed) repository.requireEditableSource(routine.userId,routine.dataGeneration,routine.id);
+		for (var value : oldWeights) if (value.deletedAt == null && !weightIds.contains(value.id)) { value.deletedAt = now; value.updatedAt = now; }
+		for (var value : oldCardio) if (value.deletedAt == null && !cardioIds.contains(value.id)) { value.deletedAt = now; value.updatedAt = now; }
 		if (changed) {
 			// Vacate final positions before inserts/restores/swaps. Deleted rows do not occupy the partial index.
 			stageWeights(oldWeights, weights.size()); stageCardio(oldCardio, cardio.size()); repository.flush();
@@ -189,6 +197,6 @@ public class RoutineService {
 				definitions.get(value.standardExerciseId).getName(), value.manufacturerId, value.loadType, value.setCount, value.minReps, value.maxReps,
 				RoutineResponses.decimal(value.initialWeight), RoutineResponses.decimal(value.approvedWeight), value.deletedAt)).toList();
 		return new RoutineResponses.Detail(routine.userId, Long.toString(routine.dataGeneration), routine.id, Long.toString(routine.version),
-				routine.name, weightResponses, cardio.stream().map(RoutineResponses::cardio).toList());
+				routine.name, weightResponses, cardio.stream().map(RoutineResponses::cardio).toList(),routine.tag,routine.createdAt);
 	}
 }

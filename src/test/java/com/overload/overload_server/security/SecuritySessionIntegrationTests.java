@@ -201,7 +201,7 @@ class SecuritySessionIntegrationTests {
 		jdbc = application.getBean(JdbcTemplate.class);
 		assertThat(request("GET", "/__test__/me", null).statusCode()).isEqualTo(200);
 		assertThat(sessionId()).isEqualTo(id);
-		assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history", Integer.class)).isEqualTo(22);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history", Integer.class)).isEqualTo(24);
 	}
 
 	@Test

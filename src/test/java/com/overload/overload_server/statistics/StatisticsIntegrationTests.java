@@ -95,11 +95,11 @@ class StatisticsIntegrationTests {
         assertThat(data.get("days").get(6).get("date").asString()).isEqualTo("2026-11-01");
         assertThat(data.get("days").get(6).get("weights").get("volumeLoadKg").asString()).isEqualTo("2140");
         assertThat(success(browser.get("/api/v1/statistics/overview?fromDate=2026-11-02&toDateExclusive=2026-11-09")).get("statistics").get("summary").get("completedSets").asString()).isEqualTo("0");
-        // A registered schedule makes the frozen InitialPlan available; AppliedPlan has only one set.
+        // A session without a schedule origin is not retroactively classified as a planned START.
         EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),Instant.parse("2026-11-01T00:00:00Z")));
         schedule(JSON.valueToTree(Map.of("id",before.get("source_routine_id"))),"0",List.of(7));
         var planned=success(browser.get(PATH));
-        assertThat(planned.get("statistics").get("summary").get("plannedSets").asString()).isEqualTo("3");
+        assertThat(planned.get("statistics").get("summary").get("plannedSets").asString()).isEqualTo("0");
         assertThat(planned.get("statistics").get("summary").get("completedSets").asString()).isEqualTo("3");
         assertThat(planned.get("statistics").get("planCoverage").asString()).isEqualTo("FULL_SCHEDULE_HISTORY");
         assertThat(jdbc.queryForMap("SELECT * FROM workout_sessions WHERE id=?",source.session())).isEqualTo(before);
@@ -139,7 +139,7 @@ class StatisticsIntegrationTests {
             catch(java.sql.SQLException failure){throw new AssertionError(failure);}
         }};
         success(browser.get(PATH));WorkoutReadFixtures.observer=null;
-        assertThat(selects).hasSize(scheduled?9:8);
+        assertThat(selects).hasSize(scheduled?12:11);
     }
     @Test void authenticationAndStrictQueryContractRejectForgedScopeAndInvalidRanges() throws Exception {
         try(var anonymous=new Browser()){assertThat(anonymous.get(PATH).statusCode()).isEqualTo(401);}
@@ -167,6 +167,10 @@ class StatisticsIntegrationTests {
                 .doesNotContain("/api/v1/statistics").contains("/api/v1/statistics/overview");
     }
     String csrf() throws Exception{return JSON.readTree(browser.get("/api/v1/auth/csrf").body()).get("token").asString();}
+    @Test void unregisteredDatesRemainUnknownWithTheNewEvidenceQueries(){
+        var result=app.getBean(StatisticsService.class).overview(owner,new StatisticsQuery(LocalDate.of(2026,11,2),LocalDate.of(2026,11,9)));
+        assertThat(result.unknownPlanDays()).isEqualTo(7);assertThat(result.statistics().plannedWorkoutDays()).isNull();
+    }
     JsonNode routine(int setCount) throws Exception {
         return routine(setCount,CatalogFixtures.exercise(jdbc));
     }
@@ -177,7 +181,7 @@ class StatisticsIntegrationTests {
         var response=browser.send("POST","/api/v1/routines",JSON.writeValueAsString(body),csrf());assertThat(response.statusCode()).isEqualTo(201);return JSON.readTree(response.body());
     }
     JsonNode schedule(JsonNode routine,String expected,List<Integer> days) throws Exception {
-        var body=Map.of("dataGeneration","0","expectedVersion",expected,"timeZone","Asia/Seoul","assignments",days.stream().map(d->Map.of("dayOfWeek",d,"routineId",routine.get("id").asString())).toList());
+        var body=Map.of("contractVersion","immediate-v1","dataGeneration","0","expectedVersion",expected,"timeZone","Asia/Seoul","assignments",days.stream().map(d->Map.of("dayOfWeek",d,"routineId",routine.get("id").asString())).toList());
         return success(browser.send("PUT","/api/v1/weekly-schedule",JSON.writeValueAsString(body),csrf()));
     }
     JsonNode overview(LocalDate from) throws Exception{return success(browser.get("/api/v1/statistics/overview?fromDate="+from+"&toDateExclusive="+from.plusDays(7)));}
@@ -200,8 +204,8 @@ class StatisticsIntegrationTests {
         assertThat(browser.send("POST","/api/v1/workout-sessions/"+id+"/finish",JSON.writeValueAsString(finish),csrf()).statusCode()).isEqualTo(200);
     }
     @Test void weeklyScheduleCountsMissedDaysAndBestSingleInitialPlanSession() throws Exception {
-        var routine=routine(1);var saved=schedule(routine,"0",List.of(1,2,4,5));var monday=LocalDate.parse(saved.get("nextEffectiveFrom").asString());
-        assertThat(saved.get("current").get("version").asString()).isEqualTo("1");assertThat(saved.get("pending").isNull()).isTrue();
+        var routine=routine(1);var saved=schedule(routine,"0",List.of(1,2,4,5));var monday=LocalDate.parse(saved.get("appliedAt").asString().substring(0,10));
+        assertThat(saved.get("version").asString()).isEqualTo("1");assertThat(saved.has("pending")).isFalse();
         perform(routine,monday,4);perform(routine,monday.plusDays(1),2);perform(routine,monday.plusDays(3),3);
         perform(routine,monday.plusDays(1),1);perform(routine,monday.plusDays(2),4);
         var result=overview(monday);var stats=result.get("statistics");
@@ -211,12 +215,12 @@ class StatisticsIntegrationTests {
         assertThat(result.get("plannedDays").get(4).get("effectiveDay").asString()).isEqualTo("0");
         assertThat(overview(monday.minusDays(14)).get("statistics").get("plannedWorkoutDays").isNull()).isTrue();
     }
-    @Test void firstThursdayRegistrationStartsTodayAndOnlyRemainingDaysCountWhileEditsWaitUntilMonday() throws Exception {
+    @Test void firstThursdayRegistrationStartsTodayAndEditsApplyImmediatelyWithoutChangingStartedPlans() throws Exception {
         var thursday=LocalDate.of(2026,11,12);var monday=thursday.minusDays(3);
         EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),thursday.atTime(5,0).toInstant(ZoneOffset.UTC)));
-        assertThat(success(browser.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul")).get("nextEffectiveFrom").asString()).isEqualTo(thursday.toString());
+        assertThat(success(browser.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul")).get("version").asString()).isEqualTo("0");
         var r=routine(1);var saved=schedule(r,"0",List.of(1,4,5,6));
-        assertThat(saved.get("current").get("effectiveFrom").asString()).isEqualTo(thursday.toString());assertThat(saved.get("pending").isNull()).isTrue();
+        assertThat(saved.get("appliedAt").asString().substring(0,10)).isEqualTo(thursday.toString());assertThat(saved.has("pending")).isFalse();
         var original=jdbc.queryForMap("SELECT * FROM weekly_schedule_versions WHERE user_id=? AND version=1",owner);
         perform(r,monday,4);perform(r,thursday,4);perform(r,thursday.plusDays(1),4);
         var first=overview(monday);assertThat(first.get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(3);
@@ -227,8 +231,8 @@ class StatisticsIntegrationTests {
         for(int day=0;day<3;day++){var before=first.get("plannedDays").get(day);assertThat(before.get("status").asString()).isEqualTo("BEFORE_REGISTRATION");assertThat(before.get("plan").isNull()).isTrue();assertThat(before.get("effectiveDay").isNull()).isTrue();}
         assertThat(first.get("plannedDays").get(5).get("effectiveDay").asString()).isEqualTo("0");
         assertThat(overview(monday.plusDays(7)).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(4);
-        var changed=schedule(r,"1",List.of(2,4));assertThat(changed.get("pending").get("effectiveFrom").asString()).isEqualTo(monday.plusDays(7).toString());
-        assertThat(overview(monday)).isEqualTo(first);assertThat(overview(monday.plusDays(7)).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(2);
+        var changed=schedule(r,"1",List.of(2,4));assertThat(changed.get("appliedAt").asString().substring(0,10)).isEqualTo(thursday.toString());
+        assertThat(overview(monday).get("plannedDays").get(3).get("plan")).isEqualTo(first.get("plannedDays").get(3).get("plan"));assertThat(overview(monday.plusDays(7)).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(2);
         assertThat(jdbc.queryForMap("SELECT * FROM weekly_schedule_versions WHERE user_id=? AND version=1",owner)).isEqualTo(original);
         assertThat(overview(monday.minusDays(7)).get("statistics").get("plannedWorkoutDays").isNull()).isTrue();
     }
@@ -242,18 +246,18 @@ class StatisticsIntegrationTests {
     }
     @Test void scheduleWritesRequireCsrfOwnerGenerationAndExpectedVersionAndKeepImmutableHistory() throws Exception {
         var routine=routine(1);var first=schedule(routine,"0",List.of(1,3));schedule(routine,"1",List.of(2,4));
-        assertThat(success(browser.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul")).get("history").size()).isEqualTo(2);
-        var stale=Map.of("dataGeneration","0","expectedVersion","0","timeZone","Asia/Seoul","assignments",List.of());
+        assertThat(success(browser.get("/api/v1/weekly-schedule/history?beforeVersion=3")).get("history").size()).isEqualTo(2);
+        var stale=Map.of("contractVersion","immediate-v1","dataGeneration","0","expectedVersion","0","timeZone","Asia/Seoul","assignments",List.of());
         assertThat(browser.send("PUT","/api/v1/weekly-schedule",JSON.writeValueAsString(stale),csrf()).statusCode()).isEqualTo(409);
         assertThat(browser.send("PUT","/api/v1/weekly-schedule",JSON.writeValueAsString(stale),null).statusCode()).isEqualTo(403);
-        assertThat(overview(LocalDate.parse(first.get("nextEffectiveFrom").asString())).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(2);
-        try(var other=new Browser()) {other.login();assertThat(success(other.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul")).get("history").isEmpty()).isTrue();}
+        assertThat(overview(LocalDate.parse(first.get("appliedAt").asString().substring(0,10))).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(2);
+        try(var other=new Browser()) {other.login();assertThat(success(other.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul")).get("assignments").isEmpty()).isTrue();}
         var unchanged=jdbc.queryForMap("SELECT assignments::text,effective_from FROM weekly_schedule_versions WHERE user_id=? AND version=1",owner);
         assertThat(unchanged.get("assignments").toString()).contains("\"dayOfWeek\": 1");
         assertThatThrownBy(()->jdbc.update("UPDATE weekly_schedule_versions SET assignments='[]' WHERE user_id=?",owner)).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
     @Test void routineEditsPreserveStartedPlansAndRetainMissedDayHistory() throws Exception {
-        var r=routine(1);var saved=schedule(r,"0",List.of(1,2,4,5));var monday=LocalDate.parse(saved.get("nextEffectiveFrom").asString());
+        var r=routine(1);var saved=schedule(r,"0",List.of(1,2,4,5));var monday=LocalDate.parse(saved.get("appliedAt").asString().substring(0,10));
         perform(r,monday,4);var before=jdbc.queryForList("SELECT initial_plan_snapshot::text,applied_plan_snapshot::text FROM workout_sessions WHERE user_id=?",owner);
         Instant thursday=monday.plusDays(3).atTime(6,0).toInstant(ZoneOffset.UTC);EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),thursday));
         var weights=new ArrayList<Map<String,Object>>();for(var old:r.get("weightPlacements")){
@@ -267,37 +271,37 @@ class StatisticsIntegrationTests {
         assertThat(jdbc.queryForList("SELECT initial_plan_snapshot::text,applied_plan_snapshot::text FROM workout_sessions WHERE user_id=?",owner)).isEqualTo(before);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM routine_plan_history WHERE user_id=?",Integer.class,owner)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM progress_change_events WHERE user_id=?",Integer.class,owner)).isZero();
-        var revision=schedule(r,"1",List.of(1));assertThat(revision.get("pending").get("effectiveFrom").asString()).isEqualTo(monday.plusDays(7).toString());
-        assertThat(overview(monday).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(4);
+        var revision=schedule(r,"1",List.of(1));assertThat(revision.get("appliedAt").asString()).isEqualTo(thursday.toString());
+        assertThat(overview(monday).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(2);
     }
     @Test void concurrentScheduleSavesSerializeAndNoopDoesNotCreateAnotherVersion() throws Exception {
         var r=routine(1);schedule(r,"0",List.of(1));String token=csrf();
-        var bodies=List.of(2,3).stream().map(day->JSON.writeValueAsString(Map.of("dataGeneration","0","expectedVersion","1","timeZone","Asia/Seoul","assignments",List.of(Map.of("dayOfWeek",day,"routineId",r.get("id").asString()))))).toList();
+        var bodies=List.of(2,3).stream().map(day->JSON.writeValueAsString(Map.of("contractVersion","immediate-v1","dataGeneration","0","expectedVersion","1","timeZone","Asia/Seoul","assignments",List.of(Map.of("dayOfWeek",day,"routineId",r.get("id").asString()))))).toList();
         try(var pool=java.util.concurrent.Executors.newFixedThreadPool(2)){
             var tasks=bodies.stream().<java.util.concurrent.Callable<Integer>>map(body->()->browser.send("PUT","/api/v1/weekly-schedule",body,token).statusCode()).toList();
             var statuses=new ArrayList<Integer>();for(var future:pool.invokeAll(tasks))statuses.add(future.get());assertThat(statuses).containsExactlyInAnyOrder(200,409);
         }
         var current=success(browser.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul"));
-        var body=Map.of("dataGeneration","0","expectedVersion","2","timeZone","Asia/Seoul","assignments",current.get("pending").get("assignments"));
+        var body=Map.of("contractVersion","immediate-v1","dataGeneration","0","expectedVersion","2","timeZone","Asia/Seoul","assignments",current.get("assignments"));
         assertThat(success(browser.send("PUT","/api/v1/weekly-schedule",JSON.writeValueAsString(body),token)).get("version").asString()).isEqualTo("2");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Integer.class,owner)).isEqualTo(2);
     }
-    @Test void routineDeletionRemovesFutureAssignmentWithoutErasingCurrentWeekDenominator() throws Exception {
-        var r=routine(1);var saved=schedule(r,"0",List.of(1,3,5));var monday=LocalDate.parse(saved.get("nextEffectiveFrom").asString());
+    @Test void routineDeletionImmediatelyRemovesAssignmentsWithoutErasingPastPlannedDays() throws Exception {
+        var r=routine(1);var saved=schedule(r,"0",List.of(1,3,5));var monday=LocalDate.parse(saved.get("appliedAt").asString().substring(0,10));
         var wednesday=monday.plusDays(2).atTime(6,0).toInstant(ZoneOffset.UTC);EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),wednesday));
         assertThat(browser.send("DELETE","/api/v1/routines/"+r.get("id").asString(),"{\"dataGeneration\":\"0\",\"expectedVersion\":\"0\"}",csrf()).statusCode()).isEqualTo(204);
-        assertThat(overview(monday).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(3);
+        assertThat(overview(monday).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(1);
         assertThat(overview(monday.plusDays(7)).get("statistics").get("plannedWorkoutDays").asInt()).isZero();
-        var after=success(browser.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul"));assertThat(after.get("pending").get("assignments").isEmpty()).isTrue();
+        var after=success(browser.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul"));assertThat(after.get("assignments").isEmpty()).isTrue();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM routine_plan_history WHERE user_id=?",Integer.class,owner)).isEqualTo(2);
     }
-    @Test void scheduleHistoryIsPagedAndCurrentVersionRemainsVisibleAfterManyPendingEdits() throws Exception {
-        var r=routine(1);var saved=schedule(r,"0",List.of(1));var monday=LocalDate.parse(saved.get("nextEffectiveFrom").asString());
+    @Test void scheduleHistoryIsPagedAndLatestImmediateVersionRemainsVisibleAfterManyEdits() throws Exception {
+        var r=routine(1);var saved=schedule(r,"0",List.of(1));var monday=LocalDate.parse(saved.get("appliedAt").asString().substring(0,10));
         EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),monday.atTime(6,0).toInstant(ZoneOffset.UTC)));
         for(int version=1;version<=21;version++)schedule(r,Integer.toString(version),List.of(version%2==1?2:1));
         var current=success(browser.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul"));
-        assertThat(current.get("history").size()).isEqualTo(20);assertThat(current.get("current").get("version").asString()).isEqualTo("1");
-        assertThat(current.get("pending").get("version").asString()).isEqualTo("22");
+        assertThat(success(browser.get("/api/v1/weekly-schedule/history?beforeVersion=23")).get("history").size()).isEqualTo(20);assertThat(current.get("version").asString()).isEqualTo("22");
+        assertThat(current.has("pending")).isFalse();
         var page=success(browser.get("/api/v1/weekly-schedule/history?beforeVersion=3"));assertThat(page.get("history").size()).isEqualTo(2);
         assertThat(page.get("nextBeforeVersion").isNull()).isTrue();
         assertThat(overview(monday).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(1);

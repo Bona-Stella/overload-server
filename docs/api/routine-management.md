@@ -111,7 +111,7 @@ API에서 먼저 범위·scale을 검증하여 DB NUMERIC의 암묵적 반올림
 - DELETE는 활성 루틴에서 버전을 확인하고 논리 삭제+version1 증가. 본인 현재 세대의 이미 삭제된 루틴은204, 추가 변경 없음. GET/PUT은404다.
 - 버전 overflow는409 WRITE_CONFLICT이며 전체 롤백한다. 자동 재시도·자동 병합은 없다.
 
-단일 workoutTransactionManager/JPA 트랜잭션 안에서 users FOR SHARE → routine FOR UPDATE → 종목 UUID 순 공유 잠금 → 자식 변경·사건·부모 버전을 처리한다. 2B부터 DELETE는 주간 일정 예약과의 원자 처리를 위해 users FOR UPDATE를 먼저 사용한다. 소유자→루틴 잠금 순서는 유지한다.
+단일 workoutTransactionManager/JPA 트랜잭션 안에서 소유자→루틴→종목 UUID 순 잠금으로 처리한다. G1부터 PUT/DELETE는 START와 직렬화하기 위해 users FOR UPDATE를 먼저 사용하고, 쓰기 격리 수준은 READ_COMMITTED다. 신규 POST는 기존 users FOR SHARE를 유지한다. routine FOR UPDATE 및 자식 변경·사건·부모 버전의 원자성은 유지한다.
 루틴 version은 행 잠금 아래 서비스가 한 번 증가시키는 단일 카운터다. 이 Entity에는 @Version을 추가하지 않아 수동 증가와 이중 적용되지 않는다. 기존 종목/설정 @Version은 유지한다.
 부분 UNIQUE의 순서 교환은 겹치지 않는 양수 임시 위치로 flush 후 최종 위치로 저장한다. 숫자 overflow를 검사하며 임시 상태가 별도로 커밋되지 않는다.
 조회는 기존과 같은 readOnly REPEATABLE_READ 트랜잭션에서 소유자·세대·DTO 전체를 일관되게 완성한다.
@@ -125,15 +125,15 @@ API에서 먼저 범위·scale을 검증하여 DB NUMERIC의 암묵적 반올림
 루틴 삭제는 부모 deleted_at만 설정하며 자식·승인 사건은 보존한다. 활성 여부에는 부모 삭제도 포함한다.
 FK에는 기록 삭제 cascade가 없다. 승인 사건은 Hibernate Immutable 및 모든 필드 updatable=false이며 update/delete API가 없다.
 출처 UUID·최초/승인 중량은 유지한다. 미래 세션은 새 세션 종목 ID와 출처 배치 ID를 구분하고 시작 당시 전체 계획을 복사해야 한다.
-START는 같은 users→routine 잠금 순서와 routine FOR SHARE, REPEATABLE_READ 쓰기 트랜잭션에서 읽기·InitialPlan·세션 생성을 원자 처리한다. 경합 직렬화 실패는 전체 실패로 처리한다. 구현 범위는 [세션 1단계 계약](workout-sessions.md)을 따른다. 루틴과 세션 모두 V17 단일 표준 계약을 사용한다.
+START는 같은 users→routine 잠금 순서와 users FOR UPDATE/routine FOR SHARE, READ_COMMITTED 쓰기 트랜잭션에서 읽기·InitialPlan·세션 생성을 원자 처리한다. 경합 실패는 전체 실패로 처리한다. 구현 범위는 [세션 계약](workout-sessions.md)을 따른다. 루틴과 세션 모두 V17 단일 표준 계약을 사용한다.
 루틴 version을 공식 비교 계보에 추가하거나 이름/순서 변경으로 과거 수행을 수정하지 않는다.
 
-2B의 [주간 일정·계획 이력 계약](weekly-schedule.md)에 따라 생성·실제 편집·명시 승인·세션 승인 반영·삭제의 최종 계획을 같은 트랜잭션의 `routine_plan_history`에 기록한다. 무변경 쓰기는 이력을 늘리지 않는다. 논리 삭제는 현재 주의 계획을 지우지 않고 **다음 월요일부터** 최신 주간 일정에서 해당 루틴을 제외하는 새 version을 함께 기록한다. 이력 또는 일정 기록 실패 시 루틴 삭제도 롤백한다. 원래 세션 InitialPlan·승인 사건·현재 승인 중량 계약은 유지한다.
+2B의 [주간 일정·계획 이력 계약](weekly-schedule.md)에 따라 생성·실제 편집·명시 승인·세션 승인 반영·삭제의 최종 계획을 같은 트랜잭션의 `routine_plan_history`에 기록한다. 무변경 쓰기는 이력을 늘리지 않는다. G2부터 논리 삭제는 최신 주간 배정에서 해당 루틴을 **즉시 제외**하는 새 version을 함께 기록한다. 첫 예정 START/이미 지난 날짜의 계획과 실제 기록을 지우지 않는다. 이력 또는 일정 기록 실패 시 루틴 삭제도 롤백한다. 원래 세션 InitialPlan·승인 사건·현재 승인 중량 계약은 유지한다.
 
 ## 오류
 
 본문은 `{code}`뿐이다. 401 AUTHENTICATION_REQUIRED와403 CSRF_INVALID/ACCESS_DENIED는 기존 Security 처리를 유지한다.
-400 INVALID_REQUEST, 404 ROUTINE_NOT_FOUND/PLACEMENT_NOT_FOUND/EXERCISE_NOT_FOUND, 409 DATA_GENERATION_MISMATCH/ROUTINE_VERSION_CONFLICT/ROUTINE_ID_CONFLICT/PLACEMENT_ID_CONFLICT/PLACEMENT_STATE_CONFLICT/WRITE_CONFLICT를 사용한다.
+400 INVALID_REQUEST, 404 ROUTINE_NOT_FOUND/PLACEMENT_NOT_FOUND/EXERCISE_NOT_FOUND, 409 DATA_GENERATION_MISMATCH/ROUTINE_VERSION_CONFLICT/ROUTINE_ID_CONFLICT/PLACEMENT_ID_CONFLICT/PLACEMENT_STATE_CONFLICT/ACTIVE_SESSION_EXISTS/WRITE_CONFLICT를 사용한다.
 소유권 없는 대상은 미존재와 같은404다. 사전 조회 뒤의 동시 PK/UNIQUE 경쟁·교착·직렬화 충돌은409 WRITE_CONFLICT다.
 확인된 연결·timeout 오류는503 WORKOUT_DATA_UNAVAILABLE, 예상 밖 실패는500 WORKOUT_DATA_WRITE_FAILED다. SQL/예외 원문은 본문에 노출하지 않는다.
 405/415 등 프로토콜 오류와 필터·컨테이너 경계 전체를 code-only로 보장하지 않는다.
@@ -144,3 +144,18 @@ V11은 위 네 테이블만 추가하며 V1~V10을 수정하지 않는다. 기�
 V11 구현 당시 검증 대상은 격리 Testcontainers PostgreSQL뿐이었다. 이후 개인 로컬 V11 적용·기존 데이터 보존은 사용자 확인 사항이다. 신규 V12는 개인 로컬에 적용하지 않으며 실제 DB 대상 앱을 실행하지 않는다.
 
 위 적용 설명은 V11 단계 당시 기록이다. 이후 V17 적용/V18~V22 미적용이라는 마지막 보고가 있으며6A에서는 개인 DB 상태를 재확인하지 않았다. [DB 안내](../engineering/local-postgresql.md)에 따라 격리 migration 검증과 실제 DB 적용 승인을 구분한다.
+## T02-B V23 추가 계약 (2026-11-06)
+
+- 기존 루틴 CRUD endpoint, 사용자 소유권, dataGeneration, expectedVersion, CSRF와 트랜잭션을 유지한다.
+- 생성/수정 요청에 nullable `tag`를 추가한다. 허용값은 PUSH/PULL/LEGS/FRONT/BACK/FULL/UPPER/LOWER/CARDIO/MIXED 하나다. 생성 생략은 null, 수정 생략은 기존값 보존, 명시 null은 해제다. 잘못된 값은400이며 추정/기본 태그를 부여하지 않는다.
+- 목록/상세에 `tag`, 기존 저장 시각 `createdAt`을 응답한다. 목록은 created_at DESC, id DESC이며 수정일로 정렬하지 않는다. 과거 저장된 계획 이력에 필드를 백필하지 않는다.
+- 유산소 Plan은 optional `activityId`로 `/api/v1/cardio-activities`의 active ID를 참조한다. 제공할 때 kind/name이 카탈로그와 일치해야 한다. 미제공 과거 계획은 기존 7필드 JSON을 그대로 유지한다. null ID는 허용하지 않으며 생략한다.
+- 카탈로그는 RUNNING/WALKING/CYCLING과8개 세부 종목 관계를 저장한다. 기존 배치ID/세션ID는 독립적이다. 기존 종목을 이름으로 매핑하거나 과거 기록·snapshot/hash를 다시 쓰지 않는다.
+- V23은 routines.tag와 routine_cardio_placements.activity_id의 nullable 추가 및 독립 catalog 테이블/관계만 추가한다. V1~V22 이력은 변경하지 않는다. 현재 적용은 격리 보존 검토 DB만이며 개인/운영 DB에는 적용하지 않는다.
+- 루틴과 Weekly Schedule은 별도 API다. UI는 루틴 성공/일정 실패를 알리고 고정 요청·expectedVersion·현재 assignments로 일정만 확인/재시도한다. 다른 버전의 일정을 자동 병합하지 않는다. G2의 저장 즉시 적용과 ROUTINE-03 교체 확인을 사용한다.
+
+## G1 원본 관리 보호 (2026-11-06)
+
+현재 세대 ACTIVE 세션의 sourceRoutineId와 같은 원본에 대해 실제 종목 추가/제거/복원/순서·세트/반복 목표·장비·유산소 계획 변경과 논리 삭제를409 ACTIVE_SESSION_EXISTS로 거절한다. 다른 원본의 구성 관리나 신규 루틴 생성은 이 guard로 막지 않는다. 다만 다른 루틴 삭제가 최신 주간 배정의 제외를 발생시키면 같은 ACTIVE 주간 일정 guard로409이며, 삭제·계획 이력도 함께 롤백한다. 배정에 영향 없는 다른 루틴 삭제는 허용한다. 이름/태그만 변경하거나 구성 no-op/승인 중량만 처리하는 요청은 기존 계약대로 허용한다. 실제 구성 변경과 승인을 함께 보내면 전체 요청을 롤백한다. 먼저 소유권·세대·expectedVersion을 검증하며, stale 버전은 no-op에도 충돌한다.
+
+정상 수행·FINISH/ACK·세션 임시 계획·승인 해결·종료 후 정정/명시 복구의 계약은 유지한다.24시간 만료는 기존 expiry/세션 접근 흐름이 확정하며 관리 API가 별도 만료나 타 기기 오프라인 감지를 구현하지 않는다. 관련 근거와 G2 이후 계약 차이는 [G0~G1 보고서](../tasks/weekly-schedule-g0-g1-report.md)에 정리한다. 이 G1 당시 기록과 달리 이후 G2~G3 코드는 V24와 즉시 일정 계약으로 전환했다. 실제 DB 적용은 별도 승인 전까지 하지 않으며 [현재 일정 계약](weekly-schedule.md)을 따른다.

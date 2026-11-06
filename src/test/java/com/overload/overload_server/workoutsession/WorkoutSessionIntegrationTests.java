@@ -112,7 +112,7 @@ class WorkoutSessionIntegrationTests {
         error(browser.send("GET",BASE+"/closed","{}",null),400,"INVALID_REQUEST");
         // Disposable fixture reset only: preserve the current-generation FK instead of bypassing it.
         jdbc.update("DELETE FROM record_change_events WHERE session_id IN (SELECT id FROM workout_sessions WHERE user_id=?)",owner.id());
-        for(String table:List.of("session_exercises","workout_sessions","weekly_schedule_versions","routine_plan_history","routine_weight_placements","routine_cardio_placements","routines","exercise_definitions","user_workout_settings"))jdbc.update("DELETE FROM "+table+" WHERE user_id=?",owner.id());
+        for(String table:List.of("daily_training_assessments","workout_calendar_control","session_exercises","workout_sessions","weekly_schedule_versions","routine_plan_history","routine_weight_placements","routine_cardio_placements","routines","exercise_definitions","user_workout_settings"))jdbc.update("DELETE FROM "+table+" WHERE user_id=?",owner.id());
         jdbc.update("UPDATE users SET data_generation=1 WHERE id=?",owner.id());
         var reset=node(browser.get(BASE+"/closed"));assertThat(reset.get("dataGeneration").asString()).isEqualTo("1");assertThat(reset.get("sessions").size()).isZero();
     }
@@ -123,6 +123,8 @@ class WorkoutSessionIntegrationTests {
         update.put("weightApprovals", List.of(Map.of("placementId", placement, "nextApprovedWeightKg", "65", "occurredAt", "2026-10-31T10:00:00Z")));
         assertThat(browser.send("PUT", routinePath(), json(update), csrf).statusCode()).isEqualTo(200);
         jdbc.update("UPDATE standard_exercise SET name='renamed' WHERE id=?", exercise);
+        error(browser.send("DELETE",routinePath(),json(Map.of("dataGeneration","0","expectedVersion","1")),csrf),409,"ACTIVE_SESSION_EXISTS");
+        node(finish(1,initialState()));
         assertThat(browser.send("DELETE", routinePath(), json(Map.of("dataGeneration", "0", "expectedVersion", "1")), csrf).statusCode()).isEqualTo(204);
         assertThat(node(browser.get(path())).get("initialPlan")).isEqualTo(original);
         assertThat(node(start(startBody())).get("initialPlan")).isEqualTo(original);
@@ -189,22 +191,24 @@ class WorkoutSessionIntegrationTests {
         assertThatThrownBy(() -> jdbc.update("UPDATE workout_sessions SET initial_plan_snapshot=initial_plan_snapshot || '{\"routineName\":\"tampered\"}'::jsonb WHERE id=?", session)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("UPDATE workout_sessions SET started_at=started_at+interval '1 second' WHERE id=?", session)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("UPDATE users SET data_generation=1 WHERE id=?", owner.id())).isInstanceOf(DataIntegrityViolationException.class);
-        assertThatThrownBy(() -> jdbc.update("INSERT INTO workout_sessions SELECT ?,user_id,data_generation,source_routine_id,status,version,started_at,workout_date,started_time_zone,started_device_id,editor_device_id,writer_epoch,local_revision,initial_plan_snapshot,last_workout_synced_at,created_at,updated_at,applied_plan_snapshot,last_snapshot_hash,last_snapshot_saved_at,ended_at,closed_at,completion_assessment_snapshot,deleted_at FROM workout_sessions WHERE id=?", UUID.randomUUID(), session)).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("INSERT INTO workout_sessions SELECT ?,user_id,data_generation,source_routine_id,status,version,started_at,workout_date,started_time_zone,started_device_id,editor_device_id,writer_epoch,local_revision,initial_plan_snapshot,last_workout_synced_at,created_at,updated_at,applied_plan_snapshot,last_snapshot_hash,last_snapshot_saved_at,ended_at,closed_at,completion_assessment_snapshot,deleted_at,schedule_version_at_start FROM workout_sessions WHERE id=?", UUID.randomUUID(), session)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("UPDATE workout_sessions SET writer_epoch=-1 WHERE id=?", session)).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> jdbc.update("UPDATE workout_sessions SET local_revision=-1 WHERE id=?", session)).isInstanceOf(DataIntegrityViolationException.class);
     }
 
-    @Test void concurrentStartsReachTheDatabaseUniqueConstraint() throws Exception {
-        var barrier = new CyclicBarrier(2);
+    @Test void concurrentStartsSerializeOnOwnerAndKeepOneActiveSession() throws Exception {
+        var locked=new CountDownLatch(1);var release=new CountDownLatch(1);var once=new AtomicBoolean();
         WorkoutReadFixtures.observer = event -> {
-            if (event.before() && event.sql().toLowerCase(Locale.ROOT).startsWith("insert into workout_sessions")) await(barrier);
+            if (event.before() && event.sql().toLowerCase(Locale.ROOT).startsWith("insert into workout_sessions") && once.compareAndSet(false,true)) {locked.countDown();await(release);}
         };
         try (var executor = Executors.newFixedThreadPool(2)) {
             var second = startBody(); second.put("id", UUID.randomUUID());
-            var one = executor.submit(() -> start(startBody())); var two = executor.submit(() -> start(second));
+            var one = executor.submit(() -> start(startBody()));assertThat(locked.await(10,TimeUnit.SECONDS)).isTrue();
+            var two = executor.submit(() -> start(second));
+            try {assertLockWait("users");}finally{release.countDown();}
             assertThat(List.of(one.get(15, TimeUnit.SECONDS).statusCode(), two.get(15, TimeUnit.SECONDS).statusCode()))
                     .containsExactlyInAnyOrder(201, 409);
-        } finally { WorkoutReadFixtures.observer = null; }
+        } finally { release.countDown();WorkoutReadFixtures.observer = null; }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM workout_sessions WHERE user_id=?", Integer.class, owner.id())).isEqualTo(1);
     }
 
@@ -223,7 +227,7 @@ class WorkoutSessionIntegrationTests {
         assertThat(row().get("writer_epoch")).isEqualTo(1L);
     }
 
-    @ParameterizedTest @ValueSource(strings = {"PUT", "DELETE"})
+    @ParameterizedTest @ValueSource(strings = {"PUT", "DELETE", "SCHEDULE"})
     void startLocksCurrentRoutineUntilInitialPlanIsCommitted(String method) throws Exception {
         var locked = new CountDownLatch(1); var release = new CountDownLatch(1); var observed = new AtomicBoolean();
         WorkoutReadFixtures.observer = event -> {
@@ -236,20 +240,20 @@ class WorkoutSessionIntegrationTests {
             var starting = executor.submit(() -> start(startBody()));
             assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
             var editing = executor.submit(() -> editRoutine(method));
-            try { assertLockWait(method.equals("DELETE") ? "users" : "routines"); } finally { release.countDown(); }
+            try { assertLockWait("users"); } finally { release.countDown(); }
             var result = node(starting.get(15, TimeUnit.SECONDS));
-            assertThat(editing.get(15, TimeUnit.SECONDS).statusCode()).isEqualTo(method.equals("PUT") ? 200 : 204);
+            error(editing.get(15, TimeUnit.SECONDS),409,"ACTIVE_SESSION_EXISTS");
             assertThat(result.get("initialPlan").get("routineVersion").asString()).isEqualTo("0");
             assertThat(result.get("initialPlan").get("weightExercises").get(0).get("setCount").asInt()).isEqualTo(3);
         } finally { release.countDown(); WorkoutReadFixtures.observer = null; }
     }
 
-    @ParameterizedTest @ValueSource(strings = {"PUT", "DELETE"})
+    @ParameterizedTest @ValueSource(strings = {"PUT", "DELETE", "SCHEDULE"})
     void concurrentSourceChangeCannotProduceAMixedInitialPlan(String method) throws Exception {
         var locked = new CountDownLatch(1); var release = new CountDownLatch(1); var observed = new AtomicBoolean();
         WorkoutReadFixtures.observer = event -> {
             String sql = event.sql().toLowerCase(Locale.ROOT);
-            if (!event.before() && sql.contains("from routines ") && sql.contains("for no key update") && observed.compareAndSet(false, true)) {
+            if (!event.before() && sql.contains("from users ") && sql.contains("for update") && observed.compareAndSet(false, true)) {
                 locked.countDown(); await(release);
             }
         };
@@ -257,15 +261,237 @@ class WorkoutSessionIntegrationTests {
             var editing = executor.submit(() -> editRoutine(method));
             assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
             var starting = executor.submit(() -> start(startBody()));
-            try { assertLockWait(method.equals("DELETE") ? "users" : "routines"); } finally { release.countDown(); }
-            assertThat(editing.get(15, TimeUnit.SECONDS).statusCode()).isEqualTo(method.equals("PUT") ? 200 : 204);
-            assertThat(starting.get(15, TimeUnit.SECONDS).statusCode()).isIn(404, 409);
+            try { assertLockWait("users"); } finally { release.countDown(); }
+            assertThat(editing.get(15, TimeUnit.SECONDS).statusCode()).isEqualTo(method.equals("DELETE") ? 204 : 200);
+            var result=starting.get(15,TimeUnit.SECONDS);
+            if(method.equals("DELETE"))error(result,404,"ROUTINE_NOT_FOUND");
+            else {
+                var plan=node(result).get("initialPlan");
+                assertThat(result.statusCode()).isEqualTo(201);
+                assertThat(plan.get("routineVersion").asString()).isEqualTo(method.equals("PUT")?"1":"0");
+                assertThat(plan.get("weightExercises").get(0).get("setCount").asInt()).isEqualTo(method.equals("PUT")?4:3);
+            }
         } finally { release.countDown(); WorkoutReadFixtures.observer = null; }
         if (method.equals("PUT")) {
             var plan = node(start(startBody())).get("initialPlan");
             assertThat(plan.get("routineVersion").asString()).isEqualTo("1");
             assertThat(plan.get("weightExercises").get(0).get("setCount").asInt()).isEqualTo(4);
-        } else error(start(startBody()), 404, "ROUTINE_NOT_FOUND");
+        } else if(method.equals("DELETE"))error(start(startBody()), 404, "ROUTINE_NOT_FOUND");
+    }
+
+    @ParameterizedTest @ValueSource(strings={"SETS","REPS","REMOVE","ADD","CARDIO"})
+    void activeSourceRejectsActualPlanChangesWithoutWritingAnyPartialState(String change) throws Exception {
+        initialState();var original=row();var source=jdbc.queryForMap("SELECT * FROM routines WHERE id=?",routine);
+        var input=updateRoutine();
+        if(change.equals("SETS")||change.equals("REPS"))input.put("weightPlacements",List.of(equipment(Map.of("mode","EXISTING","id",placement,"setCount",change.equals("SETS")?4:3,"minReps",change.equals("REPS")?7:6,"maxReps",10))));
+        if(change.equals("REMOVE"))input.put("weightPlacements",List.of());
+        if(change.equals("ADD"))input.put("weightPlacements",List.of(equipment(Map.of("mode","EXISTING","id",placement,"setCount",3,"minReps",6,"maxReps",10)),equipment(Map.of("mode","NEW","id",UUID.randomUUID(),"standardExerciseId",exercise,"setCount",1,"minReps",6,"maxReps",10,"initialWeightKg","20"))));
+        if(change.equals("CARDIO")){var target=cardioPlan();target.put("targetSeconds",1200);input.put("cardioPlacements",List.of(Map.of("mode","EXISTING","id",cardio,"plan",target)));}
+        input.put("weightApprovals",change.equals("REMOVE")?List.of():List.of(Map.of("placementId",placement,"nextApprovedWeightKg","65","occurredAt","2026-10-31T16:01:00Z")));
+        error(browser.send("PUT",routinePath(),json(input),csrf),409,"ACTIVE_SESSION_EXISTS");
+        assertThat(row()).isEqualTo(original);assertThat(jdbc.queryForMap("SELECT * FROM routines WHERE id=?",routine)).isEqualTo(source);
+        assertThat(routineVersion()).isZero();assertThat(eventCount()).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM routine_plan_history WHERE routine_id=?",Integer.class,routine)).isEqualTo(1);
+    }
+
+    @Test void activeSourceAndScheduleNoopsKeepVersionsAndStaleVersionsStillFail() throws Exception {
+        var assigned=List.of(Map.of("dayOfWeek",1,"routineId",routine));
+        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",assigned)),csrf));
+        initialState();var original=row();var input=updateRoutine();input.put("name","session source");
+        node(browser.send("PUT",routinePath(),json(input),csrf));assertThat(routineVersion()).isZero();
+        input.put("expectedVersion","1");error(browser.send("PUT",routinePath(),json(input),csrf),409,"ROUTINE_VERSION_CONFLICT");
+        assertThat(node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",assigned)),csrf)).get("version").asString()).isEqualTo("1");
+        error(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",assigned)),csrf),409,"SCHEDULE_VERSION_CONFLICT");
+        error(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf),409,"ACTIVE_SESSION_EXISTS");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Integer.class,owner.id())).isEqualTo(1);
+        assertThat(row()).isEqualTo(original);
+        node(finish(1,initialState()));
+        assertThat(node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf)).get("assignments").isEmpty()).isTrue();
+    }
+
+    @Test void activeSourceDoesNotBlockManagingAnUnrelatedRoutine() throws Exception {
+        initialState();var original=row();UUID other=UUID.randomUUID(),activity=UUID.randomUUID();
+        var create=new LinkedHashMap<String,Object>(Map.of("id",other,"dataGeneration","0","name","other","weightPlacements",List.of(),"cardioPlacements",List.of(Map.of("id",activity,"plan",cardioPlan()))));
+        node(browser.send("POST","/api/v1/routines",json(create),csrf));
+        var target=cardioPlan();target.put("targetSeconds",1200);
+        node(browser.send("PUT","/api/v1/routines/"+other,json(Map.of("dataGeneration","0","expectedVersion","0","name","other","weightPlacements",List.of(),"cardioPlacements",List.of(Map.of("mode","EXISTING","id",activity,"plan",target)),"weightApprovals",List.of())),csrf));
+        assertThat(browser.send("DELETE","/api/v1/routines/"+other,json(Map.of("dataGeneration","0","expectedVersion","1")),csrf).statusCode()).isEqualTo(204);
+        assertThat(row()).isEqualTo(original);
+    }
+
+    @Test void activeSessionBlocksDeletingAnotherAssignedRoutineWithoutPartialHistoryOrScheduleChanges() throws Exception {
+        UUID other=UUID.randomUUID(),activity=UUID.randomUUID();
+        node(browser.send("POST","/api/v1/routines",json(Map.of("id",other,"dataGeneration","0","name","assigned other","weightPlacements",List.of(),"cardioPlacements",List.of(Map.of("id",activity,"plan",cardioPlan())))),csrf));
+        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",2,"routineId",other)))),csrf));
+        initialState();var original=row();var source=jdbc.queryForMap("SELECT * FROM routines WHERE id=?",other);
+        var delete=json(Map.of("dataGeneration","0","expectedVersion","0"));
+        error(browser.send("DELETE","/api/v1/routines/"+other,delete,csrf),409,"ACTIVE_SESSION_EXISTS");
+        assertThat(jdbc.queryForMap("SELECT * FROM routines WHERE id=?",other)).isEqualTo(source);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM routine_plan_history WHERE routine_id=?",Integer.class,other)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Integer.class,owner.id())).isEqualTo(1);
+        assertThat(row()).isEqualTo(original);
+        node(finish(1,initialState()));
+        assertThat(browser.send("DELETE","/api/v1/routines/"+other,delete,csrf).statusCode()).isEqualTo(204);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Integer.class,owner.id())).isEqualTo(2);
+    }
+
+    void calendarAt(String at) {EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),Instant.parse(at)));}
+    void reviewDates(){for(int n=0;n<12;n++)app.getBean(com.overload.overload_server.statistics.DailyTrainingReviewService.class).reviewBatch();}
+    HttpResponse<String> scheduleWithClock(String at,Map<String,Object> body) throws Exception {
+        var original=EmailOtpFixtures.CLOCK.instant();var once=new AtomicBoolean();
+        // Move the domain clock after normal authentication, without weakening session/OTP policy.
+        WorkoutReadFixtures.observer=e->{if(e.before()&&e.sql().contains("FROM users")&&e.sql().contains("FOR UPDATE")&&once.compareAndSet(false,true))EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),Instant.parse(at)));};
+        try{return browser.send("PUT","/api/v1/weekly-schedule",json(body),csrf);}
+        finally{WorkoutReadFixtures.observer=null;EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),original));}
+    }
+    Map<String,Object> daily(String day){return jdbc.queryForMap("SELECT * FROM daily_training_assessments WHERE user_id=? AND workout_date=?::date",owner.id(),day);}
+    State startOn(String day) throws Exception {
+        var body=startBody();body.put("startedAt",day+"T03:00:00Z");body.put("workoutDate",day);
+        return JSON.treeToValue(node(start(body)).get("snapshot").get("state"),State.class);
+    }
+    SetValue calendarSet(State base,String day,int ordinal){return new SetValue(UUID.randomUUID(),base.appliedPlan().weightExercises().getFirst().sessionExerciseId(),ordinal,"60",8,Instant.parse(day+"T03:01:00Z"),new Context("INITIAL_APPROVED",null),null,null);}
+    Map<String,Object> finishOn(State base,String day,List<SetValue> sets) throws Exception {
+        var body=finishBody(1,state(base,sets,List.of(),List.of(),List.of(),List.of()));body.put("endedAt",day+"T03:30:00Z");node(sendFinish(body));return body;
+    }
+    @Test void nextDayTwoAmEditCannotErasePriorDayMissAndReviewIsIdempotent() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T17:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf));reviewDates();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM daily_training_assessments WHERE user_id=?",Integer.class,owner.id())).isZero();
+        calendarAt("2026-11-09T19:00:00Z");reviewDates();var original=daily("2026-11-09");assertThat(original.get("state")).isEqualTo("MISSED");assertThat(original.get("missed_schedule_version")).isEqualTo(1L);
+        reviewDates();assertThat(daily("2026-11-09")).isEqualTo(original);
+    }
+    @Test void sameDayRestCreatesNoMissOrPermanentRestRowsAndRollbackCanCatchUp() throws Exception {
+        calendarAt("2026-11-12T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",4,"routineId",routine)))),csrf));
+        calendarAt("2026-11-12T06:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf));calendarAt("2026-11-12T19:00:00Z");
+        WorkoutReadFixtures.observer=e->{if(e.before()&&e.sql().startsWith("UPDATE workout_calendar_control"))throw new org.springframework.dao.DataAccessResourceFailureException("isolated cursor failure");};
+        try{reviewDates();}finally{WorkoutReadFixtures.observer=null;}
+        assertThat(jdbc.queryForObject("SELECT reviewed_through FROM workout_calendar_control WHERE user_id=?",java.time.LocalDate.class,owner.id())).isEqualTo(java.time.LocalDate.parse("2026-11-11"));
+        reviewDates();assertThat(jdbc.queryForObject("SELECT count(*) FROM daily_training_assessments WHERE user_id=?",Integer.class,owner.id())).isZero();
+        assertThat(jdbc.queryForObject("SELECT reviewed_through FROM workout_calendar_control WHERE user_id=?",java.time.LocalDate.class,owner.id())).isEqualTo(java.time.LocalDate.parse("2026-11-12"));
+    }
+    @Test void firstScheduledStartKeepsOriginalPlanAfterFinishAndImmediateReassignment() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        var base=startOn("2026-11-09");var frozen=row().get("initial_plan_snapshot");var finished=finishOn(base,"2026-11-09",List.of(calendarSet(base,"2026-11-09",1)));
+        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf));
+        var monday=node(browser.get("/api/v1/statistics/overview?fromDate=2026-11-09&toDateExclusive=2026-11-16")).get("plannedDays").get(0);
+        assertThat(monday.get("plan").get("id").asString()).isEqualTo(routine.toString());assertThat(monday.get("plan").get("weightPlacements").get(0).get("setCount").asInt()).isEqualTo(3);
+        assertThat(row().get("initial_plan_snapshot")).isEqualTo(frozen);assertThat(daily("2026-11-09").get("first_session_id")).isEqualTo(session);
+        calendarAt("2026-11-09T19:00:00Z");reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("PERFORMED");
+        var revision=daily("2026-11-09").get("revision");node(sendFinish(finished));assertThat(daily("2026-11-09").get("revision")).isEqualTo(revision);assertThat(daily("2026-11-09").get("needs_recheck")).isEqualTo(false);
+    }
+    @Test void activeDateIsDeferredAndExistingExpiryWakesTheSameDateWithoutRewritingItsOrigin() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        startOn("2026-11-09");var frozen=row().get("initial_plan_snapshot");calendarAt("2026-11-09T19:00:00Z");reviewDates();
+        assertThat(daily("2026-11-09").get("state")).isEqualTo("PENDING_ACTIVE");assertThat(daily("2026-11-09").get("first_missed_at")).isNull();
+        calendarAt("2026-11-10T00:00:00Z");app.getBean(WorkoutSessionService.class).expireBatch();reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("MISSED");assertThat(row().get("initial_plan_snapshot")).isEqualTo(frozen);
+    }
+    @Test void concurrentExpiryWaitsForTheReviewOwnerLockAndWakesTheDateAfterCommit() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        var base=startOn("2026-11-09");node(save(1,state(base,List.of(calendarSet(base,"2026-11-09",1)),List.of(),List.of(),List.of(),List.of())));
+        calendarAt("2026-11-10T00:00:00Z");
+        // Restrict this barrier to its own account in the disposable shared fixture DB.
+        jdbc.update("UPDATE workout_calendar_control SET reviewed_through=greatest(reviewed_through,'2026-11-10'::date) WHERE user_id<>?",owner.id());
+        jdbc.update("UPDATE daily_training_assessments SET needs_recheck=false WHERE user_id<>?",owner.id());
+        jdbc.update("UPDATE workout_sessions SET last_workout_synced_at='2026-11-10T00:00:00Z' WHERE user_id<>? AND status='ACTIVE'",owner.id());
+        var once=new AtomicBoolean();var ownerAttempted=new CountDownLatch(1);var expiry=new AtomicReference<Future<Integer>>();
+        try(var pool=Executors.newSingleThreadExecutor()){
+            WorkoutReadFixtures.observer=e->{
+                if(e.before()&&e.sql().equals("SELECT data_generation FROM users WHERE id=? FOR SHARE"))ownerAttempted.countDown();
+                if(e.before()&&e.sql().contains("initial_plan_snapshot::text,schedule_version_at_start,status")&&once.compareAndSet(false,true)){
+                    try{
+                        assertThat(e.connection().getTransactionIsolation()).isEqualTo(java.sql.Connection.TRANSACTION_READ_COMMITTED);
+                        expiry.set(pool.submit(()->app.getBean(WorkoutSessionService.class).expireBatch()));
+                        assertThat(ownerAttempted.await(5,TimeUnit.SECONDS)).isTrue();assertThat(expiry.get().isDone()).isFalse();
+                    }catch(Exception failure){throw new IllegalStateException(failure);}
+                }
+            };
+            try{
+                app.getBean(com.overload.overload_server.statistics.DailyTrainingReviewService.class).reviewBatch();
+                assertThat(once).isTrue();assertThat(daily("2026-11-09").get("state")).isEqualTo("PENDING_ACTIVE");
+                assertThat(expiry.get().get(10,TimeUnit.SECONDS)).isEqualTo(1);
+            }finally{WorkoutReadFixtures.observer=null;}
+        }
+        assertThat(daily("2026-11-09").get("needs_recheck")).isEqualTo(true);assertThat(daily("2026-11-09").get("next_check_at")).isNull();
+        reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("PERFORMED");assertThat(daily("2026-11-09").get("first_missed_at")).isNull();
+    }
+    @Test void latePartialFactsThenDeletionAndExplicitRecoveryReevaluateOneDateAndKeepFirstMiss() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T19:00:00Z");reviewDates();var missed=daily("2026-11-09").get("first_missed_at");
+        var base=startOn("2026-11-09");reviewDates();
+        assertThat(daily("2026-11-09").get("state")).isEqualTo("PENDING_ACTIVE");
+        assertThat(daily("2026-11-09").get("first_missed_at")).isEqualTo(missed);
+        assertThatThrownBy(()->jdbc.update("UPDATE daily_training_assessments SET first_session_id=? WHERE user_id=? AND workout_date='2026-11-09'",session,owner.id())).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        var fact=calendarSet(base,"2026-11-09",1);finishOn(base,"2026-11-09",List.of(fact));reviewDates();
+        assertThat(daily("2026-11-09").get("state")).isEqualTo("PERFORMED");assertThat(daily("2026-11-09").get("first_missed_at")).isEqualTo(missed);
+        node(patchRecords(List.of(),List.of(),List.of(fact.id()),List.of()));reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("MISSED");
+        node(recover(List.of(calendarSet(base,"2026-11-09",2)),List.of()));reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("PERFORMED");
+        var revision=daily("2026-11-09").get("revision");node(browser.get(path()));reviewDates();assertThat(daily("2026-11-09").get("revision")).isEqualTo(revision);
+        node(browser.send("DELETE",path(),json(recordScope()),csrf));reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("MISSED");assertThat(daily("2026-11-09").get("first_missed_at")).isEqualTo(missed);
+    }
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void actualOffScheduleOrRestDayPartialFactsArePreservedWithoutFillingThePlannedRoutine(boolean planned) throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");UUID other=UUID.randomUUID();
+        node(browser.send("POST","/api/v1/routines",json(Map.of("id",other,"dataGeneration","0","name","other plan","weightPlacements",List.of(),"cardioPlacements",List.of(Map.of("id",UUID.randomUUID(),"plan",cardioPlan())))),csrf));
+        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",planned?List.of(Map.of("dayOfWeek",1,"routineId",other)):List.of())),csrf));
+        var base=startOn("2026-11-09");finishOn(base,"2026-11-09",List.of(calendarSet(base,"2026-11-09",1)));calendarAt("2026-11-09T19:00:00Z");
+        try(var pool=Executors.newFixedThreadPool(2)){var one=pool.submit(()->app.getBean(com.overload.overload_server.statistics.DailyTrainingReviewService.class).reviewBatch());var two=pool.submit(()->app.getBean(com.overload.overload_server.statistics.DailyTrainingReviewService.class).reviewBatch());one.get(15,TimeUnit.SECONDS);two.get(15,TimeUnit.SECONDS);}
+        reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("PERFORMED");assertThat(daily("2026-11-09").get("first_missed_at")).isNull();
+        var data=node(browser.get("/api/v1/statistics/overview?fromDate=2026-11-09&toDateExclusive=2026-11-16"));assertThat(data.get("statistics").get("summary").get("completedSets").asString()).isEqualTo("1");
+        assertThat(data.get("plannedDays").get(0).get("effectiveDay").asString()).isEqualTo("0");assertThat(data.get("plannedDays").get(0).get("status").asString()).isEqualTo(planned?"PLANNED":"REST");
+    }
+    @Test void missingPlanEvidenceDefersInsteadOfInventingZero() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        // Missing historical evidence fixture, only in this disposable DB.
+        jdbc.update("DELETE FROM routine_plan_history WHERE routine_id=?",routine);calendarAt("2026-11-09T19:00:00Z");reviewDates();
+        assertThat(daily("2026-11-09").get("state")).isEqualTo("UNKNOWN");assertThat(daily("2026-11-09").get("first_missed_at")).isNull();
+    }
+    @Test void actualCardioBelowItsGoalStillCountsAsPerformanceInsteadOfAnEmptyWorkout() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        var base=startOn("2026-11-09");UUID activity=base.appliedPlan().cardioActivities().getFirst().sessionActivityId();
+        var cardioFact=new Cardio(UUID.randomUUID(),activity,"COMPLETED",Instant.parse("2026-11-09T03:01:00Z"),Instant.parse("2026-11-09T03:02:00Z"),new CardioValue(60000L,60000L,false,null,null));
+        var body=finishBody(1,state(base,List.of(),List.of(cardioFact),List.of(),List.of(),List.of()));body.put("endedAt","2026-11-09T03:30:00Z");node(sendFinish(body));
+        calendarAt("2026-11-09T19:00:00Z");reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("PERFORMED");assertThat(daily("2026-11-09").get("first_missed_at")).isNull();
+    }
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"2026-11-10T07:59:00Z,2026-11-09","2026-11-10T08:01:00Z,2026-11-10","2026-11-10T11:30:00Z,2026-11-10"})
+    void storedCalendarAndDeviceZoneKeepTheOriginalStartDateAcrossMidnight(String started,String day) throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");
+        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine),Map.of("dayOfWeek",2,"routineId",routine)))),csrf));
+        calendarAt("2026-11-10T12:00:00Z");var body=startBody();body.put("startedAt",started);body.put("startedTimeZone","America/Los_Angeles");body.put("workoutDate",day);
+        var startedNode=node(start(body));var base=JSON.treeToValue(startedNode.get("snapshot").get("state"),State.class);
+        var frozen=row().get("initial_plan_snapshot");var finish=finishBody(1,state(base,List.of(),List.of(),List.of(),List.of(),List.of()));finish.put("endedAt",Instant.parse(started).plusSeconds(120).toString());node(sendFinish(finish));
+        assertThat(row().get("workout_date").toString()).isEqualTo(day);assertThat(row().get("initial_plan_snapshot")).isEqualTo(frozen);
+        assertThat(daily(day).get("first_session_id")).isEqualTo(session);assertThat(row().get("schedule_version_at_start")).isEqualTo(1L);
+        assertThatThrownBy(()->jdbc.update("UPDATE workout_sessions SET schedule_version_at_start=NULL WHERE id=?",session)).isInstanceOf(DataIntegrityViolationException.class);
+    }
+    @Test void ownerLockCrossingMidnightUsesPostLockDateAndDoesNotMoveThePreviousDay() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T14:59:59Z");
+        // A transaction begins before midnight and obtains its owner lock after midnight.
+        node(scheduleWithClock("2026-11-09T15:00:01Z",scheduleBody("1",List.of())));
+        assertThat(jdbc.queryForObject("SELECT effective_from FROM weekly_schedule_versions WHERE user_id=? AND version=2",java.time.LocalDate.class,owner.id())).isEqualTo(java.time.LocalDate.parse("2026-11-10"));
+        calendarAt("2026-11-09T19:00:00Z");reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("MISSED");assertThat(daily("2026-11-09").get("missed_schedule_version")).isEqualTo(1L);
+    }
+    @Test void realReviewJobCatchesUpPersistedDatesWhenAnApplicationStarts() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));calendarAt("2026-11-09T19:00:00Z");
+        var key=new byte[32];new java.security.SecureRandom().nextBytes(key);
+        try(var restarted=new SpringApplicationBuilder(OverloadServerApplication.class,EmailOtpFixtures.class,WorkoutReadFixtures.class).web(WebApplicationType.NONE)
+            .run("--spring.profiles.active=local,integration","--spring.datasource.url="+POSTGRES.getJdbcUrl(),"--spring.datasource.username="+POSTGRES.getUsername(),"--spring.datasource.password="+POSTGRES.getPassword(),
+                "--OTP_HMAC_KEY="+Base64.getEncoder().encodeToString(key),"--OTP_EMAIL_ENABLED=false","--GOOGLE_OIDC_ENABLED=false","--GOOGLE_REAUTH_ENABLED=false","--overload.workout.review.enabled=true","--overload.workout.review.delay-ms=25","--spring.session.jdbc.cleanup-cron=-","--logging.level.root=WARN","--spring.main.banner-mode=off")){
+            long end=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);while(System.nanoTime()<end&&jdbc.queryForObject("SELECT count(*) FROM daily_training_assessments WHERE user_id=? AND state='MISSED'",Integer.class,owner.id())==0)Thread.sleep(20);
+            assertThat(daily("2026-11-09").get("state")).isEqualTo("MISSED");
+        }
+    }
+    @Test void savedClockPrecisionAndVersionOrderAreExactAndBackwardWritesFailClosed() throws Exception {
+        calendarAt("2026-11-09T00:00:00.999999999Z");var first=node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        assertThat(first.get("appliedAt").asString()).isEqualTo("2026-11-09T00:00:00.999999Z");
+        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf));
+        assertThat(jdbc.queryForList("SELECT recorded_at FROM weekly_schedule_versions WHERE user_id=?",Object.class,owner.id()).stream().distinct().count()).isEqualTo(1);
+        error(scheduleWithClock("2026-11-08T23:59:59Z",scheduleBody("2",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),409,"WRITE_CONFLICT");
+        assertThat(jdbc.queryForObject("SELECT max(version) FROM weekly_schedule_versions WHERE user_id=?",Long.class,owner.id())).isEqualTo(2L);
+        var old=new LinkedHashMap<>(scheduleBody("2",List.of()));old.remove("contractVersion");error(browser.send("PUT","/api/v1/weekly-schedule",json(old),csrf),409,"SCHEDULE_CONTRACT_MISMATCH");
+        calendarAt("2026-11-09T19:00:00Z");reviewDates();
+        error(scheduleWithClock("2026-11-09T14:59:59Z",scheduleBody("2",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),409,"WRITE_CONFLICT");
     }
 
     @Test void insertFailureRollsBackWithoutChangingSourceOrProvisioningAnything() throws Exception {
@@ -287,6 +513,8 @@ class WorkoutSessionIntegrationTests {
         assertThat(row()).isEqualTo(before);
         // Isolated reset fixture only, not a product reset endpoint or developer database mutation.
         jdbc.update("DELETE FROM session_exercises WHERE user_id=?", owner.id());
+        jdbc.update("DELETE FROM daily_training_assessments WHERE user_id=?", owner.id());
+        jdbc.update("DELETE FROM workout_calendar_control WHERE user_id=?", owner.id());
         jdbc.update("DELETE FROM workout_sessions WHERE user_id=?", owner.id());
         jdbc.update("DELETE FROM weekly_schedule_versions WHERE user_id=?", owner.id());
         jdbc.update("DELETE FROM routine_plan_history WHERE user_id=?", owner.id());
@@ -310,7 +538,7 @@ class WorkoutSessionIntegrationTests {
         error(start(second), 409, "ACTIVE_SESSION_EXISTS");
     }
 
-    @Test void startSharesOneRepeatableReadJpaJdbcTransactionWithoutMaterializingPlannedSets() throws Exception {
+    @Test void startSharesOneReadCommittedJpaJdbcTransactionWithoutMaterializingPlannedSets() throws Exception {
         var update = updateRoutine();
         update.put("weightPlacements", List.of(equipment(Map.of("mode", "EXISTING", "id", placement, "setCount", Integer.MAX_VALUE,
                 "minReps", Integer.MAX_VALUE, "maxReps", Integer.MAX_VALUE))));
@@ -321,7 +549,7 @@ class WorkoutSessionIntegrationTests {
             if (event.before() && (sql.contains("from users") || sql.contains("from routines ") || sql.startsWith("insert into workout_sessions"))) {
                 try (var statement = event.connection().createStatement(); var result = statement.executeQuery("SELECT pg_backend_pid(),txid_current(),current_setting('transaction_isolation')")) {
                     result.next(); backends.add(result.getInt(1)); transactions.add(result.getLong(2));
-                    assertThat(result.getString(3)).isEqualTo("repeatable read");
+                    assertThat(result.getString(3)).isEqualTo("read committed");
                     assertThat(event.connection().isReadOnly()).isFalse();
                 } catch (java.sql.SQLException failure) { throw new IllegalStateException(failure); }
             }
@@ -364,7 +592,7 @@ class WorkoutSessionIntegrationTests {
                         .executeWithoutResult(status -> {
                             isolated.queryForObject("SELECT data_generation FROM users WHERE id=? FOR UPDATE", Long.class, owner.id());
                             isolated.update("DELETE FROM session_exercises WHERE user_id=?", owner.id());
-                            for (String table : List.of("workout_sessions", "weekly_schedule_versions", "routine_plan_history", "routine_weight_placements", "routine_cardio_placements", "routines", "exercise_definitions", "user_workout_settings"))
+                            for (String table : List.of("daily_training_assessments", "workout_calendar_control", "workout_sessions", "weekly_schedule_versions", "routine_plan_history", "routine_weight_placements", "routine_cardio_placements", "routines", "exercise_definitions", "user_workout_settings"))
                                 isolated.update("DELETE FROM " + table + " WHERE user_id=?", owner.id());
                             isolated.update("UPDATE users SET data_generation=1 WHERE id=?", owner.id());
                         });
@@ -481,7 +709,7 @@ class WorkoutSessionIntegrationTests {
     }
 
     @Test void externalRoutineChangeLeavesApprovalsPendingButCommitsFactsAndKeepIsQueryableAfterLostResponse() throws Exception {
-        var base = initialState(); assertThat(editRoutine("PUT").statusCode()).isEqualTo(200);
+        var base = initialState(); assertThat(renameRoutine().statusCode()).isEqualTo(200);
         var first = approval(base, 1, null, 0, "60", "62.5"); var second = approval(base, 2, first.id(), 0, "62.5", "65");
         var set = set(base, UUID.randomUUID(), 1, "65", 8, new Context("APPROVAL_REQUEST", second.id()));
         var result = node(save(1, state(base, List.of(set), List.of(completedCardio(base, UUID.randomUUID())), List.of(), List.of(), List.of(first, second))));
@@ -502,7 +730,7 @@ class WorkoutSessionIntegrationTests {
     }
 
     @Test void reapprovalIsANewCurrentEventAndNeverRetroactivelyRewritesPerformance() throws Exception {
-        var base = initialState(); assertThat(editRoutine("PUT").statusCode()).isEqualTo(200);
+        var base = initialState(); assertThat(renameRoutine().statusCode()).isEqualTo(200);
         var first = approval(base, 1, null, 0, "60", "65");
         var set = set(base, UUID.randomUUID(), 1, "65", 8, new Context("APPROVAL_REQUEST", first.id()));
         node(save(1, state(base, List.of(set), List.of(), List.of(), List.of(), List.of(first))));
@@ -530,7 +758,10 @@ class WorkoutSessionIntegrationTests {
     }
 
     @Test void deletedSourceStillAllowsPerformanceWhileApprovalRemainsPending() throws Exception {
-        var base = initialState(); assertThat(editRoutine("DELETE").statusCode()).isEqualTo(204);
+        var base = initialState();error(editRoutine("DELETE"),409,"ACTIVE_SESSION_EXISTS");
+        // Preserve coverage of an already removed source from before the management guard.
+        // This is fixture data in the disposable test DB, not an allowed management API write.
+        jdbc.update("UPDATE routines SET deleted_at=now(),version=version+1 WHERE id=?",routine);
         var request = approval(base, 1, null, 0, "60", "65");
         var set = set(base, UUID.randomUUID(), 1, "65", 8, new Context("APPROVAL_REQUEST", request.id()));
         var result = node(save(1, state(base, List.of(set), List.of(), List.of(), List.of(), List.of(request))));
@@ -629,7 +860,7 @@ class WorkoutSessionIntegrationTests {
         try (var executor = Executors.newFixedThreadPool(2)) {
             var saving = executor.submit(() -> save(1, state(base,List.of(),List.of(),List.of(),List.of(),List.of(request)))); assertThat(locked.await(10,TimeUnit.SECONDS)).isTrue();
             var editing = executor.submit(() -> editRoutine("PUT"));
-            try { assertLockWait("routines"); } finally { release.countDown(); }
+            try { assertLockWait("users"); } finally { release.countDown(); }
             assertThat(saving.get(15,TimeUnit.SECONDS).statusCode()).isEqualTo(200); error(editing.get(15,TimeUnit.SECONDS),409,"ROUTINE_VERSION_CONFLICT");
         } finally { release.countDown(); WorkoutReadFixtures.observer=null; }
         assertThat(eventCount()).isEqualTo(1);
@@ -662,7 +893,7 @@ class WorkoutSessionIntegrationTests {
     }
 
     @Test void resolutionValidatesCsrfOwnershipGenerationDeviceAndExactPendingSet() throws Exception {
-        var base=initialState();assertThat(editRoutine("PUT").statusCode()).isEqualTo(200);
+        var base=initialState();assertThat(renameRoutine().statusCode()).isEqualTo(200);
         var first=approval(base,1,null,0,"60","65");var second=approval(base,2,first.id(),0,"65","67.5");
         node(save(1,state(base,List.of(),List.of(),List.of(),List.of(),List.of(first,second))));
         var body=resolutionBody(base,List.of(first.id(),second.id()),"KEEP_CURRENT",null);var before=row();
@@ -744,7 +975,7 @@ class WorkoutSessionIntegrationTests {
     }
 
     @Test void finishKeepsPendingApprovalAndPartialCardioWithoutCreatingMissingPerformances() throws Exception {
-        var base=initialState();assertThat(editRoutine("PUT").statusCode()).isEqualTo(200);
+        var base=initialState();assertThat(renameRoutine().statusCode()).isEqualTo(200);
         var request=approval(base,1,null,0,"60","65");
         var one=set(base,UUID.randomUUID(),1,"65",8,new Context("APPROVAL_REQUEST",request.id()));
         var value=state(base,List.of(one),List.of(),List.of(),List.of(),List.of(request));
@@ -823,7 +1054,7 @@ class WorkoutSessionIntegrationTests {
 
     @ParameterizedTest @ValueSource(strings={"snapshot","finish","takeover","resolution"})
     void exactDeadlineClosesBeforeLateRequestAndCommitsDespiteHttpConflict(String action) throws Exception {
-        var base=initialState();assertThat(editRoutine("PUT").statusCode()).isEqualTo(200);var request=approval(base,1,null,0,"60","65");
+        var base=initialState();assertThat(renameRoutine().statusCode()).isEqualTo(200);var request=approval(base,1,null,0,"60","65");
         var value=state(base,List.of(set(base,UUID.randomUUID(),1,"65",8,new Context("APPROVAL_REQUEST",request.id()))),List.of(completedCardio(base,UUID.randomUUID())),List.of(),List.of(),List.of(request));
         node(save(1,value));var stored=row();var sets=jdbc.queryForList("SELECT * FROM performed_sets WHERE session_id=?",session);
         var resolution=resolutionBody(base,List.of(request.id()),"KEEP_CURRENT",null);
@@ -1045,7 +1276,7 @@ class WorkoutSessionIntegrationTests {
 
     @ParameterizedTest @ValueSource(strings={"FINISHED","AUTO_CLOSED"})
     void closedApprovalResolutionKeepsOriginalPerformanceContextAndReportsCurrentVersion(String status) throws Exception {
-        var base=initialState();node(editRoutine("PUT"));var request=approval(base,1,null,0,"60","65");
+        var base=initialState();node(renameRoutine());var request=approval(base,1,null,0,"60","65");
         var value=state(base,List.of(set(base,UUID.randomUUID(),1,"65",8,new Context("APPROVAL_REQUEST",request.id()))),List.of(),List.of(),List.of(),List.of(request));
         close(status,value);var frozen=closureFacts();long before=(Long)row().get("version");
         var body=closedResolutionBody(base,List.of(request.id()),"KEEP_CURRENT",null);var original=new LinkedHashMap<>(body);
@@ -1063,7 +1294,7 @@ class WorkoutSessionIntegrationTests {
     }
 
     @Test void postClosureReapprovalIsNewFactAndCannotAuthorizeRecoveredOldSessionSets() throws Exception {
-        var base=initialState();node(editRoutine("PUT"));var request=approval(base,1,null,0,"60","65");
+        var base=initialState();node(renameRoutine());var request=approval(base,1,null,0,"60","65");
         close("AUTO_CLOSED",state(base,List.of(set(base,UUID.randomUUID(),1,"65",8,new Context("APPROVAL_REQUEST",request.id()))),List.of(),List.of(),List.of(),List.of(request)));
         var sealed=closureFacts();UUID fresh=UUID.randomUUID();var body=closedResolutionBody(base,List.of(request.id()),"REAPPROVE",
                 Map.of("id",fresh,"sequence","2","expectedRoutineVersion","1","previousApprovedWeightKg","60","nextApprovedWeightKg","65"));
@@ -1141,7 +1372,7 @@ class WorkoutSessionIntegrationTests {
     }
 
     @Test void closedReapprovalSerializesWithRoutineEditingAndRollsBackLosingExternalVersion() throws Exception {
-        var base=initialState();node(editRoutine("PUT"));var request=approval(base,1,null,0,"60","65");node(finish(1,state(base,List.of(),List.of(),List.of(),List.of(),List.of(request))));
+        var base=initialState();node(renameRoutine());var request=approval(base,1,null,0,"60","65");node(finish(1,state(base,List.of(),List.of(),List.of(),List.of(),List.of(request))));
         var resolution=closedResolutionBody(base,List.of(request.id()),"REAPPROVE",Map.of("id",UUID.randomUUID(),"sequence","2","expectedRoutineVersion","1","previousApprovedWeightKg","60","nextApprovedWeightKg","65"));resolution.put("occurredAt","2026-10-31T16:12:00Z");
         var routineEdit=updateRoutine();routineEdit.put("expectedVersion","1");
         var locked=new CountDownLatch(1);var release=new CountDownLatch(1);var once=new AtomicBoolean();
@@ -1149,7 +1380,7 @@ class WorkoutSessionIntegrationTests {
         try(var executor=Executors.newFixedThreadPool(2)) {
             var resolving=executor.submit(()->browser.send("POST",path()+"/closed-approval-resolutions",json(resolution),csrf));assertThat(locked.await(10,TimeUnit.SECONDS)).isTrue();
             var editing=executor.submit(()->browser.send("PUT",routinePath(),json(routineEdit),csrf));
-            try{assertLockWait("routines");}finally{release.countDown();}
+            try{assertLockWait("users");}finally{release.countDown();}
             node(resolving.get(15,TimeUnit.SECONDS));error(editing.get(15,TimeUnit.SECONDS),409,"ROUTINE_VERSION_CONFLICT");
         }finally{release.countDown();WorkoutReadFixtures.observer=null;}
         assertThat(row().get("version")).isEqualTo(2L);assertThat(routineVersion()).isEqualTo(2);assertThat(eventCount()).isEqualTo(1);
@@ -1158,7 +1389,7 @@ class WorkoutSessionIntegrationTests {
     @ParameterizedTest @ValueSource(strings={"update performed_sets","insert into record_change_events","update workout_sessions","insert into performed_sets","delete-session","approval-event"})
     void postClosureSqlFailureRollsBackFactsAuditApprovalsAndVersion(String failingSql) throws Exception {
         var base=initialState();var value=confirmed(base,new int[]{8},new Context("INITIAL_APPROVED",null));Approval pending=null;
-        if(failingSql.equals("approval-event")){node(editRoutine("PUT"));pending=approval(base,1,null,0,"60","65");value=state(base,List.of(),List.of(),List.of(),List.of(),List.of(pending));}
+        if(failingSql.equals("approval-event")){node(renameRoutine());pending=approval(base,1,null,0,"60","65");value=state(base,List.of(),List.of(),List.of(),List.of(),List.of(pending));}
         node(finish(1,value));var before=row();var facts=jdbc.queryForList("SELECT * FROM performed_sets WHERE session_id=?",session);var approvals=jdbc.queryForList("SELECT * FROM session_weight_approval_requests WHERE session_id=?",session);
         var once=new AtomicBoolean();String target=failingSql.equals("delete-session")?"update workout_sessions":failingSql.equals("approval-event")?"insert into progress_change_events":failingSql;
         WorkoutReadFixtures.observer=event->{if(event.before()&&event.sql().startsWith(target)&&once.compareAndSet(false,true)){
@@ -1180,7 +1411,7 @@ class WorkoutSessionIntegrationTests {
 
     @ParameterizedTest @ValueSource(strings={"edit","recover","delete","resolve"})
     void closedWritesRequireCsrfCurrentGenerationAndOwnerButNotOldWriterCredentials(String operation) throws Exception {
-        var base=initialState();node(editRoutine("PUT"));var pending=approval(base,1,null,0,"60","65");var value=state(base,List.of(set(base,UUID.randomUUID(),1,"60",8,new Context("INITIAL_APPROVED",null))),List.of(),List.of(),List.of(),List.of(pending));node(finish(1,value));
+        var base=initialState();node(renameRoutine());var pending=approval(base,1,null,0,"60","65");var value=state(base,List.of(set(base,UUID.randomUUID(),1,"60",8,new Context("INITIAL_APPROVED",null))),List.of(),List.of(),List.of(),List.of(pending));node(finish(1,value));
         String method=operation.equals("edit")?"PATCH":operation.equals("delete")?"DELETE":"POST";
         String suffix=switch(operation){case "edit"->"/records";case "recover"->"/recoveries";case "resolve"->"/closed-approval-resolutions";default->"";};
         var body=switch(operation){case "edit"->recordEdit(List.of(new WorkoutRecordData.SetCorrection(value.performedSets().getFirst().id(),"60",9)),List.of(),List.of(),List.of());case "recover"->recoveryBody(List.of(set(base,UUID.randomUUID(),2,"60",8,new Context("INITIAL_APPROVED",null))),List.of());case "resolve"->closedResolutionBody(base,List.of(pending.id()),"KEEP_CURRENT",null);default->recordScope();};
@@ -1272,15 +1503,19 @@ class WorkoutSessionIntegrationTests {
         assertThat(closureFacts()).isEqualTo(frozen);
     }
 
-    @Test void routineEquipmentEditUsesExistingApprovalRaceWhileSessionEquipmentDoesNotChangeRoutine() throws Exception {
+    @Test void activeRoutineEquipmentEditIsBlockedWhileSessionEquipmentAndApprovalRemainAllowed() throws Exception {
         UUID a=CatalogFixtures.manufacturer(jdbc),b=CatalogFixtures.manufacturer(jdbc);routineEquipment(a,"PLATE",0);var base=initialState();
         var before=row().get("last_workout_synced_at");EmailOtpFixtures.CLOCK.advance(Duration.ofSeconds(10));
         var local=planEquipment(base,b,"STACK");node(save(1,local));assertThat(routineVersion()).isEqualTo(1);
         assertThat(row().get("last_workout_synced_at")).isNotEqualTo(before);
-        routineEquipment(b,"STACK",1);var approval=approval(base,1,null,1,"60","65");
+        var change=updateRoutine();change.put("expectedVersion","1");
+        var weight=equipment(Map.of("mode","EXISTING","id",placement,"setCount",3,"minReps",6,"maxReps",10));weight.put("manufacturerId",b);weight.put("loadType","STACK");change.put("weightPlacements",List.of(weight));
+        error(browser.send("PUT",routinePath(),json(change),csrf),409,"ACTIVE_SESSION_EXISTS");
+        var approval=approval(base,1,null,1,"60","65");
         var value=state(local,List.of(equipmentSet(set(base,UUID.randomUUID(),1,"60",8,new Context("INITIAL_APPROVED",null)),a,"PLATE")),List.of(),List.of(),List.of(),List.of(approval));
-        var saved=node(save(2,value));assertThat(saved.get("approvalResults").get(0).get("reason").asString()).isEqualTo("ROUTINE_CHANGED");
-        assertThat(eventCount()).isZero();assertThat(count("performed_sets")).isEqualTo(1);assertThat(routineVersion()).isEqualTo(2);
+        var saved=node(save(2,value));assertThat(saved.get("approvalResults").get(0).get("status").asString()).isEqualTo("APPLIED");
+        assertThat(eventCount()).isEqualTo(1);assertThat(count("performed_sets")).isEqualTo(1);assertThat(routineVersion()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT manufacturer_id FROM routine_weight_placements WHERE id=?",UUID.class,placement)).isEqualTo(a);
     }
 
     @Test void unknownManufacturerRejectsCompleteSnapshotAndRecoveryWithoutPartialWrites() throws Exception {
@@ -1453,8 +1688,12 @@ class WorkoutSessionIntegrationTests {
     int eventCount() { return jdbc.queryForObject("SELECT count(*) FROM progress_change_events WHERE routine_id=?",Integer.class,routine); }
 
     HttpResponse<String> editRoutine(String method) throws Exception {
-        return browser.send(method, routinePath(), json(method.equals("PUT") ? updateRoutine() : Map.of("dataGeneration", "0", "expectedVersion", "0")), csrf);
+        if(method.equals("SCHEDULE"))return browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf);
+        var update=updateRoutine();update.put("weightPlacements",List.of(equipment(Map.of("mode","EXISTING","id",placement,"setCount",4,"minReps",6,"maxReps",10))));
+        return browser.send(method, routinePath(), json(method.equals("PUT") ? update : Map.of("dataGeneration", "0", "expectedVersion", "0")), csrf);
     }
+    HttpResponse<String> renameRoutine() throws Exception {return browser.send("PUT",routinePath(),json(updateRoutine()),csrf);}
+    Map<String,Object> scheduleBody(String version,List<?> assignments){return Map.of("contractVersion","immediate-v1","dataGeneration","0","expectedVersion",version,"timeZone","Asia/Seoul","assignments",assignments);}
     Map<String, Object> routineBody() {
         return new LinkedHashMap<>(Map.of("id", routine, "dataGeneration", "0", "name", "session source", "weightPlacements",
                 List.of(equipment(Map.of("id", placement, "standardExerciseId", exercise, "setCount", 3, "minReps", 6, "maxReps", 10, "initialWeightKg", "60"))),
@@ -1462,7 +1701,7 @@ class WorkoutSessionIntegrationTests {
     }
     Map<String, Object> updateRoutine() {
         return new LinkedHashMap<>(Map.of("dataGeneration", "0", "expectedVersion", "0", "name", "updated source", "weightPlacements",
-                List.of(equipment(Map.of("mode", "EXISTING", "id", placement, "setCount", 4, "minReps", 6, "maxReps", 10))),
+                List.of(equipment(Map.of("mode", "EXISTING", "id", placement, "setCount", 3, "minReps", 6, "maxReps", 10))),
                 "cardioPlacements", List.of(Map.of("mode", "EXISTING", "id", cardio, "plan", cardioPlan())), "weightApprovals", List.of()));
     }
     static Map<String,Object> equipment(Map<String,?> input) { var value=new LinkedHashMap<String,Object>(input); value.put("manufacturerId",null); value.put("loadType",null); return value; }

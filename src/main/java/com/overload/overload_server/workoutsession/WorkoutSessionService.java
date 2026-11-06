@@ -2,6 +2,7 @@ package com.overload.overload_server.workoutsession;
 
 import com.overload.overload_server.persistence.TransactionExecution;
 import com.overload.overload_server.routine.RoutineRepository;
+import com.overload.overload_server.routine.WorkoutCalendarRepository;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -17,19 +18,21 @@ public class WorkoutSessionService {
     private final RoutineRepository routines;
     private final WorkoutSnapshotRepository snapshots;
     private final Clock clock;
+    private final WorkoutCalendarRepository calendars;
     private final TransactionTemplate starts, writes, reads;
 
-    WorkoutSessionService(WorkoutSessionRepository sessions, RoutineRepository routines, WorkoutSnapshotRepository snapshots,ObjectProvider<Clock> clocks,
+    WorkoutSessionService(WorkoutSessionRepository sessions, RoutineRepository routines, WorkoutSnapshotRepository snapshots,WorkoutCalendarRepository calendars,ObjectProvider<Clock> clocks,
                           @Qualifier("workoutTransactionManager") PlatformTransactionManager manager) {
-        this.sessions = sessions; this.routines = routines; this.snapshots=snapshots; this.clock = clocks.getIfAvailable(Clock::systemUTC);
-        starts = new TransactionTemplate(manager); starts.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        this.sessions = sessions; this.routines = routines; this.snapshots=snapshots;this.calendars=calendars; this.clock = clocks.getIfAvailable(Clock::systemUTC);
+        starts = new TransactionTemplate(manager); starts.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         writes = new TransactionTemplate(manager);
         reads = new TransactionTemplate(manager); reads.setReadOnly(true); reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
     }
 
     WorkoutSessionResponses.Started start(UUID owner, WorkoutSessionRequests.Start input) {
         return TransactionExecution.execute(starts, () -> {
-            owner(owner, input.dataGeneration());
+            // Serialize START with source/schedule management before reading any source state.
+            if(sessions.lockOwnerForStart(owner)!=input.dataGeneration())throw new WorkoutSessionFailure(DATA_GENERATION_MISMATCH);
             if (sessions.exists(owner,input.dataGeneration(),input.id())) {
                 var previous=find(owner,input.dataGeneration(),input.id(),true);
                 if (!previous.sameStart(input)) throw new WorkoutSessionFailure(SESSION_ID_CONFLICT);
@@ -49,7 +52,9 @@ public class WorkoutSessionService {
                 if (previous.status.equals("ACTIVE")) throw new WorkoutSessionFailure(ACTIVE_SESSION_EXISTS);
             }
             var session = WorkoutSession.start(owner, input, InitialPlan.copy(source), clock.instant());
+            session.scheduleVersionAtStart=calendars.origin(owner,input.dataGeneration(),input.startedAt(),input.workoutDate());
             sessions.insert(session); sessions.flush();
+            calendars.recordStart(owner,input.dataGeneration(),session.id,session.scheduleVersionAtStart,session.workoutDate,session.sourceRoutineId);
             snapshots.initialize(session);sessions.flush();
             return new WorkoutSessionResponses.Started(true, response(session));
         });

@@ -134,6 +134,7 @@ public class WorkoutSnapshotService {
                 items.put(added.id, added);
             }
         }
+        data.validateCardioCatalog(input.snapshot().appliedPlan().cardioActivities());
         validatePlan(input.snapshot().appliedPlan(), items);
         var approvals = index(data.approvals(id), r -> r.id);
         var applied = approvals(session, input.snapshot().approvalRequests(), items, approvals, scope, false);

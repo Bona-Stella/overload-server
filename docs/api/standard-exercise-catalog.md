@@ -66,3 +66,9 @@ V16 migration 자체는 데이터를 INSERT하지 않는다. 이후 [개발용 �
 DB의 PK `(standard_exercise_id,normalized_alias)`는 같은 운동의 정규화 키 중복을 차단한다. 비공백 CHECK가 정규화를 대신하지 않으므로 **직접 SQL 등록자는 동일 규칙으로 생성한 normalized_alias를 공급해야 한다.** 다른 운동의 같은 키는 허용한다. 이름/별칭만으로 UUID를 병합하지 않는다.
 
 muscle.group_code는 CHEST/BACK/SHOULDERS/ARMS/LEGS/CORE, exercise_muscle.role은 PRIMARY/SECONDARY다. 같은 운동의 복수 PRIMARY를 허용하며 기여율 컬럼·집계표는 없다. 정확한 표준 목록·근육 매핑은 이번 테스트 fixture로 확정한 것이 아니다.
+
+## T02-B 조회 응답 추가
+
+`GET /api/v1/standard-exercises/search-data`의 schemaVersion=1과 id/name/aliases는 유지하며 각 운동에 `muscles:[{id,groupCode,name,role}]`를 추가한다. 실제 exercise_muscle와 muscle 관계를 조회하며 PRIMARY/SECONDARY를 구분한다. 매핑이 없는 항목은 빈 배열이다. 프론트는 PRIMARY만 주된 설명으로 쓰고 별칭/이름에서 분류를 추정하지 않는다.
+
+`GET /api/v1/cardio-activities`는 인증된 카탈로그 조회(no-store)이며 `{activities:[{id,category,name,kind}]}`를 응답한다. 상위 분류는 RUNNING/WALKING/CYCLING이다. 신규 카탈로그ID 연결은 routine-management.md의 V23 계약을 따른다. 과거 유산소는 재분류하지 않는다.

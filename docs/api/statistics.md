@@ -8,7 +8,7 @@
 
 2C 승인 성장 추적의 실제 조회 계약은 [Approved Weight Growth API](approved-weight-growth.md)를 따른다. 성장 조회와 overview endpoint를 유지한다.
 
-현행 보완: [2B 주간 일정·계획 이력](weekly-schedule.md)과 아래 overview endpoint를 추가했다. 이전 `/api/v1/statistics`는 제거했다. 최신 정책은 [Statistics and Tracking v1.3](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md)이며 v1.1·v1.2 원본은 보존했다.
+현행 보완: [주간 일정·계획 이력](weekly-schedule.md)과 아래 overview endpoint를 사용한다. 이전 `/api/v1/statistics`는 제거했다. 최신 정책은 [Statistics and Tracking v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md)이며 v1.1~v1.3 원본은 보존했다. 아래 2B 당시 설명 중 일정 적용·날짜 근거는 마지막 G2~G3 절이 대체한다.
 
 ## 2A 구현 기록 — 과거 계약
 
@@ -101,7 +101,7 @@ Weight = { plannedSets, completedSets, reps, volumeLoadKg, setsWithoutVolume }
 - 완료 후보는 예정일 날짜·예정 루틴이 모두 일치하는 미삭제 FINISHED/AUTO_CLOSED 세션이다. 각 후보의 **자기 InitialPlan**과 현재 유효 수행을 비교한다. WEIGHT는 해당 sessionExerciseId의 실제 완료 세트 수가 최초 setCount 이상이어야 완료 종목1개다. AppliedPlan 축소나 추가 종목은 분자/분모를 바꾸지 않는다. 반복·승인 중량 성과 평가를 이 달성률 산식에 섞지 않는다.
 - 후보별 완료 계획 종목/최초 계획 종목의 정확한 유리수를 비교하여 **단일 최고값**만 사용한다. 서로 다른 세션의 부분 세트/종목을 합치지 않는다. 예정일에 수행이 없으면 유효 운동일0, 휴식일/다른 루틴/추가 운동은 계획 분자를 채우지 않으며 실제 운동량에는 남는다. 일일 최대1이다. 유리수 합계는 BigInteger로 유지하고 표시할 때만 반올림한다.
 - CARDIO는 최초 시간·거리 목표와 실제 activeMs/distance를 비교한다. 이미 확인된 목표 미달은 미완료다. 실제 속도/경사/저항이나 필요한 거리 값이 없어서 판정할 수 없으면 UNVERIFIABLE로 남긴다. 계획 속도를 실제로 대체하지 않는다. 불확실한 후보의 가능한 최고값이 확실한 최상 후보를 넘지 못하면 그날은 확실한 결과를 사용할 수 있다.
-- plannedDays.status는 UNKNOWN/BEFORE_REGISTRATION/REST/PLANNED/UNVERIFIABLE다. complete count/effectiveDay는 확인 불가일 때 null이며 잘못된0을 만들지 않는다. 표시 계획과 최고 후보의 InitialPlan 버전이 다른 같은 날짜의 경우, plan은 최초 시작 계획, plannedExercises/completedExercises/selectedSessionId는 최고 후보의 최초 계획 기준임을 구분한다.
+- plannedDays.status는 UNKNOWN/BEFORE_REGISTRATION/REST/PLANNED/UNVERIFIABLE/PENDING이다. PENDING은 해당 날짜 ACTIVE의 판정 대기로 count/effectiveDay가 null이며 unverifiableDays에 포함한다. complete count/effectiveDay는 확인 불가일 때 null이며 잘못된0을 만들지 않는다. 표시 계획과 최고 후보의 InitialPlan 버전이 다른 같은 날짜의 경우, plan은 최초 시작 계획, plannedExercises/completedExercises/selectedSessionId는 최고 후보의 최초 계획 기준임을 구분한다.
 - statistics.planCoverage는 FULL_SCHEDULE_HISTORY 또는 PARTIAL_SCHEDULE_HISTORY다. UNKNOWN 날짜가 있으면 plannedWorkoutDays·routineAchievementPercent·effectiveWorkoutDays는 null이다. 최초 등록 주는 등록 전 날짜의 제외 근거가 있으므로 FULL_SCHEDULE_HISTORY이며 등록일~일요일 예정일만 분모에 포함한다. 목요일 월·목·금·토 등록/목·금 완료의 경우 계획일3·유효일2·달성률66.666667%다. 다음 주는 전체4일이다. 모든 날짜의 근거가 있고 계획일이0이면 계획일0/달성률null이다. 숫자가 없는 과거 분모를0이나 현재 루틴으로 채우지 않는다.
 - 모든 날짜의 계획이 알려져도 UNVERIFIABLE 날짜가 있으면 전체 유효일/달성률은 null이다. 확인 가능한 날짜의 상세는 유지한다. 실제 속도·거리 출처 저장은2D에서 구현했으며 경사·저항 등 여전히 없는 실제 증거는 추정하지 않는다.
 - 월요일부터 정확히7일인 조회만 주간 루틴 달성률 `min(100, 유효일 합계 / 계획일 ×100)`를 반환한다. 다른 날짜 범위는 계획일/일별 상태만 제공하고 새로운 월간 달성률 정책을 만들지 않는다. 주간 달성률은 소수6자리, 유효일은 소수12자리까지 표시한다.
@@ -115,4 +115,12 @@ ST-09에 따라 활동·근육 상세는 각각 `week/0`에서 시작해 독립�
 
 ST-48 시간 비교와 `cardioByKind`/`statistics.cardio`의 역할은 [유산소 계약](cardio-actual-measurements.md#실제-통계와-계획-비교)을 따른다. `planning`은 StatisticsView에 전체 Overview 응답을 전달하는 Frontend prop 이름이며 Backend JSON 필드가 아니다. 실제·계획 시간은 활동 상세가 선택한 동일 기간의 검증된 응답을 사용하고 이전 기간의 늦은 응답은 표시하지 않는다.
 
-일정 최초 등록은 당일부터, 기존 변경은 다음 월요일부터 적용한다. 성장선·실제 속도/계산 거리 출처·맨몸 추가 부하는2C~2E에서 구현됐다. 디로딩 도메인 연결, 운영 분류와 실제 브라우저·PWA·실기기 검증은 별도 후속이다. 기존 IndexedDB3/schema2·타이머·고정 요청·PWA permit은 유지한다.
+G2부터 일정 최초 등록과 변경은 모두 저장 즉시 적용하며, 첫 예정 START와 과거 날짜의 계획 근거를 보존한다. 성장선·실제 속도/계산 거리 출처·맨몸 추가 부하는2C~2E에서 구현됐다. 디로딩 도메인 연결, 운영 분류와 실제 브라우저·PWA·실기기 검증은 별도 후속이다. 기존 IndexedDB3/schema2·타이머·고정 요청·PWA permit은 유지한다.
+
+## G2~G3 현재 계획·검사 근거
+
+[통계·추적 v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md)와 [M1 계약](weekly-schedule.md)이 기존 다음 월요일 설명을 대체한다. 원래 구 버전은 effective_from, 신규 즉시 버전은 전환 기준 version과 recorded_at/version으로 읽는다. 날짜별 마지막 버전/구간 직전 기준과 START·최초 MISS가 직접 참조하는 버전을 함께 읽으며, 최근20개 화면 이력에 의존하지 않는다. 첫 예정 START의 계획은 당일 이후 배정 변경에도 유지하고 미시작일은 날짜 종료 직전 이력으로 판단한다.
+
+plannedDays에 nullable reviewStatus/reviewRevision을 추가한다. reviewStatus는 PERFORMED/MISSED/PENDING_ACTIVE/UNKNOWN/EMPTY 또는 재검사 중 PENDING이며, 해당 일별 행이 없으면 null이다. 최초 MISS는 늦은 실제 기록에 의해 삭제되지 않는다. 일반 계획 이행률 후보는 여전히 예정 루틴이며, 다른 루틴/휴식일의 실제 세트·유산소는 실제 운동량으로 남긴다. PERFORMED는 종목 전체 완료를 뜻하지 않는다. PWA는 검사 전 또는 재검사 중인0을 자동 미수행으로 확정 표시하지 않는다.
+
+읽기 전용 REPEATABLE_READ를 유지하며 SQL 수는 미등록11개/계획 루틴 있음12개로 범위의 날짜 수와 무관하게 고정된다. 일별 검사는 별도 job가31일 창으로 같은 조회를 재사용한다. 디로딩 E/N·누적/설정/기간 계산을 이 API에 추가하지 않았다.

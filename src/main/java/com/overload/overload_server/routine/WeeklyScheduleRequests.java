@@ -14,7 +14,10 @@ final class WeeklyScheduleRequests {
     static WeeklySchedule.Save parse(String raw) {
         try(var parser=JSON.createParser(raw)) {
             var body=JSON.readTree(parser);if(parser.nextToken()!=null)throw RoutineRequests.invalid();
-            fields(body,"dataGeneration","expectedVersion","timeZone","assignments");
+            if(body==null||!body.isObject())throw RoutineRequests.invalid();
+            if(!body.has("contractVersion")||!body.get("contractVersion").isString()||!body.get("contractVersion").asString().equals("immediate-v1"))
+                throw new RoutineFailure(RoutineFailure.Reason.SCHEDULE_CONTRACT_MISMATCH);
+            fields(body,"contractVersion","dataGeneration","expectedVersion","timeZone","assignments");
             long generation=counter(body.get("dataGeneration")),version=counter(body.get("expectedVersion"));
             String zone=zone(text(body.get("timeZone")));
             var values=body.get("assignments");if(!values.isArray()||values.size()>7)throw RoutineRequests.invalid();

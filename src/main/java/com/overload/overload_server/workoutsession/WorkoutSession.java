@@ -15,6 +15,7 @@ public class WorkoutSession {
     @Column(name = "user_id", nullable = false, updatable = false) UUID userId;
     @Column(name = "data_generation", nullable = false, updatable = false) long dataGeneration;
     @Column(name = "source_routine_id", nullable = false, updatable = false) UUID sourceRoutineId;
+    @Column(name="schedule_version_at_start",updatable=false) Long scheduleVersionAtStart;
     @Column(nullable = false, columnDefinition = "text") String status;
     @Column(nullable = false) long version;
     @Column(name = "started_at", nullable = false, updatable = false) Instant startedAt;

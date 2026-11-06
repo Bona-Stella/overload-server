@@ -56,16 +56,16 @@ class PostgresMigrationTests {
 			assertThat(jdbc.queryForList("""
 					SELECT table_name FROM information_schema.tables
 					WHERE table_schema = 'public' ORDER BY table_name
-					""", String.class)).containsExactly("auth_identities", "cardio_results", "email_otp_challenges", "email_otp_limits",
+					""", String.class)).containsExactly("auth_identities", "cardio_activity_catalog", "cardio_results", "daily_training_assessments", "email_otp_challenges", "email_otp_limits",
 					"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_definitions", "exercise_muscle",
-					"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_versions", "workout_sessions");
+					"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_versions", "workout_calendar_control", "workout_sessions");
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();
-			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("22");
+			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("24");
 			assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();
 			assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
 			flyway.validate();
 			history = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
-			assertThat(history).hasSize(22);
+			assertThat(history).hasSize(24);
             assertThat(history.get(21)).containsEntry("version", "22").containsEntry("script", "V22__add_bodyweight_additional_load.sql").containsEntry("success", true);
             assertThat(history.get(20)).containsEntry("version", "21").containsEntry("script", "V21__add_actual_cardio_measurements.sql").containsEntry("success", true);
 			assertThat(history.get(19)).containsEntry("version", "20").containsEntry("script", "V20__allow_immediate_first_weekly_schedule.sql").containsEntry("success", true);
@@ -112,6 +112,40 @@ class PostgresMigrationTests {
 		}
 	}
 
+    @Test void v24PromotesLatestIntentOnceAndNeverRewritesLegacyReservationRows() {
+        var old=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).target("23").load();old.migrate();
+        var jdbc=new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()));
+        UUID user=UUID.randomUUID(),routine=UUID.randomUUID();jdbc.update("INSERT INTO users(id) VALUES (?)",user);
+        jdbc.update("INSERT INTO routines(id,user_id,data_generation,name,created_at,updated_at) VALUES (?,?,0,'legacy',now(),now())",routine,user);
+        jdbc.update("INSERT INTO weekly_schedule_versions VALUES (?,0,1,'2026-11-02T00:00:00Z','2026-11-02','Asia/Seoul','[]')",user);
+        String latest="[{\"dayOfWeek\":2,\"routineId\":\""+routine+"\"}]";
+        jdbc.update("INSERT INTO weekly_schedule_versions VALUES (?,0,2,'2026-11-06T00:00:00Z','2026-11-09','Asia/Seoul',?::jsonb)",user,latest);
+        UUID session=UUID.randomUUID(),device=UUID.randomUUID();
+        jdbc.update("""
+            INSERT INTO workout_sessions(id,user_id,data_generation,source_routine_id,started_at,workout_date,started_time_zone,started_device_id,editor_device_id,
+                initial_plan_snapshot,applied_plan_snapshot,last_snapshot_hash,last_workout_synced_at,created_at,updated_at)
+            VALUES(?,?,0,?,'2026-11-02T14:59:00Z','2026-11-02','UTC',?,?,
+                '{"schemaVersion":2,"routineName":"legacy Ω","weightExercises":[],"cardioActivities":[]}',
+                '{"schemaVersion":2,"weightExercises":[],"cardioActivities":[]}',?,'2026-11-02T14:59:00Z','2026-11-02T14:59:00Z','2026-11-02T14:59:00Z')
+            """,session,user,routine,device,device,"a".repeat(64));
+        var originalSession=jdbc.queryForObject("SELECT to_jsonb(s)::text FROM workout_sessions s WHERE id=?",String.class,session);
+        var before=jdbc.queryForList("SELECT * FROM weekly_schedule_versions WHERE user_id=? ORDER BY version",user);
+        var history=jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history ORDER BY installed_rank");
+        Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).load().migrate();
+        assertThat(jdbc.queryForList("SELECT * FROM weekly_schedule_versions WHERE user_id=? AND version<3 ORDER BY version",user)).isEqualTo(before);
+        assertThat(jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history WHERE installed_rank<=23 ORDER BY installed_rank")).isEqualTo(history);
+        assertThat(jdbc.queryForObject("SELECT (to_jsonb(s)-'schedule_version_at_start')::text FROM workout_sessions s WHERE id=?",String.class,session)).isEqualTo(originalSession);
+        assertThat(jdbc.queryForObject("SELECT schedule_version_at_start FROM workout_sessions WHERE id=?",Long.class,session)).isNull();
+        assertThat(jdbc.queryForObject("SELECT baseline_version FROM workout_calendar_control WHERE user_id=?",Long.class,user)).isEqualTo(3L);
+        var promoted=jdbc.queryForMap("SELECT * FROM weekly_schedule_versions WHERE user_id=? AND version=3",user);
+        assertThat(promoted.get("assignments").toString()).contains(routine.toString());
+        jdbc.execute("SELECT initialize_workout_calendar('"+user+"',0)");jdbc.execute("SELECT initialize_workout_calendar('"+user+"',0)");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Integer.class,user)).isEqualTo(3);
+        assertThat(jdbc.queryForMap("SELECT * FROM weekly_schedule_versions WHERE user_id=? AND version=3",user)).isEqualTo(promoted);
+        assertThatThrownBy(()->jdbc.update("UPDATE weekly_schedule_versions SET assignments='[]' WHERE user_id=? AND version=2",user)).isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(jdbc.queryForObject("SELECT version FROM weekly_schedule_versions WHERE user_id=? AND version>=(SELECT baseline_version FROM workout_calendar_control WHERE user_id=?) ORDER BY version DESC LIMIT 1",Long.class,user,user)).isEqualTo(3L);
+    }
+
 	@Test
 	void upgradesV1WithoutChangingExistingUsersOrApplyingSeedAtStartup() throws Exception {
 		var v1 = Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
@@ -147,7 +181,7 @@ class PostgresMigrationTests {
 		var checksums = java.util.Arrays.stream(v2.info().applied()).map(info -> info.getChecksum()).toList();
 		try (var context = startApplication(WebApplicationType.NONE)) {
 			var latest = context.getBean(Flyway.class);
-			assertThat(latest.info().current().getVersion().toString()).isEqualTo("22");
+			assertThat(latest.info().current().getVersion().toString()).isEqualTo("24");
 			assertThat(java.util.Arrays.stream(latest.info().applied()).limit(2).map(info -> info.getChecksum()).toList())
 					.isEqualTo(checksums);
 			assertThat(latest.migrate().migrationsExecuted).isZero();

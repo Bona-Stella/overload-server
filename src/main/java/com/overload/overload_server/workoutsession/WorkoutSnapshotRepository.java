@@ -49,6 +49,9 @@ public class WorkoutSnapshotRepository {
     void flush() {
         em.flush();
     }
+    void validateCardioCatalog(java.util.List<CardioPlan> plans){
+        for(var item:plans){var p=item.plan();if(p.has("activityId")&&!Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM cardio_activity_catalog WHERE id=? AND active AND kind=? AND name=?)",Boolean.class,UUID.fromString(p.get("activityId").asString()),p.get("kind").asString(),p.get("name").asString())))throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.INVALID_SNAPSHOT);}
+    }
     void validateManufacturers(Collection<UUID> ids) {
         var selected = ids.stream().filter(Objects::nonNull).distinct().sorted().toList();
         if (selected.isEmpty()) return;

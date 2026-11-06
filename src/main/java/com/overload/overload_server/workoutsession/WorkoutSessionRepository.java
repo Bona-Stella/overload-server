@@ -55,6 +55,11 @@ public class WorkoutSessionRepository {
         if (values.isEmpty()) throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.AUTHENTICATION_REQUIRED);
         return values.getFirst();
     }
+    long lockOwnerForStart(UUID owner) {
+        var values=jdbc.query("SELECT data_generation FROM users WHERE id=? FOR UPDATE",(row,index)->row.getLong(1),owner);
+        if(values.isEmpty())throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.AUTHENTICATION_REQUIRED);
+        return values.getFirst();
+    }
     Optional<WorkoutSession> find(UUID owner, long generation, UUID id, boolean lock) {
         var query = entityManager.createQuery("select s from WorkoutSession s where s.userId=:owner and s.dataGeneration=:generation and s.id=:id", WorkoutSession.class)
                 .setParameter("owner", owner).setParameter("generation", generation).setParameter("id", id);

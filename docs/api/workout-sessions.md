@@ -97,8 +97,8 @@ ACTIVE 부분 UNIQUE는 **user_id 단독**이다. 세대가 바뀌어도 한 계
 세션 owner/generation 및 source routine은 복합 FK다. 구 세대 연결·자동 세대 이관은 허용하지 않는다.
 향후 reset은 users 배타 잠금 아래 기존 운동 데이터 정리·세대 증가·재구성을 원자 처리해야 한다. 현재 reset API는 없다.
 
-START는 workoutTransactionManager의 REPEATABLE_READ 쓰기 트랜잭션 하나에서 users FOR SHARE → routine FOR SHARE → 종목 UUID순 공유 잠금 → InitialPlan/세션 INSERT를 처리한다.
-루틴 PUT/DELETE의 기존 users→routine FOR UPDATE→종목 잠금과 경합하며, 복사 도중 계획이 섞이지 않는다. 직렬화 실패는409, 자동 재시도/병합 없음이다.
+G1부터 START는 workoutTransactionManager의 READ_COMMITTED 쓰기 트랜잭션 하나에서 users FOR UPDATE → routine FOR SHARE → 종목 UUID순 공유 잠금 → InitialPlan/세션 INSERT를 처리한다. owner 잠금 대기 이후 최신 커밋 상태를 읽고 루틴 PUT/DELETE·주간 일정 PUT과 직렬화한다.
+관리 변경이 먼저 확정되면 START는 최신 계획을 복사하고, START가 먼저 확정되면 해당 원본 구성/삭제·주간 배정의 실제 변경은409 ACTIVE_SESSION_EXISTS다. 기존 세션 승인·snapshot/FINISH·ACK·임시 계획·정정/복구에는 새 관리 guard를 적용하지 않는다. 동시 START는 사용자 행에서 직렬화하고 ACTIVE UNIQUE도 유지한다. 경합 실패는409, 자동 재시도/병합 없음이다.
 같은 트랜잭션에서 JDBC owner 조회와 JPA 잠금·삽입을 처리한다. takeover는 users 공유 잠금→본인 세션 FOR UPDATE로 직렬화한다.
 세션 상세/ACTIVE는 짧은 별도 users 공유 잠금→session 배타 잠금 트랜잭션에서 자동 만료를 먼저 확정한 뒤, 기존 readOnly REPEATABLE_READ로 owner/generation 및 DTO를 일관되게 완성한다. 만료 전환 외 수행 변경·만료 연장·seed를 하지 않는다. Task 008 종목/설정 GET의 읽기 전용 경계는 변경하지 않는다.
 기존 primary JDBC 관리자·Spring Session REQUIRES_NEW·CSRF·인증 수명 정책은 유지한다.
@@ -475,3 +475,11 @@ AUTO_CLOSED/삭제 세션은 EXCLUDED, 이유 AUTO_CLOSED/SESSION_DELETED, advic
 실제 변경 트랜잭션당 세션 version/updatedAt만 한 번 갱신한다. InitialPlan·봉인 AppliedPlan·최초 평가·종료 시각·writerEpoch·localRevision·hash·lastSnapshotSavedAt·lastWorkoutSyncedAt은 변경하지 않는다. stale expectedVersion은 무변경/동일 재요청에도409 SESSION_VERSION_CONFLICT다. ACK 유실 시 상세·이력·승인 해결 사실을 재조회하고 사용자 확인 없이 새 version을 붙여 재적용하지 않는다. 새 영구 요청 영수증은 없다.
 일반 정정/복구/삭제는 users FOR SHARE→session FOR UPDATE, 재승인은 users→routine FOR UPDATE→session 순서다. 표준 운동 잠금이 필요한 ACTIVE/루틴 경로의 UUID순 규칙은 유지하며 세션을 잠근 뒤 루틴을 잠그지 않는다. JPA/JDBC workoutTransactionManager 하나에서 수행·이력·승인·version을 원자 처리한다. DB 실패는 전체 롤백하며 PENDING으로 위장하지 않는다.
 추가 오류는409 SESSION_NOT_CLOSED/SESSION_DELETED/SESSION_VERSION_CONFLICT/RECORD_SLOT_CONFLICT와422 RECOVERY_CONTEXT_UNAVAILABLE/INVALID_RECOVERY_ORIGIN이다. 기존404 RECORD_NOT_FOUND·409 SOURCE_NOT_APPROVABLE/RESOLUTION_CONFLICT·422 RECORD_DELETED/CLOCK_CONTEXT_INVALID 및 인증·CSRF·소유권·세대·503 경계를 유지한다.
+
+T02-B V23: 유산소 Plan의 optional activityId는 세션 최초/적용 계획에 그대로 전달된다. 새로 제공한 ID는 active catalog의 kind/name과 일치해야 하며 미제공 과거7필드 JSON을 보존한다. 기존 schemaVersion=2, snapshot 요청 고정·hash·ACK·writerEpoch 및 수행 불변 정책은 변경하지 않는다.
+
+## G2~G3: START 일정 출처·일별 파생 판정
+
+V24의 nullable schedule_version_at_start는 신규 START에서만 설정한다. 당시 시각의 구/신 버전 경계와 저장된 workoutDate의 요일로 예정 여부를 확인하며, 첫 예정 START의 세션 참조를 날짜별로 고정한다. 기존 null·InitialPlan/요청 JSON/날짜/시간대/hash는 backfill하지 않는다. 미수행이 먼저 확정된 날짜에 늦은 START가 와도 최초 미수행 근거를 교체하지 않는다.
+
+원본 세션 상태/삭제 및 실제 수행의 변경에 대한 전용 DB trigger가 동일 workoutTransactionManager 트랜잭션에서 날짜를 dirty로 만든다. 동일 FINISH/snapshot ACK·GET·단순 높은 revision no-op은 일별 재검사나 원본 시각을 늘리지 않는다. 기존24시간 만료와 종료 후 정정/삭제/명시 누락 복구도 같은 방식으로 재검사 대상이 되며 새로운 운동 쓰기/오프라인 시스템을 도입하지 않는다. 자동 검사는 [일정·일별 계약](weekly-schedule.md)을 따르고 디로딩 엔진은 포함하지 않는다. 실제 DB의 V24 적용은 이번 범위에 없다.
