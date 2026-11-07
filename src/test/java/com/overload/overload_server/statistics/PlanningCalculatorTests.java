@@ -87,6 +87,22 @@ class PlanningCalculatorTests {
         var result=calc(List.of(),List.of(),new PlanningCalculator.Evidence(List.of(schedule(),newer),baseline(),List.of()));
         assertThat(result.knownPlannedDays()).isEqualTo(4);assertThat(result.unknownDays()).isZero();
     }
+    @Test void knownFullSessionDominatesUnknownUpperBoundWithoutChangingGeneralSelection() {
+        UUID exercise=UUID.randomUUID(),activity=UUID.randomUUID();
+        var initial=new InitialPlan(2,routine,"original","0",List.of(new InitialPlan.Weight(exercise,UUID.randomUUID(),standard,"lift",null,null,1,6,10,"60","60")),
+            List.of(new InitialPlan.Cardio(activity,UUID.randomUUID(),new RoutineResponses.Plan("TREADMILL","run",100,null,new RoutineResponses.Intensity("SPEED","8"),null,null))));
+        var a=new Session(UUID.randomUUID(),monday,initial,new WorkoutSnapshotData.Plan(2,List.of(),List.of()));
+        var b=new Session(UUID.randomUUID(),monday,initial,a.applied());
+        var one=new SetFact(UUID.randomUUID(),a.id(),exercise,standard,"lift",BigDecimal.TEN,8,null);
+        var two=new SetFact(UUID.randomUUID(),b.id(),exercise,standard,"lift",BigDecimal.TEN,8,null);
+        var unknownCardio=new CardioFact(a.id(),activity,100000,null);
+        var uncertain=PlanningCalculator.calculate(owner,0,period,new Input(List.of(a),List.of(one),List.of(unknownCardio),List.of(),List.of()),evidence(List.of(a),baseline()));
+        assertThat(uncertain.days().getFirst().status()).isEqualTo("UNVERIFIABLE");assertThat(uncertain.days().getFirst().effectiveDay()).isNull();
+        var knownCardio=new CardioFact(b.id(),activity,100000,null,new BigDecimal("8"),null);
+        var result=PlanningCalculator.calculate(owner,0,period,new Input(List.of(a,b),List.of(one,two),List.of(unknownCardio,knownCardio),List.of(),List.of()),evidence(List.of(a,b),baseline()));
+        assertThat(result.days().getFirst().effectiveDay()).isEqualTo("1");assertThat(result.days().getFirst().selectedSessionId()).isEqualTo(b.id());
+        assertThat(result.knownPlannedDays()).isEqualTo(4);
+    }
     @Test void cardioTimeAndDistanceUseInitialTargetsAndMissingActualIntensityRemainsUnverifiable() {
         UUID activity=UUID.randomUUID();var target=new RoutineResponses.Plan("TREADMILL","run",100,"1",null,null,null);
         var initial=new InitialPlan(2,routine,"r","0",List.of(),List.of(new InitialPlan.Cardio(activity,UUID.randomUUID(),target)));

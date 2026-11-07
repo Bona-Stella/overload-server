@@ -2,6 +2,8 @@ package com.overload.overload_server.statistics;
 
 import com.overload.overload_server.routine.*;
 import com.overload.overload_server.workoutsession.InitialPlan;
+import com.overload.overload_server.completion.ExactFraction;
+import com.overload.overload_server.completion.InitialPlanCompletion;
 import java.math.*;
 import java.time.*;
 import java.util.*;
@@ -18,27 +20,15 @@ final class PlanningCalculator {
                     Long boundaryVersion,Instant boundary,Map<LocalDate,Daily> daily,Set<LocalDate> activeDates) {
         Evidence(List<WeeklySchedule.Version> schedules,List<Revision> plans,List<Anchor> anchors){this(schedules,plans,anchors,null,null,Map.of(),Set.of());}
     }
-    record Result(List<PlannedDay> days,int knownPlannedDays,int unknownDays,int unverifiableDays,Fraction effective) { }
-    private record Candidate(UUID session,int completed,int unknown,int planned) {
-        Fraction lower(){return planned==0?Fraction.ZERO:Fraction.of(completed,planned);}
-        Fraction upper(){return planned==0?Fraction.ZERO:Fraction.of(completed+unknown,planned);}
-    }
-    record Fraction(BigInteger numerator,BigInteger denominator) implements Comparable<Fraction> {
-        static final Fraction ZERO=of(0,1);
-        static Fraction of(int n,int d){return new Fraction(BigInteger.valueOf(n),BigInteger.valueOf(d));}
-        Fraction add(Fraction b){var n=numerator.multiply(b.denominator).add(b.numerator.multiply(denominator));var d=denominator.multiply(b.denominator);var g=n.gcd(d);return new Fraction(n.divide(g),d.divide(g));}
-        public int compareTo(Fraction b){return numerator.multiply(b.denominator).compareTo(b.numerator.multiply(denominator));}
-        String decimal(){return new BigDecimal(numerator).divide(new BigDecimal(denominator),12,RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();}
-        String percent(int days){return new BigDecimal(numerator).multiply(BigDecimal.valueOf(100)).divide(new BigDecimal(denominator).multiply(BigDecimal.valueOf(days)),6,RoundingMode.HALF_UP).min(BigDecimal.valueOf(100)).stripTrailingZeros().toPlainString();}
-    }
+    record Result(List<PlannedDay> days,int knownPlannedDays,int unknownDays,int unverifiableDays,ExactFraction effective) { }
     static Result calculate(UUID owner,long generation,StatisticsQuery query,StatisticsCalculator.Input facts,Evidence evidence) {
-        var result=new ArrayList<PlannedDay>();int planned=0,unknown=0,unverifiable=0;var effective=Fraction.ZERO;
+        var result=new ArrayList<PlannedDay>();int planned=0,unknown=0,unverifiable=0;var effective=ExactFraction.ZERO;
         var sessionsByDay=new HashMap<LocalDate,List<StatisticsCalculator.Session>>();
         facts.sessions().forEach(s->sessionsByDay.computeIfAbsent(s.date(),ignored->new ArrayList<>()).add(s));
         var counts=new HashMap<UUID,Map<UUID,Integer>>();
         facts.sets().forEach(s->counts.computeIfAbsent(s.sessionId(),ignored->new HashMap<>()).merge(s.exerciseId(),1,Integer::sum));
-        var cardio=new HashMap<UUID,Map<UUID,StatisticsCalculator.CardioFact>>();
-        facts.cardio().forEach(c->cardio.computeIfAbsent(c.sessionId(),ignored->new HashMap<>()).put(c.activityId(),c));
+        var cardio=new HashMap<UUID,Map<UUID,InitialPlanCompletion.CardioEvidence>>();
+        facts.cardio().forEach(c->cardio.computeIfAbsent(c.sessionId(),ignored->new HashMap<>()).put(c.activityId(),new InitialPlanCompletion.CardioEvidence(c.activeMs(),c.distance(),c.actualSpeedKmh())));
         var registration=evidence.schedules().stream().filter(s->s.version().equals("1")).map(WeeklySchedule.Version::effectiveFrom).findFirst().orElse(null);
         var firstMonday=registration==null?null:registration.with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
         for(LocalDate date:query.fromDate().datesUntil(query.toDateExclusive()).toList()) {
@@ -66,10 +56,10 @@ final class PlanningCalculator {
             }
             planned++;
             var candidates=sessionsByDay.getOrDefault(date,List.of()).stream().filter(s->s.initial().routineId().equals(routine))
-                    .map(s->judge(s,counts.getOrDefault(s.id(),Map.of()),cardio.getOrDefault(s.id(),Map.of()))).filter(c->c.planned()>0).toList();
-            var best=candidates.stream().max(Comparator.comparing(Candidate::lower).thenComparing(c->c.session().toString())).orElse(null);
-            var lower=best==null?Fraction.ZERO:best.lower();
-            var upper=candidates.stream().map(Candidate::upper).max(Comparator.naturalOrder()).orElse(Fraction.ZERO);
+                    .map(s->InitialPlanCompletion.judge(s.id(),s.initial(),counts.getOrDefault(s.id(),Map.of()),cardio.getOrDefault(s.id(),Map.of()))).filter(c->c.planned()>0).toList();
+            var best=candidates.stream().max(Comparator.comparing(InitialPlanCompletion.Result::lower).thenComparing(c->c.session().toString())).orElse(null);
+            var lower=best==null?ExactFraction.ZERO:best.lower();
+            var upper=candidates.stream().map(InitialPlanCompletion.Result::upper).max(Comparator.naturalOrder()).orElse(ExactFraction.ZERO);
             int size=plan.weightPlacements().size()+plan.cardioPlacements().size();
             boolean pending=evidence.activeDates().contains(date);
             boolean known=!pending&&upper.compareTo(lower)==0&&size>0;
@@ -100,24 +90,6 @@ final class PlanningCalculator {
         Instant end=day.plusDays(1).atStartOfDay(ZoneId.of(zone)).toInstant();
         if(!end.isAfter(e.boundary()))return legacy(e,day);
         return e.schedules().stream().filter(s->Long.parseLong(s.version())>=e.boundaryVersion()&&s.recordedAt().isBefore(end)).max(Comparator.comparing(WeeklySchedule.Version::recordedAt).thenComparing(s->new BigInteger(s.version()))).orElse(null);
-    }
-    private static Candidate judge(StatisticsCalculator.Session session,Map<UUID,Integer> sets,Map<UUID,StatisticsCalculator.CardioFact> cardio) {
-        int done=0,unknown=0;
-        for(var weight:session.initial().weightExercises())if(sets.getOrDefault(weight.sessionExerciseId(),0)>=weight.setCount())done++;
-        for(var activity:session.initial().cardioActivities()) {
-            var actual=cardio.get(activity.sessionActivityId());if(actual==null)continue;
-            var goal=activity.plan();if(actual.activeMs()<goal.targetSeconds()*1000L)continue;
-            if(goal.targetDistanceKm()!=null&&actual.distance()!=null&&actual.distance().compareTo(new BigDecimal(goal.targetDistanceKm()))<0)continue;
-            boolean intensityUnknown=false;
-            if(goal.intensity()!=null){
-                if(actual.actualSpeedKmh()==null)intensityUnknown=true;
-                else if(goal.intensity().mode().equals("SPEED")?actual.actualSpeedKmh().compareTo(new BigDecimal(goal.intensity().value()))<0:
-                        actual.actualSpeedKmh().multiply(new BigDecimal(goal.intensity().value())).compareTo(BigDecimal.valueOf(60))<0)continue;
-            }
-            if(goal.targetDistanceKm()!=null&&actual.distance()==null||intensityUnknown||goal.inclinePercent()!=null||goal.resistance()!=null)unknown++;
-            else done++;
-        }
-        return new Candidate(session.id(),done,unknown,session.initial().weightExercises().size()+session.initial().cardioActivities().size());
     }
     private static RoutineResponses.Detail detail(UUID owner,long generation,InitialPlan initial) {
         return new RoutineResponses.Detail(owner,Long.toString(generation),initial.routineId(),initial.routineVersion(),initial.routineName(),

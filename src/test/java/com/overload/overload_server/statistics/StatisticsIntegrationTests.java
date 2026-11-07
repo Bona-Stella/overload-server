@@ -215,6 +215,27 @@ class StatisticsIntegrationTests {
         assertThat(result.get("plannedDays").get(4).get("effectiveDay").asString()).isEqualTo("0");
         assertThat(overview(monday.minusDays(14)).get("statistics").get("plannedWorkoutDays").isNull()).isTrue();
     }
+    @Test void sharedJudgmentKeepsScheduledBestSingleResultAndStoredFactsUnchanged() throws Exception {
+        var r=routine(4);var saved=schedule(r,"0",List.of(1,2));var monday=LocalDate.parse(saved.get("appliedAt").asString().substring(0,10));
+        perform(r,monday,2);perform(r,monday,3);
+        var extra=routine(1);perform(extra,monday,4);perform(r,monday.plusDays(2),4);
+        var before=jdbc.queryForList("SELECT to_jsonb(s)::text FROM workout_sessions s WHERE user_id=? ORDER BY id",String.class,owner);
+        var setsBefore=jdbc.queryForList("SELECT to_jsonb(p)::text FROM performed_sets p WHERE session_id IN(SELECT id FROM workout_sessions WHERE user_id=?) ORDER BY id",String.class,owner);
+        var facts=app.getBean(StatisticsRepository.class).read(owner,0,new StatisticsQuery(monday,monday.plusDays(7)));
+        var fractions=new ArrayList<com.overload.overload_server.completion.ExactFraction>();
+        for(var s:facts.sessions())if(s.date().equals(monday)&&s.initial().routineId().toString().equals(r.get("id").asString())) {
+            var counts=new HashMap<UUID,Integer>();facts.sets().stream().filter(p->p.sessionId().equals(s.id())).forEach(p->counts.merge(p.exerciseId(),1,Integer::sum));
+            fractions.add(com.overload.overload_server.completion.InitialPlanCompletion.judge(s.id(),s.initial(),counts,Map.of()).lower());
+        }
+        assertThat(fractions).containsExactlyInAnyOrder(com.overload.overload_server.completion.ExactFraction.of(1,2),com.overload.overload_server.completion.ExactFraction.of(3,4));
+        var result=overview(monday);
+        assertThat(result.get("effectiveWorkoutDays").asString()).isEqualTo("0.75");
+        assertThat(result.get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(2);
+        assertThat(result.get("statistics").get("routineAchievementPercent").asString()).isEqualTo("37.5");
+        assertThat(result.get("plannedDays").get(2).get("status").asString()).isEqualTo("REST");
+        assertThat(jdbc.queryForList("SELECT to_jsonb(s)::text FROM workout_sessions s WHERE user_id=? ORDER BY id",String.class,owner)).isEqualTo(before);
+        assertThat(jdbc.queryForList("SELECT to_jsonb(p)::text FROM performed_sets p WHERE session_id IN(SELECT id FROM workout_sessions WHERE user_id=?) ORDER BY id",String.class,owner)).isEqualTo(setsBefore);
+    }
     @Test void firstThursdayRegistrationStartsTodayAndEditsApplyImmediatelyWithoutChangingStartedPlans() throws Exception {
         var thursday=LocalDate.of(2026,11,12);var monday=thursday.minusDays(3);
         EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),thursday.atTime(5,0).toInstant(ZoneOffset.UTC)));

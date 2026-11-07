@@ -896,7 +896,7 @@ Authorized Data Access
 
 제품 정책은 [디로딩 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md), 화면 전환과 데이터 요구는 [UI 결정 로그 v0.9](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md)의 현행 규칙 및 [PWA 백엔드 연동 설계](../../../overload-pwa/docs/engineering/backend-ui-v0.9.md)를 따릅니다. v1.7의 최신 본문·15절·2026-11-07 정정 이력을 적용하고 v1.6은 역사 자료로 보존합니다.
 
-**구현 상태.** [루틴](../api/routine-management.md)·[주간 일정과 이력](../api/weekly-schedule.md), [세션과 종료 후 정정·삭제·복구](../api/workout-sessions.md), [통계 overview](../api/statistics.md)·[승인 중량 성장](../api/approved-weight-growth.md), [휴식 설정](../api/workout-online-write.md)은 현행 계약입니다. V18 카탈로그 분류 구조, V21 유산소 실제 측정, V22 맨몸 추가 부하를 재사용할 수 있습니다. [G4-1 분석 설정/epoch API](../api/deload-analysis.md)·신규 가입 초기ON·V25 스키마는 구현했습니다. G4-2~6 후보/주간 계산/확정/재계산·기간/임시 일정/세션 소속·G6는 후속입니다. 기존 검토·개인 DB에는 V25나 T_adopt 이행을 실행하지 않았으며 보존 서버를 새 빌드로 재시작하지 않습니다. 운영 카탈로그 검증과 개인 DB 적용은 코드 구현과 별도입니다.
+**구현 상태.** [루틴](../api/routine-management.md)·[주간 일정과 이력](../api/weekly-schedule.md), [세션과 종료 후 정정·삭제·복구](../api/workout-sessions.md), [통계 overview](../api/statistics.md)·[승인 중량 성장](../api/approved-weight-growth.md), [휴식 설정](../api/workout-online-write.md)은 현행 계약입니다. V18 카탈로그 분류 구조, V21 유산소 실제 측정, V22 맨몸 추가 부하를 재사용할 수 있습니다. [G4-1 분석 설정/epoch API](../api/deload-analysis.md)·신규 가입 초기ON·V25 스키마는 구현했습니다. [G4-2 공통 InitialPlan 판정/정확분수](../tasks/deload-g4-2-report.md)는 구현했습니다. G4-3~6 후보/주간 계산/확정/재계산·기간/임시 일정/세션 소속·G6는 후속입니다. 기존 검토·개인 DB에는 V25나 T_adopt 이행을 실행하지 않았으며 보존 서버를 새 빌드로 재시작하지 않습니다. 운영 카탈로그 검증과 개인 DB 적용은 코드 구현과 별도입니다.
 
 **확정 제품 정책의 서버 적용 범위**
 
