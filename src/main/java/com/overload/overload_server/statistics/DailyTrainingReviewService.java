@@ -16,8 +16,10 @@ public class DailyTrainingReviewService {
     private final JdbcTemplate jdbc;private final WorkoutCalendarRepository calendars;
     private final StatisticsRepository facts;private final PlanningRepository planning;private final Clock clock;
     private final TransactionTemplate writes;
+    private final com.overload.overload_server.deload.DeloadWeeklyRepository weekly;
     public DailyTrainingReviewService(JdbcTemplate jdbc,WorkoutCalendarRepository calendars,StatisticsRepository facts,PlanningRepository planning,ObjectProvider<Clock> clocks,
-            @Qualifier("workoutTransactionManager") PlatformTransactionManager manager){
+            @Qualifier("workoutTransactionManager") PlatformTransactionManager manager,com.overload.overload_server.deload.DeloadWeeklyRepository weekly){
+        this.weekly=weekly;
         this.jdbc=jdbc;this.calendars=calendars;this.facts=facts;this.planning=planning;clock=clocks.getIfAvailable(Clock::systemUTC);
         writes=new TransactionTemplate(manager);writes.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
@@ -47,6 +49,7 @@ public class DailyTrainingReviewService {
         if(!dirty.isEmpty()&&dirty.getFirst().isBefore(from))from=dirty.getFirst();
         if(from.isAfter(due))return 0;
         var end=from.plusDays(31);if(end.isAfter(due.plusDays(1)))end=due.plusDays(1);
+        weekly.preserveDirtyWeeks(owner,generation,from,end,now);
         var period=new StatisticsQuery(from,end);var actual=facts.read(owner,generation,period);var evidence=planning.read(owner,generation,period);
         var result=PlanningCalculator.calculate(owner,generation,period,actual,evidence);
         var performedSessions=new HashSet<UUID>();actual.sets().forEach(s->performedSessions.add(s.sessionId()));actual.cardio().stream().filter(a->a.activeMs()>0).forEach(a->performedSessions.add(a.sessionId()));

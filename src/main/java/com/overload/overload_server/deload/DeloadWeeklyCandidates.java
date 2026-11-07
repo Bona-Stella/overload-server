@@ -20,6 +20,14 @@ public class DeloadWeeklyCandidates {
         this.settings=settings;this.facts=facts;this.calendars=calendars;this.evidence=evidence;
     }
     public DeloadCandidateCalculator.Week calculate(UUID owner,long generation,long epoch,LocalDate monday) {
+        return load(owner,generation,epoch,monday,settings.now());
+    }
+    /** Caller holds the owner FOR UPDATE in a READ_COMMITTED workout transaction. */
+    @Transactional(transactionManager="workoutTransactionManager",propagation=Propagation.MANDATORY)
+    public DeloadCandidateCalculator.Week calculateLocked(UUID owner,long generation,long epoch,LocalDate monday,Instant observed) {
+        return load(owner,generation,epoch,monday,observed);
+    }
+    private DeloadCandidateCalculator.Week load(UUID owner,long generation,long epoch,LocalDate monday,Instant observed) {
         if(monday==null||monday.getDayOfWeek()!=DayOfWeek.MONDAY)throw DeloadAnalysisRequests.invalid();
         if(settings.generation(owner,false)!=generation)throw new DeloadAnalysisFailure(DATA_GENERATION_MISMATCH);
         var history=settings.epochHistory(owner,generation,epoch);
@@ -27,7 +35,7 @@ public class DeloadWeeklyCandidates {
         var first=history.getFirst();var last=history.getLast();
         var until=history.stream().filter(s->!s.enabled()).map(DeloadAnalysisState::recordedAt).findFirst().orElse(null);
         var interval=new DeloadCandidateCalculator.Epoch(epoch,last.version(),first.epochStartedAt(),until,last.timeZone());
-        var end=monday.plusDays(7);var observed=settings.now();
+        var end=monday.plusDays(7);
         var sessions=interval.zone()==null?List.<StatisticsRepository.CompletionSession>of():facts.completionFacts(owner,generation,monday,end,interval.from(),interval.until());
         return DeloadCandidateCalculator.calculate(owner,generation,interval,monday,observed,sessions,evidence.daily(owner,generation,monday,end),
             calendars.control(owner,generation).orElse(null),evidence.firstScheduleDate(owner,generation));

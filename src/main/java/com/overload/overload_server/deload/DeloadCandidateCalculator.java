@@ -25,7 +25,7 @@ public final class DeloadCandidateCalculator {
     /** e is available only when inputs are complete. Bounds/n describe the observed snapshot, not a confirmed week. */
     public record Week(UUID owner,long generation,Epoch epoch,LocalDate weekStart,LocalDate weekEndExclusive,
             LocalDate evaluationFrom,LocalDate evaluationToExclusive,Instant observedAt,LocalDate firstScheduleDate,
-            WorkoutCalendarRepository.Control reviewBoundary,List<Day> days,
+            WorkoutCalendarRepository.Control reviewBoundary,Map<LocalDate,Long> sourceRevisions,List<Day> days,
             ExactFraction lowerE,ExactFraction upperE,ExactFraction e,int n,boolean requiredReviewsComplete,Set<Pending> pending) {
         public boolean calculable() { return pending.isEmpty(); }
         /** A ratio is not an ADD contribution; G4-4 must first apply the separate E threshold. */
@@ -38,11 +38,14 @@ public final class DeloadCandidateCalculator {
             WorkoutCalendarRepository.Control calendar,LocalDate firstScheduleDate) {
         if(monday==null||monday.getDayOfWeek()!=DayOfWeek.MONDAY)throw new IllegalArgumentException("Monday required");
         var end=monday.plusDays(7);var reasons=EnumSet.noneOf(Pending.class);
+        var revisions=new TreeMap<LocalDate,Long>();
+        monday.datesUntil(end).forEach(date->revisions.put(date,daily.containsKey(date)?daily.get(date).revision():0L));
+        var sourceRevisions=Map.copyOf(revisions);
         ZoneId zone;
         try { zone=epoch.zone()==null?null:ZoneId.of(epoch.zone()); } catch(DateTimeException invalid) { zone=null; }
         if(zone==null) {
             reasons.add(Pending.AWAITING_TIME_ZONE);
-            return new Week(owner,generation,epoch,monday,end,null,null,observedAt,firstScheduleDate,calendar,List.of(),ExactFraction.ZERO,ExactFraction.ZERO,null,0,false,Set.copyOf(reasons));
+            return new Week(owner,generation,epoch,monday,end,null,null,observedAt,firstScheduleDate,calendar,sourceRevisions,List.of(),ExactFraction.ZERO,ExactFraction.ZERO,null,0,false,Set.copyOf(reasons));
         }
         var byDay=new HashMap<LocalDate,List<CompletionSession>>();
         sessions.stream().filter(s->!s.date().isBefore(monday)&&s.date().isBefore(end)
@@ -99,7 +102,7 @@ public final class DeloadCandidateCalculator {
             days.add(new Day(date,List.copyOf(candidates),best==null?null:best.session(),counted,lower,upper,active,g3,reviewRequired,checked,Set.copyOf(pending)));
         }
         if(days.isEmpty()){reasons.add(Pending.OUTSIDE_ON_INTERVAL);reviewsComplete=false;}
-        return new Week(owner,generation,epoch,monday,end,days.isEmpty()?null:days.getFirst().date(),days.isEmpty()?null:days.getLast().date().plusDays(1),observedAt,firstScheduleDate,calendar,
+        return new Week(owner,generation,epoch,monday,end,days.isEmpty()?null:days.getFirst().date(),days.isEmpty()?null:days.getLast().date().plusDays(1),observedAt,firstScheduleDate,calendar,sourceRevisions,
             List.copyOf(days),lowerE,upperE,reasons.isEmpty()?lowerE:null,n,reviewsComplete,Set.copyOf(reasons));
     }
 }

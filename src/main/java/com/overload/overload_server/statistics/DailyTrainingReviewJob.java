@@ -10,7 +10,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 @ConditionalOnProperty(name="overload.workout.review.enabled",havingValue="true",matchIfMissing=true)
 class DailyTrainingReviewJob {
     private final DailyTrainingReviewService review;
-    DailyTrainingReviewJob(DailyTrainingReviewService review){this.review=review;}
+    private final com.overload.overload_server.deload.DeloadWeeklyFinalization weekly;
+    DailyTrainingReviewJob(DailyTrainingReviewService review,com.overload.overload_server.deload.DeloadWeeklyFinalization weekly){this.review=review;this.weekly=weekly;}
     @Scheduled(fixedDelayString="${overload.workout.review.delay-ms:60000}")
-    void review(){review.reviewBatch();}
+    void review(){review.reviewBatch();weekly.runBatch();}
 }
