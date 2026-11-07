@@ -33,6 +33,13 @@ class PlanningCalculatorTests {
         assertThat(result.effective().decimal()).isEqualTo("2.25");assertThat(result.effective().percent(4)).isEqualTo("56.25");
         assertThat(result.days().get(4).status()).isEqualTo("PLANNED");assertThat(result.days().get(4).effectiveDay()).isEqualTo("0");
     }
+    @Test void deloadActivityRemainsVolumeButCannotFillNormalPlanningCompletion() {
+        var original=session(1,1);var deload=new Session(original.id(),original.date(),original.initial(),original.applied(),false);
+        var sets=completed(deload,4,1);var facts=new Input(List.of(deload),sets,List.of(),List.of(),List.of());
+        var result=PlanningCalculator.calculate(owner,0,period,facts,evidence(List.of(),baseline()));
+        assertThat(result.effective().decimal()).isEqualTo("0");assertThat(result.days().getFirst().selectedSessionId()).isNull();
+        assertThat(StatisticsCalculator.calculate(owner,0,period,facts,List.of()).summary().volumeLoadKg()).isEqualTo("320");
+    }
     @Test void partialSetsAndAddedExercisesDoNotSatisfyInitialPlanEvenWhenAppliedPlanIsLowered() {
         var a=session(1,4);var sets=new ArrayList<>(completed(a,4,3));
         sets.add(new SetFact(UUID.randomUUID(),a.id(),UUID.randomUUID(),standard,"extra",BigDecimal.TEN,8,null));

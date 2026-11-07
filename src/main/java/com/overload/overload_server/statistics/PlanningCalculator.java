@@ -24,7 +24,7 @@ final class PlanningCalculator {
     static Result calculate(UUID owner,long generation,StatisticsQuery query,StatisticsCalculator.Input facts,Evidence evidence) {
         var result=new ArrayList<PlannedDay>();int planned=0,unknown=0,unverifiable=0;var effective=ExactFraction.ZERO;
         var sessionsByDay=new HashMap<LocalDate,List<StatisticsCalculator.Session>>();
-        facts.sessions().forEach(s->sessionsByDay.computeIfAbsent(s.date(),ignored->new ArrayList<>()).add(s));
+        facts.sessions().stream().filter(StatisticsCalculator.Session::general).forEach(s->sessionsByDay.computeIfAbsent(s.date(),ignored->new ArrayList<>()).add(s));
         var counts=new HashMap<UUID,Map<UUID,Integer>>();
         facts.sets().forEach(s->counts.computeIfAbsent(s.sessionId(),ignored->new HashMap<>()).merge(s.exerciseId(),1,Integer::sum));
         var cardio=new HashMap<UUID,Map<UUID,InitialPlanCompletion.CardioEvidence>>();

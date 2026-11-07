@@ -44,7 +44,7 @@ public class RoutineService {
 	}
 	public RoutineResponses.Detail create(UUID user, RoutineRequests.Create request) {
 		return TransactionExecution.execute(writes, () -> {
-			owner(user, request.dataGeneration());
+			owner(user, request.dataGeneration());repository.requireGeneralWrite(user,request.dataGeneration());
 			if (repository.occupied("routines", request.id())) throw new RoutineFailure(ROUTINE_ID_CONFLICT);
 			Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
 			var routine = Routine.create(request.id(), user, request.dataGeneration(), request.name(), now);
@@ -58,6 +58,7 @@ public class RoutineService {
 	public RoutineResponses.Detail update(UUID user, UUID id, RoutineRequests.Update request) {
 		return TransactionExecution.execute(writes, () -> {
 			if(repository.lockOwnerForScheduleChange(user)!=request.dataGeneration())throw new RoutineFailure(DATA_GENERATION_MISMATCH);
+			repository.requireGeneralWrite(user,request.dataGeneration());
 			var routine = active(repository.find(user, request.dataGeneration(), id, true));
 			version(routine, request.expectedVersion());
 			Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS); boolean renamed = !routine.name.equals(request.name()) || request.tagProvided() && !Objects.equals(routine.tag,request.tag());
@@ -72,6 +73,7 @@ public class RoutineService {
 	public void delete(UUID user, UUID id, RoutineRequests.Delete request) {
 		TransactionExecution.execute(writes, () -> {
 			if(repository.lockOwnerForScheduleChange(user)!=request.dataGeneration())throw new RoutineFailure(DATA_GENERATION_MISMATCH);
+			repository.requireGeneralWrite(user,request.dataGeneration());
 			var routine = repository.find(user, request.dataGeneration(), id, true);
 			if (routine.deletedAt == null) {
 				version(routine, request.expectedVersion());

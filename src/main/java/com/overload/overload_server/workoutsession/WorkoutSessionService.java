@@ -41,6 +41,7 @@ public class WorkoutSessionService {
                 previous.expireIfDue(clock.instant()); sessions.flush();
                 return new WorkoutSessionResponses.Started(false, response(previous));
             }
+            sessions.requireGeneralWrite(owner,input.dataGeneration());
             if (sessions.occupied(input.id())) throw new WorkoutSessionFailure(SESSION_ID_CONFLICT);
             var active=sessions.activeId(owner,input.dataGeneration());
             if (active.isPresent()&&sessions.activeNotDue(owner,input.dataGeneration(),clock.instant().minus(java.time.Duration.ofHours(24))))
@@ -87,7 +88,7 @@ public class WorkoutSessionService {
     }
     WorkoutSessionResponses.Detail takeover(UUID owner, UUID id, WorkoutSessionRequests.Takeover input) {
         var result=TransactionExecution.execute(writes, () -> {
-            owner(owner, input.dataGeneration());
+            owner(owner, input.dataGeneration());sessions.requireGeneralWrite(owner,input.dataGeneration());
             var session = find(owner, input.dataGeneration(), id, true);
             if(session.deletedAt!=null)throw new WorkoutSessionFailure(SESSION_DELETED);
             if (session.expireIfDue(clock.instant())) { sessions.flush(); return null; }

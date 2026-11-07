@@ -167,6 +167,7 @@ public class WorkoutRecordService {
     }
     private WorkoutSession lock(UUID owner,UUID id,Scope scope) {
         if(sessions.generation(owner,true)!=scope.dataGeneration())throw failure(DATA_GENERATION_MISMATCH);
+        sessions.requireGeneralWrite(owner,scope.dataGeneration());
         var session=sessions.find(owner,scope.dataGeneration(),id,true).orElseThrow(()->failure(SESSION_NOT_FOUND));
         closed(session,scope.expectedVersion());return session;
     }

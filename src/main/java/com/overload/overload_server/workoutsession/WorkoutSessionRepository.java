@@ -10,7 +10,9 @@ import java.time.Instant;
 public class WorkoutSessionRepository {
     @PersistenceContext private EntityManager entityManager;
     private final JdbcTemplate jdbc;
-    WorkoutSessionRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    private final com.overload.overload_server.deload.DeloadPeriods periods;
+    WorkoutSessionRepository(JdbcTemplate jdbc,com.overload.overload_server.deload.DeloadPeriods periods) { this.jdbc = jdbc;this.periods=periods; }
+    void requireGeneralWrite(UUID owner,long generation){if(periods.active(owner,generation))throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.DELOAD_ACTIVE_PERIOD);}
 
     record ExpiryCandidate(UUID owner, long generation, UUID session) { }
     Optional<Long> currentGeneration(UUID owner) {

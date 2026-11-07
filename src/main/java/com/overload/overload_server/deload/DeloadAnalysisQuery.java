@@ -13,12 +13,13 @@ import java.util.*;
 class DeloadAnalysisQuery {
     static final ExactFraction THRESHOLD=ExactFraction.of(8,1);
     record Result(String status,ExactFraction weeks,LocalDate from,LocalDate through,LocalDate blockedAt,boolean recommendationReady) { }
+    private final DeloadPeriods periods;
     private final DeloadWeeklyRepository weekly;
     private final DeloadCandidateRepository evidence;
     private final WorkoutCalendarRepository calendars;
     private final Clock clock;
-    DeloadAnalysisQuery(DeloadWeeklyRepository weekly,DeloadCandidateRepository evidence,WorkoutCalendarRepository calendars,ObjectProvider<Clock> clocks) {
-        this.weekly=weekly;this.evidence=evidence;this.calendars=calendars;clock=clocks.getIfAvailable(Clock::systemUTC);
+    DeloadAnalysisQuery(DeloadWeeklyRepository weekly,DeloadCandidateRepository evidence,WorkoutCalendarRepository calendars,ObjectProvider<Clock> clocks,DeloadPeriods periods) {
+        this.periods=periods;this.weekly=weekly;this.evidence=evidence;this.calendars=calendars;clock=clocks.getIfAvailable(Clock::systemUTC);
     }
     @Transactional(transactionManager="workoutTransactionManager",propagation=Propagation.MANDATORY,readOnly=true)
     public Result read(UUID owner,long generation,DeloadAnalysisState state) {
@@ -29,7 +30,11 @@ class DeloadAnalysisQuery {
         var first=DeloadWeeklyPolicy.firstWeek(state,rows,earlier);var last=DeloadWeeklyPolicy.lastDue(clock.instant(),state.timeZone());
         var folded=DeloadWeeklyPolicy.fold(first,last,rows);
         boolean awaiting=folded.blockedAt()!=null&&awaitingReview(owner,generation,state,folded.blockedAt());
-        return project(first,last,rows,folded,awaiting);
+        var result=project(first,last,rows,folded,awaiting);var today=clock.instant().atZone(ZoneId.of(state.timeZone())).toLocalDate();
+        var epochDate=state.epochStartedAt().atZone(ZoneId.of(state.timeZone())).toLocalDate();
+        var pause=periods.firstOverlap(owner,generation,epochDate,today.plusDays(1)).map(DeloadWeeklyPolicy::monday).orElse(null);
+        if(pause!=null&&(result.blockedAt()==null||!result.blockedAt().isBefore(pause)))return new Result("PAUSED",result.weeks(),result.from(),result.through(),pause,false);
+        return result;
     }
     private boolean awaitingReview(UUID owner,long generation,DeloadAnalysisState state,LocalDate week) {
         var registered=evidence.firstScheduleDate(owner,generation);if(registered==null)return false;

@@ -12,12 +12,13 @@ import static com.overload.overload_server.deload.DeloadAnalysisFailure.Reason.*
 @Service
 @Transactional(transactionManager="workoutTransactionManager",readOnly=true,isolation=Isolation.REPEATABLE_READ)
 public class DeloadWeeklyCandidates {
+    private final DeloadPeriods periods;
     private final DeloadAnalysisRepository settings;
     private final StatisticsRepository facts;
     private final WorkoutCalendarRepository calendars;
     private final DeloadCandidateRepository evidence;
-    public DeloadWeeklyCandidates(DeloadAnalysisRepository settings,StatisticsRepository facts,WorkoutCalendarRepository calendars,DeloadCandidateRepository evidence) {
-        this.settings=settings;this.facts=facts;this.calendars=calendars;this.evidence=evidence;
+    public DeloadWeeklyCandidates(DeloadAnalysisRepository settings,StatisticsRepository facts,WorkoutCalendarRepository calendars,DeloadCandidateRepository evidence,DeloadPeriods periods) {
+        this.periods=periods;this.settings=settings;this.facts=facts;this.calendars=calendars;this.evidence=evidence;
     }
     public DeloadCandidateCalculator.Week calculate(UUID owner,long generation,long epoch,LocalDate monday) {
         return load(owner,generation,epoch,monday,settings.now());
@@ -37,7 +38,9 @@ public class DeloadWeeklyCandidates {
         var interval=new DeloadCandidateCalculator.Epoch(epoch,last.version(),first.epochStartedAt(),until,last.timeZone());
         var end=monday.plusDays(7);
         var sessions=interval.zone()==null?List.<StatisticsRepository.CompletionSession>of():facts.completionFacts(owner,generation,monday,end,interval.from(),interval.until());
-        return DeloadCandidateCalculator.calculate(owner,generation,interval,monday,observed,sessions,evidence.daily(owner,generation,monday,end),
+        var result=DeloadCandidateCalculator.calculate(owner,generation,interval,monday,observed,sessions,evidence.daily(owner,generation,monday,end),
             calendars.control(owner,generation).orElse(null),evidence.firstScheduleDate(owner,generation));
+        if(result.evaluationFrom()!=null&&periods.firstOverlap(owner,generation,result.evaluationFrom(),result.evaluationToExclusive()).isPresent())return result.hold(DeloadCandidateCalculator.Pending.DELOAD_PERIOD);
+        return result;
     }
 }

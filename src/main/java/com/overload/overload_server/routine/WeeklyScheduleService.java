@@ -14,17 +14,19 @@ import static com.overload.overload_server.routine.RoutineFailure.Reason.*;
 @Service
 @Transactional(transactionManager="workoutTransactionManager")
 public class WeeklyScheduleService {
+    private final com.overload.overload_server.deload.DeloadPeriods periods;
     private static final JsonMapper JSON=JsonMapper.builder().build();
     private final JdbcTemplate jdbc;private final RoutineService routines;private final RoutinePlanHistory plans;
     private final WorkoutCalendarRepository calendars;private final Clock clock;private final DeloadAnalysisService analysis;
-    WeeklyScheduleService(JdbcTemplate jdbc,RoutineService routines,RoutinePlanHistory plans,WorkoutCalendarRepository calendars,ObjectProvider<Clock> clocks,DeloadAnalysisService analysis) {
-        this.jdbc=jdbc;this.routines=routines;this.plans=plans;this.calendars=calendars;this.analysis=analysis;clock=clocks.getIfAvailable(Clock::systemUTC);
+    WeeklyScheduleService(JdbcTemplate jdbc,RoutineService routines,RoutinePlanHistory plans,WorkoutCalendarRepository calendars,ObjectProvider<Clock> clocks,DeloadAnalysisService analysis,com.overload.overload_server.deload.DeloadPeriods periods) {
+        this.periods=periods;this.jdbc=jdbc;this.routines=routines;this.plans=plans;this.calendars=calendars;this.analysis=analysis;clock=clocks.getIfAvailable(Clock::systemUTC);
     }
     @Transactional(transactionManager="workoutTransactionManager",readOnly=true,isolation=Isolation.REPEATABLE_READ)
     WeeklySchedule.View read(UUID owner,String zone) {return view(owner,generation(owner,false),zone);}
     @Transactional(transactionManager="workoutTransactionManager",isolation=Isolation.READ_COMMITTED)
     WeeklySchedule.View save(UUID owner,WeeklySchedule.Save request) {
         long generation=generation(owner,true);if(generation!=request.generation())throw new RoutineFailure(DATA_GENERATION_MISMATCH);
+        if(periods.active(owner,generation))throw new RoutineFailure(DELOAD_ACTIVE_PERIOD);
         var current=view(owner,generation,request.timeZone());long version=Long.parseLong(current.version());
         if(version!=request.expectedVersion())throw new RoutineFailure(SCHEDULE_VERSION_CONFLICT);
         if(version!=0&&!current.timeZone().equals(request.timeZone()))throw new RoutineFailure(SCHEDULE_TIME_ZONE_CONFLICT);

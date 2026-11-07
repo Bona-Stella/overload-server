@@ -23,12 +23,15 @@ public class StatisticsRepository {
         if (rows.isEmpty()) throw new StatisticsFailure(401, "AUTHENTICATION_REQUIRED");
         return rows.getFirst();
     }
-    Input read(UUID owner, long generation, StatisticsQuery period) {
+    Input read(UUID owner, long generation, StatisticsQuery period) {return read(owner,generation,period,false);}
+    Input readGeneral(UUID owner,long generation,StatisticsQuery period){return read(owner,generation,period,true);}
+    private Input read(UUID owner,long generation,StatisticsQuery period,boolean general){
+        String scope=SCOPE+(general?" AND ws.deload_period_id IS NULL ":"");
         Object[] args = {owner, generation, period.fromDate(), period.toDateExclusive()};
-        var sessions = jdbc.query("SELECT ws.id,ws.workout_date,ws.initial_plan_snapshot::text,ws.applied_plan_snapshot::text FROM workout_sessions ws WHERE " + SCOPE + " ORDER BY ws.started_at DESC,ws.id", (r, i) ->
-                new Session(r.getObject(1, UUID.class), r.getObject(2, LocalDate.class), JSON.readValue(r.getString(3), InitialPlan.class), JSON.readValue(r.getString(4), WorkoutSnapshotData.Plan.class)), args);
-        var sets = sets(SCOPE,args);
-        var cardio = cardio(SCOPE,args);
+        var sessions = jdbc.query("SELECT ws.id,ws.workout_date,ws.initial_plan_snapshot::text,ws.applied_plan_snapshot::text,ws.deload_period_id IS NULL FROM workout_sessions ws WHERE " + scope + " ORDER BY ws.started_at DESC,ws.id", (r, i) ->
+                new Session(r.getObject(1, UUID.class), r.getObject(2, LocalDate.class), JSON.readValue(r.getString(3), InitialPlan.class), JSON.readValue(r.getString(4), WorkoutSnapshotData.Plan.class),r.getBoolean(5)), args);
+        var sets = sets(scope,args);
+        var cardio = cardio(scope,args);
         var mappings = jdbc.query("SELECT em.standard_exercise_id,m.id,m.name,m.group_code,em.role FROM exercise_muscle em JOIN muscle m ON m.id=em.muscle_id WHERE m.is_active ORDER BY em.standard_exercise_id,m.id",
                 (r, i) -> new Mapping(r.getObject(1, UUID.class), r.getObject(2, UUID.class), r.getString(3), r.getString(4), r.getString(5)));
         var recent = jdbc.query("""
@@ -58,7 +61,7 @@ public class StatisticsRepository {
     /** Same fact queries as general statistics, without muscle/recent/schedule reads or a routine restriction. */
     public List<CompletionSession> completionFacts(UUID owner,long generation,LocalDate from,LocalDate to,
             Instant onFrom,Instant onUntil) {
-        String scope=OWNER_DATES+" AND ws.status IN ('ACTIVE','FINISHED','AUTO_CLOSED') AND ws.started_at>=?";
+        String scope=OWNER_DATES+" AND ws.status IN ('ACTIVE','FINISHED','AUTO_CLOSED') AND ws.deload_period_id IS NULL AND ws.started_at>=?";
         var params=new ArrayList<Object>(List.of(owner,generation,from,to,java.sql.Timestamp.from(onFrom)));
         if(onUntil!=null){scope+=" AND ws.started_at<?";params.add(java.sql.Timestamp.from(onUntil));}
         var args=params.toArray();

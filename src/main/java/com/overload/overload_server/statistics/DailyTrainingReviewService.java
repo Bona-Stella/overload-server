@@ -13,13 +13,15 @@ import java.util.*;
 /** A bounded owner batch. Facts/evidence are read once per <=31-day window, not per date. */
 @Service
 public class DailyTrainingReviewService {
+    private final com.overload.overload_server.deload.DeloadPeriods periods;
+    private static final String UNSTOPPED=" NOT EXISTS(SELECT 1 FROM deload_periods p WHERE p.user_id=d.user_id AND p.data_generation=d.data_generation AND p.start_date<=d.workout_date AND (p.closed_date IS NULL OR p.closed_date>=d.workout_date)) ";
     private final JdbcTemplate jdbc;private final WorkoutCalendarRepository calendars;
     private final StatisticsRepository facts;private final PlanningRepository planning;private final Clock clock;
     private final TransactionTemplate writes;
     private final com.overload.overload_server.deload.DeloadWeeklyRepository weekly;
     public DailyTrainingReviewService(JdbcTemplate jdbc,WorkoutCalendarRepository calendars,StatisticsRepository facts,PlanningRepository planning,ObjectProvider<Clock> clocks,
-            @Qualifier("workoutTransactionManager") PlatformTransactionManager manager,com.overload.overload_server.deload.DeloadWeeklyRepository weekly){
-        this.weekly=weekly;
+            @Qualifier("workoutTransactionManager") PlatformTransactionManager manager,com.overload.overload_server.deload.DeloadWeeklyRepository weekly,com.overload.overload_server.deload.DeloadPeriods periods){
+        this.periods=periods;this.weekly=weekly;
         this.jdbc=jdbc;this.calendars=calendars;this.facts=facts;this.planning=planning;clock=clocks.getIfAvailable(Clock::systemUTC);
         writes=new TransactionTemplate(manager);writes.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
     }
@@ -32,9 +34,9 @@ public class DailyTrainingReviewService {
             WHERE c.reviewed_through < ((?::timestamptz AT TIME ZONE c.time_zone)-interval '4 hours')::date-1
                OR EXISTS(SELECT 1 FROM daily_training_assessments d WHERE d.user_id=c.user_id AND d.data_generation=c.data_generation
                  AND d.needs_recheck AND(d.next_check_at IS NULL OR d.next_check_at<=?)
-                 AND d.workout_date<=((?::timestamptz AT TIME ZONE c.time_zone)-interval '4 hours')::date-1)
+                 AND d.workout_date<=((?::timestamptz AT TIME ZONE c.time_zone)-interval '4 hours')::date-1 AND %s )
             ORDER BY c.reviewed_through,c.user_id LIMIT 20
-            """,(r,i)->new Owner(r.getObject(1,UUID.class),r.getLong(2)),at,at,at);
+            """.formatted(UNSTOPPED),(r,i)->new Owner(r.getObject(1,UUID.class),r.getLong(2)),at,at,at);
         int reviewed=0;
         for(var owner:owners)try{reviewed+=Objects.requireNonNull(writes.execute(tx->review(owner.id(),owner.generation(),now)));}
         catch(RuntimeException failure){org.slf4j.LoggerFactory.getLogger(getClass()).warn("Daily training review rolled back type={}",failure.getClass().getSimpleName());}
@@ -44,17 +46,19 @@ public class DailyTrainingReviewService {
         if(jdbc.query("SELECT id FROM users WHERE id=? AND data_generation=? FOR UPDATE SKIP LOCKED",(r,i)->r.getObject(1,UUID.class),owner,generation).isEmpty())return 0;
         var optional=calendars.control(owner,generation);if(optional.isEmpty())return 0;var c=optional.get();
         var due=dueDate(now,c.timeZone());
-        var dirty=jdbc.query("SELECT workout_date FROM daily_training_assessments WHERE user_id=? AND data_generation=? AND needs_recheck AND(next_check_at IS NULL OR next_check_at<=?) AND workout_date<=? ORDER BY workout_date LIMIT 1",(r,i)->r.getObject(1,LocalDate.class),owner,generation,java.sql.Timestamp.from(now),due);
+        var dirty=jdbc.query("SELECT d.workout_date FROM daily_training_assessments d WHERE d.user_id=? AND d.data_generation=? AND d.needs_recheck AND(d.next_check_at IS NULL OR d.next_check_at<=?) AND d.workout_date<=? AND "+UNSTOPPED+" ORDER BY d.workout_date LIMIT 1",(r,i)->r.getObject(1,LocalDate.class),owner,generation,java.sql.Timestamp.from(now),due);
         var from=c.reviewedThrough().plusDays(1);
         if(!dirty.isEmpty()&&dirty.getFirst().isBefore(from))from=dirty.getFirst();
         if(from.isAfter(due))return 0;
         var end=from.plusDays(31);if(end.isAfter(due.plusDays(1)))end=due.plusDays(1);
         weekly.preserveDirtyWeeks(owner,generation,from,end,now);
-        var period=new StatisticsQuery(from,end);var actual=facts.read(owner,generation,period);var evidence=planning.read(owner,generation,period);
+        var stopped=periods.stoppedDates(owner,generation,from,end);
+        var period=new StatisticsQuery(from,end);var actual=facts.readGeneral(owner,generation,period);var evidence=planning.read(owner,generation,period);
         var result=PlanningCalculator.calculate(owner,generation,period,actual,evidence);
         var performedSessions=new HashSet<UUID>();actual.sets().forEach(s->performedSessions.add(s.sessionId()));actual.cardio().stream().filter(a->a.activeMs()>0).forEach(a->performedSessions.add(a.sessionId()));
         var performedDates=new HashSet<LocalDate>();actual.sessions().stream().filter(s->performedSessions.contains(s.id())).forEach(s->performedDates.add(s.date()));
         for(var day:result.days()){
+            if(stopped.contains(day.date()))continue;
             var existing=evidence.daily().get(day.date());var anchor=PlanningCalculator.firstStart(evidence,day.date());
             String state=evidence.activeDates().contains(day.date())?"PENDING_ACTIVE":performedDates.contains(day.date())?"PERFORMED":
                 day.status().equals("REST")||day.status().equals("BEFORE_REGISTRATION")?"EMPTY":

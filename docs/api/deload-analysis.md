@@ -1,6 +1,6 @@
 # 디로딩 분석 설정·epoch·확정 누적 API — G4
 
-2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) DL-05~14와 [G4 준비 계약](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#5-g4-개발-범위의존성검증-계획)을 따른다. 설정/epoch·공통 판정·후보/E/N·주간 확정·재계산과 [G4-6 조회 연동](../tasks/deload-g4-6-report.md)을 구현했다. 실제 DB 적용·G5 기간/임시 계획·G6 PWA 연결은 별도다.
+2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) DL-05~14와 [G4 준비 계약](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#5-g4-개발-범위의존성검증-계획)을 따른다. 설정/epoch·공통 판정·후보/E/N·주간 확정·재계산과 [G4-6 조회 연동](../tasks/deload-g4-6-report.md)을 구현했다. [G5-1 기간 시작/최초 임시 계획](deload-periods.md)을 추가했으며 실제 DB 적용·G5-2/3·G6 PWA 연결은 별도다.
 
 ## GET /api/v1/deload-analysis
 
@@ -35,12 +35,13 @@
 | DISABLED | OFF. 누적·범위·blockedAt=null, 추천false. 저장 이력/일반 운동/G3/통계는 유지 |
 | AWAITING_TIME_ZONE | ON이나 분석 시간대 미확정. 누적·범위=null, 추천false |
 | INITIAL | 시간대가 있지만 아직 확정 시각에 도달한 평가 주가 없음. 초기 기준0만 알려졌으며 confirmedWeeks/범위=null |
+| PAUSED | G5-1 기간이 현재 ON 구간과 겹침. 더 이른 미해결이 없으면 마지막 신뢰 prefix/blockedAt을 제공하고 추천false. 최종 재개는 G5-3 |
 | CONFIRMED | 필요한 마지막 due 주까지 연속된 저장 결과가 신뢰 가능. 정확 누적과 범위 제공 |
 | AWAITING_REVIEW | 첫 미해결 주에 필요한 G3 cursor/날짜 검사/시간대 근거가 미완료. 확정 prefix만 제공 |
 | PENDING | due gap 또는 아직 확정하지 않은 주. Job 대기·후보 UNKNOWN/ACTIVE 등을 포함하며 확정 prefix만 제공 |
 | RECALCULATING | 첫 미해결 위치 이후 기존 확정 결과/재검사 표식이 있어 재평가 필요. source revision 변화도 저장 없이 발견하며 확정 prefix만 제공 |
 
-상태 우선순위는 OFF → 시간대 부재 → 아직 due 없음 → 미해결 구간의 재검사/기존 확정 suffix → G3 검사 대기 → 일반 보류 → 전체 확정이다. 재계산과 G3 대기가 겹치면 RECALCULATING으로 반환한다. 이 상태는 작업 worker 실행 중이라는 뜻이 아니라 재검사 필요·대기·진행을 포함한다.
+상태 우선순위는 OFF → 시간대 부재 → 더 이른 미해결이 없는 기간 PAUSED → 아직 due 없음 → 미해결 구간의 재검사/기존 확정 suffix → G3 검사 대기 → 일반 보류 → 전체 확정이다. 재계산과 G3 대기가 겹치면 RECALCULATING으로 반환한다. 이 상태는 작업 worker 실행 중이라는 뜻이 아니라 재검사 필요·대기·진행을 포함한다.
 
 epochInitialWeeks=0/1은 초기 기준이고 완료값이 아니다. 첫 해결 주가 없으면 confirmedWeeks/confirmedFrom/confirmedThrough=null이다. 확정 RESET0은 confirmedWeeks=0/1과 non-null 범위로 구분한다. confirmedThrough는 마지막 해결 주의 월요일(그 주 일요일까지)이다. 범위는 달력 주 라벨이며 각 주의 실제 평가 날짜는 epoch/ON 경계를 따른다. 범위에는 EXCLUDED도 포함되지만 이는 훈련 주수나 N0 RESET이 아니다. 여행 workoutDate 때문에 confirmedFrom이 epoch 시작의 분석 시간대 월요일보다 앞설 수 있으며, 실제 세션의 startedAt ON 경계는 그대로 유지한다.
 
@@ -73,7 +74,7 @@ owner FOR UPDATE·READ_COMMITTED에서 현재 세대→설정 존재→expectedV
 | 동일 enabled·동일 확정 시간대 | no-op, 이력/버전/시각/epoch 불변 |
 | ACK 유실 후 옛 expectedVersion 재요청 |409 후 GET 재확인. 최신 상태로 자동 재전이/병합하지 않음 |
 
-변경 시각은 owner 잠금 후 PostgreSQL `clock_timestamp()`의 마이크로초 값이다. 가입은 DB users.created_at을 사용한다. 서버 시각 역행/버전 overflow는 충돌로 거절하며 현재 시각을 임의 보정하지 않는다. 재로그인은 설정을 재seed하지 않는다. OFF는 일반 기록·START/FINISH·G3·통계를 끄지 않는다. 수동 시작/실제 기간은 G5 책임이며 이 API에서 기간을 종료하지 않는다.
+변경 시각은 owner 잠금 후 PostgreSQL `clock_timestamp()`의 마이크로초 값이다. 가입은 DB users.created_at을 사용한다. 서버 시각 역행/버전 overflow는 충돌로 거절하며 현재 시각을 임의 보정하지 않는다. 재로그인은 설정을 재seed하지 않는다. OFF는 일반 기록·START/FINISH·G3·통계를 끄지 않는다. 수동 시작/실제 기간은 [G5-1 별도 API](deload-periods.md) 책임이며 이 설정 API에서 기간을 종료하지 않는다.
 
 ## 시간대와 기존 쓰기 경계
 

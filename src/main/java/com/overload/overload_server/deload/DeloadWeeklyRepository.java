@@ -33,7 +33,9 @@ public class DeloadWeeklyRepository {
     // An earlier travel-date ACTIVE can still change the first published week. It blocks; it never counts as performance.
     private static final String EARLY_CANDIDATE="(ws.status='ACTIVE' OR ws.status IN('FINISHED','AUTO_CLOSED') AND "+ACTIVITY+")";
     private static final String CHANGED="""
-        (w.rule_version<>1 OR CASE WHEN w.input_revision IS JSON OBJECT THEN
+        (w.rule_version<>1 OR w.status<>'EXCLUDED' AND EXISTS(SELECT 1 FROM deload_periods p JOIN deload_analysis_versions v ON v.user_id=w.user_id AND v.data_generation=w.data_generation AND v.version=w.epoch
+          WHERE p.user_id=w.user_id AND p.data_generation=w.data_generation AND p.start_date<w.week_start+7
+            AND (p.closed_date IS NULL OR p.closed_date>=greatest(w.week_start,(v.epoch_started_at AT TIME ZONE v.time_zone)::date))) OR CASE WHEN w.input_revision IS JSON OBJECT THEN
           coalesce(w.input_revision::jsonb->>'hash','') !~ '^[0-9a-f]{64}$'
           OR coalesce(jsonb_typeof(w.input_revision::jsonb->'revisions'),'')<>'object'
           OR EXISTS(SELECT 1 FROM daily_training_assessments d WHERE d.user_id=w.user_id AND d.data_generation=w.data_generation
@@ -54,7 +56,7 @@ public class DeloadWeeklyRepository {
                   WHERE ws.user_id=c.user_id AND ws.data_generation=c.data_generation AND ws.started_at>=c.epoch_started_at
                   AND(c.enabled OR ws.started_at<c.recorded_at)
                   AND ws.workout_date<date_trunc('week',c.epoch_started_at AT TIME ZONE c.time_zone)::date
-                  AND ws.deleted_at IS NULL AND
+                  AND ws.deleted_at IS NULL AND ws.deload_period_id IS NULL AND
             """+EARLY_CANDIDATE+"""
                 ),summary.first_week) first_week,
               CASE WHEN c.epoch=l.epoch THEN
@@ -110,7 +112,7 @@ public class DeloadWeeklyRepository {
             SELECT c.epoch,min(ws.workout_date) AS observed_date FROM c JOIN workout_sessions ws ON ws.user_id=c.user_id AND ws.data_generation=c.data_generation
               AND ws.started_at>=c.epoch_started_at AND(c.enabled OR ws.started_at<c.recorded_at)
               AND ws.workout_date<date_trunc('week',c.epoch_started_at AT TIME ZONE c.time_zone)::date
-            WHERE c.time_zone IS NOT NULL AND (?::bigint IS NULL OR c.epoch=?) AND ws.deleted_at IS NULL AND
+            WHERE c.time_zone IS NOT NULL AND (?::bigint IS NULL OR c.epoch=?) AND ws.deleted_at IS NULL AND ws.deload_period_id IS NULL AND
             """+EARLY_CANDIDATE+" GROUP BY c.epoch",r->{result.put(r.getLong("epoch"),DeloadWeeklyPolicy.monday(r.getObject("observed_date",LocalDate.class)));},owner,generation,epoch,epoch);
         return result;
     }

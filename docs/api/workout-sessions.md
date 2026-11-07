@@ -487,3 +487,7 @@ V24의 nullable schedule_version_at_start는 신규 START에서만 설정한다.
 ### 2026-11-07 현행 정책과 적용 범위
 
 디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 설정/epoch/E/N·G5 기간은 미구현이다. 현재 API에 디로딩 성공 응답/게이지가 있다고 해석하지 않는다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 이 문서의 이전 “이번 실제 DB 미적용”은 해당 개발 단계의 제한이다. 현재 V24가 확인된 대상은 기존 격리 검토DB뿐이며 개인/운영DB는 이번에 확인하거나 변경하지 않았다.
+
+## G5-1 ACTIVE 기간 보호
+
+[디로딩 기간 계약](deload-periods.md)의 ACTIVE 기간에는 새 일반 START와 원본 기록 정정·복구·논리 삭제·승인 해결/새 snapshot·FINISH을409 DELOAD_ACTIVE_PERIOD로 차단한다. 읽기와 기존 확정 요청의 무변경 ACK는 유지한다. 기간 시작과 일반 쓰기는 기존 사용자 잠금으로 직렬화하며 실제 디로딩 운동 실행/종료는 G5-2/3 전이다. 기존 검토 DB와 서버에는 새 기능을 배포하지 않는다.

@@ -12,7 +12,7 @@ import java.util.*;
 public final class DeloadCandidateCalculator {
     private static final JsonMapper JSON=JsonMapper.builder().build();
     private DeloadCandidateCalculator() { }
-    public enum Pending { AWAITING_TIME_ZONE, OUTSIDE_ON_INTERVAL, OPEN_DATE, ACTIVE, INVALID_PLAN,
+    public enum Pending { DELOAD_PERIOD, AWAITING_TIME_ZONE, OUTSIDE_ON_INTERVAL, OPEN_DATE, ACTIVE, INVALID_PLAN,
         UNKNOWN_COMPLETION, REVIEW_INCOMPLETE, REVIEW_UNKNOWN, REVIEW_DIRTY, CALENDAR_ZONE_CONFLICT }
     public record Epoch(long id,long settingsVersion,Instant from,Instant until,String zone) { }
     public record DailyEvidence(String state,long revision,boolean dirty,Instant reviewedAt,Instant firstMissedAt,
@@ -28,6 +28,7 @@ public final class DeloadCandidateCalculator {
             WorkoutCalendarRepository.Control reviewBoundary,Map<LocalDate,Long> sourceRevisions,List<Day> days,
             ExactFraction lowerE,ExactFraction upperE,ExactFraction e,int n,boolean requiredReviewsComplete,Set<Pending> pending) {
         public boolean calculable() { return pending.isEmpty(); }
+        Week hold(Pending reason){var reasons=EnumSet.copyOf(pending.isEmpty()?EnumSet.noneOf(Pending.class):pending);reasons.add(reason);return new Week(owner,generation,epoch,weekStart,weekEndExclusive,evaluationFrom,evaluationToExclusive,observedAt,firstScheduleDate,reviewBoundary,sourceRevisions,days,lowerE,upperE,null,n,false,Set.copyOf(reasons));}
         /** A ratio is not an ADD contribution; G4-4 must first apply the separate E threshold. */
         public ExactFraction rate() {
             return e==null||n==0?null:new ExactFraction(e.numerator(),e.denominator().multiply(java.math.BigInteger.valueOf(n)));

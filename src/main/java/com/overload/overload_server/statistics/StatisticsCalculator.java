@@ -9,7 +9,9 @@ import static com.overload.overload_server.statistics.StatisticsResponse.*;
 
 /** Aggregates current facts; never changes plans, approval state or performed records. */
 final class StatisticsCalculator {
-    record Session(UUID id, LocalDate date, InitialPlan initial, WorkoutSnapshotData.Plan applied) { }
+    record Session(UUID id, LocalDate date, InitialPlan initial, WorkoutSnapshotData.Plan applied,boolean general) {
+        Session(UUID id,LocalDate date,InitialPlan initial,WorkoutSnapshotData.Plan applied){this(id,date,initial,applied,true);}
+    }
     record SetFact(UUID id, UUID sessionId, UUID exerciseId, UUID standardId, String name,
                    BigDecimal weight, int reps, String loadType,BigDecimal additionalWeight) {
         SetFact(UUID id,UUID sessionId,UUID exerciseId,UUID standardId,String name,BigDecimal weight,int reps,String loadType){this(id,sessionId,exerciseId,standardId,name,weight,reps,loadType,null);}

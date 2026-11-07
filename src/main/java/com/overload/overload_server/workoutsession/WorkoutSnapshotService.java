@@ -60,6 +60,7 @@ public class WorkoutSnapshotService {
                 if (session.localRevision!=state.localRevision()||!hash(state).equals(session.lastSnapshotHash)||!input.endedAt().equals(session.endedAt)) throw failure(FINISH_REQUEST_MISMATCH);
                 return finishAck(session,true);
             }
+            sessions.requireGeneralWrite(owner,session.dataGeneration);
             guard(session,state.editorDeviceId(),state.writerEpoch());
             afterStart(session,input.endedAt());
             var known=data.approvals(id).stream().map(r->r.id).collect(Collectors.toSet());
@@ -111,6 +112,7 @@ public class WorkoutSnapshotService {
             if (!hash.equals(session.lastSnapshotHash))throw failure(REVISION_PAYLOAD_MISMATCH);
             return true;
         }
+        sessions.requireGeneralWrite(session.userId,session.dataGeneration);
         incrementable(session);
         data.validateManufacturers(java.util.stream.Stream.concat(
                 input.snapshot().appliedPlan().weightExercises().stream().map(WeightPlan::manufacturerId),
@@ -208,6 +210,7 @@ public class WorkoutSnapshotService {
             }
             return resolution(session);
         }
+        sessions.requireGeneralWrite(session.userId,session.dataGeneration);
         if (session.version!=input.expectedSessionVersion()||session.localRevision!=input.expectedLocalRevision())throw failure(RESOLUTION_CONFLICT);
         var pending = requests.values().stream().filter(r -> r.exerciseId.equals(input.sessionExerciseId())&&r.status.equals("PENDING")).map(r -> r.id).collect(Collectors.toSet());
         if (!pending.equals(new HashSet<>(input.pendingRequestIds())))throw failure(RESOLUTION_CONFLICT);

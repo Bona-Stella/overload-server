@@ -16,11 +16,13 @@ import java.sql.SQLException;
 import java.sql.SQLTimeoutException;
 import java.util.*;
 
-@RestControllerAdvice(assignableTypes = DeloadAnalysisController.class)
+@RestControllerAdvice(assignableTypes = {DeloadAnalysisController.class,DeloadPeriodController.class})
 public class DeloadAnalysisErrors {
 	public record Body(String code) { }
 	@ExceptionHandler(DeloadAnalysisFailure.class)
 	ResponseEntity<Body> failure(DeloadAnalysisFailure failure) { return response(failure.status(), failure.code()); }
+	@ExceptionHandler(DeloadPeriodFailure.class)
+	ResponseEntity<Body> period(DeloadPeriodFailure failure) { return response(failure.status,failure.code); }
 	@ExceptionHandler({HttpMessageNotReadableException.class, ServletRequestBindingException.class, MethodArgumentTypeMismatchException.class})
 	ResponseEntity<Body> invalid() { return response(400, "INVALID_REQUEST"); }
 	@ExceptionHandler(Exception.class)

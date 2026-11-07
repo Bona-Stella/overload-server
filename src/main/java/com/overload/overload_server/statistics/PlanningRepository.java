@@ -30,7 +30,7 @@ class PlanningRepository {
             modern AS (SELECT DISTINCT ON((recorded_at AT TIME ZONE time_zone)::date) * FROM scoped WHERE version>=:boundary AND recorded_at<:toInstant
                 AND(recorded_at>=:fromInstant OR recorded_at=(SELECT max(recorded_at) FROM scoped WHERE version>=:boundary AND recorded_at<:fromInstant))
                 ORDER BY (recorded_at AT TIME ZONE time_zone)::date,recorded_at DESC,version DESC),
-            origins AS (SELECT schedule_version_at_start AS version FROM workout_sessions WHERE user_id=:owner AND data_generation=:generation AND workout_date>=:from AND workout_date<:to
+            origins AS (SELECT schedule_version_at_start AS version FROM workout_sessions WHERE deload_period_id IS NULL AND user_id=:owner AND data_generation=:generation AND workout_date>=:from AND workout_date<:to
                 UNION SELECT missed_schedule_version FROM daily_training_assessments WHERE user_id=:owner AND data_generation=:generation AND workout_date>=:from AND workout_date<:to),
             relevant AS (SELECT * FROM legacy UNION SELECT * FROM modern UNION SELECT * FROM scoped WHERE version=1 OR version=:boundary OR version IN(SELECT version FROM origins))
             SELECT version,effective_from,time_zone,recorded_at,assignments::text FROM relevant ORDER BY recorded_at,version
@@ -57,7 +57,7 @@ class PlanningRepository {
         }
         // Deleted/ACTIVE sessions still preserve immutable evidence of the plan at first start.
         var activeDates=new HashSet<LocalDate>();
-        var anchors=jdbc.query("SELECT id,workout_date,started_at,initial_plan_snapshot::text,schedule_version_at_start,status FROM workout_sessions WHERE user_id=? AND data_generation=? AND workout_date>=? AND workout_date<? ORDER BY started_at,id",
+        var anchors=jdbc.query("SELECT id,workout_date,started_at,initial_plan_snapshot::text,schedule_version_at_start,status FROM workout_sessions WHERE deload_period_id IS NULL AND user_id=? AND data_generation=? AND workout_date>=? AND workout_date<? ORDER BY started_at,id",
                 (r,i)->{var day=r.getObject(2,LocalDate.class);if(r.getString(6).equals("ACTIVE"))activeDates.add(day);return new PlanningCalculator.Anchor(r.getObject(1,UUID.class),day,r.getTimestamp(3).toInstant(),JSON.readValue(r.getString(4),InitialPlan.class),r.getObject(5,Long.class));},owner,generation,query.fromDate(),query.toDateExclusive());
         var daily=new HashMap<LocalDate,PlanningCalculator.Daily>();
         jdbc.query("SELECT * FROM daily_training_assessments WHERE user_id=? AND data_generation=? AND workout_date>=? AND workout_date<?",r->{

@@ -12,7 +12,9 @@ public class RoutineRepository {
 	@PersistenceContext private EntityManager entityManager;
 	private final JdbcTemplate jdbc;
 	private final RoutinePlanHistory history;
-	RoutineRepository(JdbcTemplate jdbc, RoutinePlanHistory history) { this.jdbc = jdbc; this.history = history; }
+	private final com.overload.overload_server.deload.DeloadPeriods periods;
+	RoutineRepository(JdbcTemplate jdbc, RoutinePlanHistory history,com.overload.overload_server.deload.DeloadPeriods periods) { this.jdbc = jdbc; this.history = history;this.periods=periods; }
+	void requireGeneralWrite(UUID owner,long generation){if(periods.active(owner,generation))throw new RoutineFailure(RoutineFailure.Reason.DELOAD_ACTIVE_PERIOD);}
 	/** Caller owns workoutTransactionManager. This scope does not start or commit a second transaction. */
 	public ApprovalScope lockForWorkoutApproval(UUID owner,long generation,UUID id) {
 		return new ApprovalScope(find(owner,generation,id,true));
