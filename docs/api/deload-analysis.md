@@ -1,27 +1,56 @@
-# 디로딩 분석 설정·epoch API — G4-1
+# 디로딩 분석 설정·epoch·확정 누적 API — G4
 
-2026-11-07. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) DL-05와 [G4 준비 계약](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#5-g4-개발-범위의존성검증-계획)을 구현한다. **설정/epoch와 [G4-3 내부 후보/E/N 계산](../tasks/deload-g4-3-report.md)은 구현했으며 [G4-4 월04시 확정/주간 저장/내부 누적](../tasks/deload-g4-4-report.md)도 구현했다. [G4-5 과거 정정 재계산](../tasks/deload-g4-5-report.md)과 V26 EXCLUDED 저장/fold를 구현했다. G4-6 최종 조회 연동·디로딩 기간은 미구현**이다. PWA 연결은 변경하지 않는다.
+2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) DL-05~14와 [G4 준비 계약](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#5-g4-개발-범위의존성검증-계획)을 따른다. 설정/epoch·공통 판정·후보/E/N·주간 확정·재계산과 [G4-6 조회 연동](../tasks/deload-g4-6-report.md)을 구현했다. 실제 DB 적용·G5 기간/임시 계획·G6 PWA 연결은 별도다.
 
 ## GET /api/v1/deload-analysis
 
-인증 세션의 사용자/현재 dataGeneration만 조회한다. query와 본문은 받지 않는다. read-only REPEATABLE_READ이며 누락 설정을 자동 생성하지 않는다. 성공 응답은200·no-store다.
+인증 principal의 사용자/현재 dataGeneration만 조회한다. query와 본문은 받지 않는다. read-only REPEATABLE_READ의 한 snapshot이며 누락 설정을 자동 생성하지 않는다. 성공200·no-store, 오류는 기존 code-only/no-store 관례다. GET은 분석 설정·주간 결과·dirty·G3 cursor·운동 원본을 쓰지 않고 owner 잠금도 잡지 않는다. HTTP 세션 저장 등 기존 인증 인프라와 분석 도메인 쓰기를 구분한다.
+
+다음은 격리 fixture의 RESET→ADD 정정 후4.75주 응답 예시이며 userId만 예시 값이다.
 
 ```json
 {
   "userId": "00000000-0000-0000-0000-000000000001",
   "dataGeneration": "0",
   "enabled": true,
-  "version": "0",
+  "version": "1",
   "epoch": "0",
-  "epochStartedAt": "2026-11-07T00:00:00Z",
-  "timeZone": null,
-  "calculationStatus": "AWAITING_TIME_ZONE",
+  "epochStartedAt": "2026-10-25T15:00:00Z",
+  "timeZone": "Asia/Seoul",
+  "calculationStatus": "CONFIRMED",
   "epochInitialWeeks": {"numerator": "0", "denominator": "1"},
-  "confirmedWeeks": null
+  "confirmedWeeks": {"numerator": "19", "denominator": "4"},
+  "confirmedFrom": "2026-10-26",
+  "confirmedThrough": "2026-11-23",
+  "blockedAt": null,
+  "recommendationThreshold": {"numerator": "8", "denominator": "1"},
+  "recommendationReady": false
 }
 ```
 
-`epochInitialWeeks`는 그 epoch의 초기값0이라는 뜻이며 실제 확정 누적이 아니다. G4-4 내부 확정/fold는 최종 조회 범위·보류·재계산 응답 계약과 아직 연결되지 않았으므로 `confirmedWeeks`는 항상null이다. 마지막 확정 범위·입력 revision·재계산 상태의 HTTP 응답 연결은 G4-6에서 구현한다. 현재 `calculationStatus`는 OFF면 DISABLED, ON/시간대 미확정이면 AWAITING_TIME_ZONE, ON/시간대 확정이면 NOT_IMPLEMENTED다. 현재 NOT_IMPLEMENTED는 최종 조회 미연동 상태이며 G4-4 내부 계산 부재를 뜻하지 않는다. ON/OFF와 최종 조회 구현 여부를 혼동하지 않는다.
+기존 필드와 분수/Counter의 십진 문자열 타입을 유지하며 confirmedFrom/confirmedThrough/blockedAt/recommendationThreshold/recommendationReady만 추가한다. version은 설정의 expectedVersion이며 주간 결과 version이 아니다. 같은 설정 version에서도 원본·Job 변화로 조회 결과가 달라질 수 있다. NOT_IMPLEMENTED는 다음 실제 상태로 교체한다.
+
+| calculationStatus | 의미 |
+|---|---|
+| DISABLED | OFF. 누적·범위·blockedAt=null, 추천false. 저장 이력/일반 운동/G3/통계는 유지 |
+| AWAITING_TIME_ZONE | ON이나 분석 시간대 미확정. 누적·범위=null, 추천false |
+| INITIAL | 시간대가 있지만 아직 확정 시각에 도달한 평가 주가 없음. 초기 기준0만 알려졌으며 confirmedWeeks/범위=null |
+| CONFIRMED | 필요한 마지막 due 주까지 연속된 저장 결과가 신뢰 가능. 정확 누적과 범위 제공 |
+| AWAITING_REVIEW | 첫 미해결 주에 필요한 G3 cursor/날짜 검사/시간대 근거가 미완료. 확정 prefix만 제공 |
+| PENDING | due gap 또는 아직 확정하지 않은 주. Job 대기·후보 UNKNOWN/ACTIVE 등을 포함하며 확정 prefix만 제공 |
+| RECALCULATING | 첫 미해결 위치 이후 기존 확정 결과/재검사 표식이 있어 재평가 필요. source revision 변화도 저장 없이 발견하며 확정 prefix만 제공 |
+
+상태 우선순위는 OFF → 시간대 부재 → 아직 due 없음 → 미해결 구간의 재검사/기존 확정 suffix → G3 검사 대기 → 일반 보류 → 전체 확정이다. 재계산과 G3 대기가 겹치면 RECALCULATING으로 반환한다. 이 상태는 작업 worker 실행 중이라는 뜻이 아니라 재검사 필요·대기·진행을 포함한다.
+
+epochInitialWeeks=0/1은 초기 기준이고 완료값이 아니다. 첫 해결 주가 없으면 confirmedWeeks/confirmedFrom/confirmedThrough=null이다. 확정 RESET0은 confirmedWeeks=0/1과 non-null 범위로 구분한다. confirmedThrough는 마지막 해결 주의 월요일(그 주 일요일까지)이다. 범위는 달력 주 라벨이며 각 주의 실제 평가 날짜는 epoch/ON 경계를 따른다. 범위에는 EXCLUDED도 포함되지만 이는 훈련 주수나 N0 RESET이 아니다. 여행 workoutDate 때문에 confirmedFrom이 epoch 시작의 분석 시간대 월요일보다 앞설 수 있으며, 실제 세션의 startedAt ON 경계는 그대로 유지한다.
+
+현재 epoch의 저장 결과를 week_start 순으로 기존 fold에 전달한다. RESET0·정확 ADD·EXCLUDED 무변경을 적용하고 첫 gap/PENDING/dirty/규칙 불일치에서 중단한다. blockedAt은 그 월요일이며 RECALCULATING에서는 재계산 시작 위치다. 뒤의 ADD를 건너뛰어 공개하지 않는다. 표시할 확정 prefix가 없으면 null이며 가짜0을 만들지 않는다. 이전 epoch는 읽어 합산하지 않는다.
+
+GET은 저장 입력의 날짜7개 revision 벡터와 rule/hash 형식을 최신 G3 revision에 대조하여 snapshot 안에서만 유효 dirty를 계산한다. 설정/주간 행을 생성하거나 dirty를 저장·해소하지 않는다. G4 Job과 같은 최초 주 경계 탐색을 사용하며, 일반 기록의 완료 판정·주간 E/N을 매 GET 다시 계산하지 않는다. 최초 주보다 앞선 여행 날짜의 실제 후보/ACTIVE 존재만 탐색한다. 수행 없는 ACTIVE는 N에 가산하지 않고 보류하며, 빈 종료가 확정되면 Job이 EXCLUDED 처리한다.
+
+추천은 정확 분수가8 이상이고 전체 due 범위가 CONFIRMED인 경우에만 recommendationReady=true다. 보류/재계산 중에는 prefix가8 이상이어도false다. 반올림 표시값·게이지 clamp로 판정하지 않고8 초과 원본 누적도 그대로 반환한다. 추천은 강제/기간 자동 시작/수동 시작 자격이 아니며 G5의 네 조건과 별개다.
+
+동시 Job·설정·정정은 snapshot 시작 전 또는 이후 한 시점의 일관된 값으로 보인다. 조회 중 새 쓰기가 commit됐더라도 그 GET은 이전 snapshot을 유지하며 다음 GET에서 새 상태를 본다. 설정과 다른 epoch/세대의 누적을 섞지 않는다. 별도 누적 캐시·새 scheduler·새 migration은 없다.
 
 ## PUT /api/v1/deload-analysis/settings
 

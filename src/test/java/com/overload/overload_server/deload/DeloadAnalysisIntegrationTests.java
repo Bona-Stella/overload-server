@@ -67,7 +67,7 @@ class DeloadAnalysisIntegrationTests {
     }
     @Test void zoneBindingOffReactivationNoopAndLostAcknowledgement()throws Exception {
         var initial=node(browser.get(PATH));var bound=node(put("0",true,"Asia/Seoul"));
-        assertThat(bound.get("epochStartedAt")).isEqualTo(initial.get("epochStartedAt"));assertThat(bound.get("epoch").asString()).isEqualTo("0");assertThat(bound.get("calculationStatus").asString()).isEqualTo("NOT_IMPLEMENTED");
+        assertThat(bound.get("epochStartedAt")).isEqualTo(initial.get("epochStartedAt"));assertThat(bound.get("epoch").asString()).isEqualTo("0");assertThat(bound.get("calculationStatus").asString()).isEqualTo("INITIAL");
         var off=node(put("1",false,"Asia/Seoul"));assertThat(off.get("epoch").asString()).isEqualTo("0");assertThat(off.get("calculationStatus").asString()).isEqualTo("DISABLED");
         var on=node(put("2",true,"Asia/Seoul"));assertThat(on.get("epoch").asString()).isEqualTo("3");
         var row=jdbc.queryForMap("SELECT * FROM deload_analysis_versions WHERE user_id=? AND version=3",owner);

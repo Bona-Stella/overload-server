@@ -16,6 +16,12 @@ final class DeloadWeeklyPolicy {
     record Decision(String operation,ExactFraction contribution) { }
     record Fold(ExactFraction weeks,LocalDate confirmedThrough,LocalDate blockedAt) { }
     static LocalDate monday(LocalDate date) {return date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));}
+    static LocalDate firstWeek(DeloadAnalysisState state,Collection<DeloadWeeklyRepository.Row> rows,LocalDate earlier) {
+        var first=monday(state.epochStartedAt().atZone(ZoneId.of(state.timeZone())).toLocalDate());
+        if(earlier!=null&&earlier.isBefore(first))first=earlier;
+        for(var row:rows)if(row.week().isBefore(first))first=row.week();
+        return first;
+    }
     static Instant dueAt(LocalDate week,String zone) {return week.plusWeeks(1).atTime(4,0).atZone(ZoneId.of(zone)).toInstant();}
     static LocalDate lastDue(Instant now,String zone) {
         var current=monday(now.atZone(ZoneId.of(zone)).toLocalDate());

@@ -30,6 +30,8 @@ public class DeloadWeeklyRepository {
         (EXISTS(SELECT 1 FROM performed_sets p WHERE p.session_id=ws.id AND p.kind='WEIGHT' AND p.deleted_at IS NULL)
          OR EXISTS(SELECT 1 FROM cardio_results a WHERE a.session_id=ws.id AND a.status='COMPLETED' AND a.deleted_at IS NULL AND a.active_ms>0))
         """;
+    // An earlier travel-date ACTIVE can still change the first published week. It blocks; it never counts as performance.
+    private static final String EARLY_CANDIDATE="(ws.status='ACTIVE' OR ws.status IN('FINISHED','AUTO_CLOSED') AND "+ACTIVITY+")";
     private static final String CHANGED="""
         (w.rule_version<>1 OR CASE WHEN w.input_revision IS JSON OBJECT THEN
           coalesce(w.input_revision::jsonb->>'hash','') !~ '^[0-9a-f]{64}$'
@@ -52,8 +54,8 @@ public class DeloadWeeklyRepository {
                   WHERE ws.user_id=c.user_id AND ws.data_generation=c.data_generation AND ws.started_at>=c.epoch_started_at
                   AND(c.enabled OR ws.started_at<c.recorded_at)
                   AND ws.workout_date<date_trunc('week',c.epoch_started_at AT TIME ZONE c.time_zone)::date
-                  AND ws.deleted_at IS NULL AND ws.status IN('FINISHED','AUTO_CLOSED') AND
-            """+ACTIVITY+"""
+                  AND ws.deleted_at IS NULL AND
+            """+EARLY_CANDIDATE+"""
                 ),summary.first_week) first_week,
               CASE WHEN c.epoch=l.epoch THEN
                 (date_trunc('week',(?::timestamptz AT TIME ZONE c.time_zone)-interval '4 hours')-interval '7 days')::date
@@ -87,20 +89,29 @@ public class DeloadWeeklyRepository {
     List<Row> rows(UUID owner,long generation,long epoch) {
         return jdbc.query("SELECT * FROM deload_weekly_assessments WHERE user_id=? AND data_generation=? AND epoch=? ORDER BY week_start",(r,i)->row(r),owner,generation,epoch);
     }
+    /** Snapshot-local invalidation only. GET never persists dirty markers or recalculates workout completion. */
+    List<Row> auditedRows(UUID owner,long generation,long epoch) {
+        return jdbc.query("SELECT w.*,(w.needs_recheck OR (w.status IN('CONFIRMED','EXCLUDED') AND "+CHANGED+")) effective_dirty FROM deload_weekly_assessments w WHERE w.user_id=? AND w.data_generation=? AND w.epoch=? ORDER BY w.week_start",(r,i)->{
+            var row=row(r);return new Row(row.week(),row.status(),r.getBoolean("effective_dirty"),row.revision(),row.rule(),row.e(),row.n(),row.operation(),row.contribution(),row.input());
+        },owner,generation,epoch);
+    }
     Map<Long,TreeMap<LocalDate,Row>> allRows(UUID owner,long generation) {
         var result=new HashMap<Long,TreeMap<LocalDate,Row>>();
         jdbc.query("SELECT * FROM deload_weekly_assessments WHERE user_id=? AND data_generation=? ORDER BY epoch,week_start",r->{result.computeIfAbsent(r.getLong("epoch"),ignored->new TreeMap<>()).put(r.getObject("week_start",LocalDate.class),row(r));},owner,generation);
         return result;
     }
     Map<Long,LocalDate> earlierWeeks(UUID owner,long generation) {
+        return earlierWeeks(owner,generation,null);
+    }
+    Map<Long,LocalDate> earlierWeeks(UUID owner,long generation,Long epoch) {
         var result=new HashMap<Long,LocalDate>();
         jdbc.query("""
             WITH c AS (SELECT DISTINCT ON(epoch) * FROM deload_analysis_versions WHERE user_id=? AND data_generation=? ORDER BY epoch,version DESC)
             SELECT c.epoch,min(ws.workout_date) AS observed_date FROM c JOIN workout_sessions ws ON ws.user_id=c.user_id AND ws.data_generation=c.data_generation
               AND ws.started_at>=c.epoch_started_at AND(c.enabled OR ws.started_at<c.recorded_at)
               AND ws.workout_date<date_trunc('week',c.epoch_started_at AT TIME ZONE c.time_zone)::date
-            WHERE c.time_zone IS NOT NULL AND ws.deleted_at IS NULL AND ws.status IN('FINISHED','AUTO_CLOSED') AND
-            """+ACTIVITY+" GROUP BY c.epoch",r->{result.put(r.getLong("epoch"),DeloadWeeklyPolicy.monday(r.getObject("observed_date",LocalDate.class)));},owner,generation);
+            WHERE c.time_zone IS NOT NULL AND (?::bigint IS NULL OR c.epoch=?) AND ws.deleted_at IS NULL AND
+            """+EARLY_CANDIDATE+" GROUP BY c.epoch",r->{result.put(r.getLong("epoch"),DeloadWeeklyPolicy.monday(r.getObject("observed_date",LocalDate.class)));},owner,generation,epoch,epoch);
         return result;
     }
     private static Row row(ResultSet r)throws SQLException {

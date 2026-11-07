@@ -1,8 +1,9 @@
 package com.overload.overload_server.deload;
 
+import com.overload.overload_server.completion.ExactFraction;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.*;
-import java.time.Instant;
+import java.time.*;
 import java.util.UUID;
 import static com.overload.overload_server.deload.DeloadAnalysisFailure.Reason.*;
 
@@ -11,9 +12,11 @@ import static com.overload.overload_server.deload.DeloadAnalysisFailure.Reason.*
 public class DeloadAnalysisService {
     public record Fraction(String numerator,String denominator) { }
     public record View(UUID userId,String dataGeneration,boolean enabled,String version,String epoch,Instant epochStartedAt,
-                       String timeZone,String calculationStatus,Fraction epochInitialWeeks,Fraction confirmedWeeks) { }
+                       String timeZone,String calculationStatus,Fraction epochInitialWeeks,Fraction confirmedWeeks,
+                       LocalDate confirmedFrom,LocalDate confirmedThrough,LocalDate blockedAt,Fraction recommendationThreshold,boolean recommendationReady) { }
     private final DeloadAnalysisRepository repository;
-    public DeloadAnalysisService(DeloadAnalysisRepository repository) { this.repository=repository; }
+    private final DeloadAnalysisQuery query;
+    public DeloadAnalysisService(DeloadAnalysisRepository repository,DeloadAnalysisQuery query) { this.repository=repository;this.query=query; }
     @Transactional(transactionManager="workoutTransactionManager",readOnly=true,isolation=Isolation.REPEATABLE_READ)
     View read(UUID owner) { long generation=repository.generation(owner,false);return view(owner,generation,repository.current(owner,generation)); }
     @Transactional(transactionManager="workoutTransactionManager",isolation=Isolation.READ_COMMITTED)
@@ -61,8 +64,11 @@ public class DeloadAnalysisService {
         String scheduled=repository.scheduleZone(owner,generation);
         if(scheduled!=null&&!scheduled.equals(zone))throw new DeloadAnalysisFailure(DELOAD_TIME_ZONE_CONFLICT);
     }
-    private static View view(UUID owner,long generation,DeloadAnalysisState state) {
+    private View view(UUID owner,long generation,DeloadAnalysisState state) {
+        var result=query.read(owner,generation,state);
         return new View(owner,Long.toString(generation),state.enabled(),Long.toString(state.version()),Long.toString(state.epoch()),state.epochStartedAt(),state.timeZone(),
-            !state.enabled()?"DISABLED":state.timeZone()==null?"AWAITING_TIME_ZONE":"NOT_IMPLEMENTED",new Fraction("0","1"),null);
+            result.status(),new Fraction("0","1"),fraction(result.weeks()),
+            result.from(),result.through(),result.blockedAt(),fraction(DeloadAnalysisQuery.THRESHOLD),result.recommendationReady());
     }
+    private static Fraction fraction(ExactFraction value) {return value==null?null:new Fraction(value.numerator().toString(),value.denominator().toString());}
 }

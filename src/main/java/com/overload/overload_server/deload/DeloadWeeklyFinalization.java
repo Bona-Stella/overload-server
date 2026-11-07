@@ -48,9 +48,7 @@ public class DeloadWeeklyFinalization {
         for(var entry:weekly.epochs(owner,generation)) {
             var state=entry.settings();if(state.timeZone()==null||currentOnly&&state.epoch()!=current.epoch())continue;
             var rows=stored.getOrDefault(state.epoch(),new TreeMap<>());
-            var first=DeloadWeeklyPolicy.monday(state.epochStartedAt().atZone(ZoneId.of(state.timeZone())).toLocalDate());
-            if(earlier.containsKey(state.epoch())&&earlier.get(state.epoch()).isBefore(first))first=earlier.get(state.epoch());
-            if(!rows.isEmpty()&&rows.firstKey().isBefore(first))first=rows.firstKey();
+            var first=DeloadWeeklyPolicy.firstWeek(state,rows.values(),earlier.get(state.epoch()));
             var last=DeloadWeeklyPolicy.lastDue(at,state.timeZone());
             if(state.epoch()!=current.epoch()) {
                 var published=rows.values().stream().filter(DeloadWeeklyRepository.Row::resolved).map(DeloadWeeklyRepository.Row::week).max(Comparator.naturalOrder()).orElse(null);
