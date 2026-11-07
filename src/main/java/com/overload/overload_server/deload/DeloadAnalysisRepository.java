@@ -32,6 +32,11 @@ public class DeloadAnalysisRepository {
     DeloadAnalysisState current(UUID owner,long generation) {
         return find(owner,generation).orElseThrow(()->new DeloadAnalysisFailure(DELOAD_SETTINGS_MISSING));
     }
+    List<DeloadAnalysisState> epochHistory(UUID owner,long generation,long epoch) {
+        return jdbc.query("SELECT * FROM deload_analysis_versions WHERE user_id=? AND data_generation=? AND epoch=? ORDER BY version",
+            (r,i)->new DeloadAnalysisState(r.getLong("version"),r.getBoolean("enabled"),r.getLong("epoch"),r.getTimestamp("recorded_at").toInstant(),
+                r.getTimestamp("epoch_started_at").toInstant(),r.getString("time_zone"),r.getString("reason")),owner,generation,epoch);
+    }
     String scheduleZone(UUID owner,long generation) {
         return jdbc.query("SELECT time_zone FROM workout_calendar_control WHERE user_id=? AND data_generation=?",(r,i)->r.getString(1),owner,generation).stream().findFirst().orElse(null);
     }

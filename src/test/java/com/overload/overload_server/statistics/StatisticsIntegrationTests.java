@@ -236,6 +236,28 @@ class StatisticsIntegrationTests {
         assertThat(jdbc.queryForList("SELECT to_jsonb(s)::text FROM workout_sessions s WHERE user_id=? ORDER BY id",String.class,owner)).isEqualTo(before);
         assertThat(jdbc.queryForList("SELECT to_jsonb(p)::text FROM performed_sets p WHERE session_id IN(SELECT id FROM workout_sessions WHERE user_id=?) ORDER BY id",String.class,owner)).isEqualTo(setsBefore);
     }
+    @Test void independentDeloadReadIncludesUnscheduledAndRestWorkWhileGeneralPlanStaysZero() throws Exception {
+        // This historical API fixture uses October's clock; align its new account before creating exercise facts.
+        jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?",owner);
+        jdbc.update("UPDATE users SET created_at='2026-10-01T00:00:00Z' WHERE id=?",owner);
+        app.getBean(com.overload.overload_server.deload.DeloadAnalysisRepository.class).initializeNewAccount(owner,0);
+        var planned=routine(1);var alternate=routine(1);var saved=schedule(planned,"0",List.of(1,2));
+        var monday=LocalDate.parse(saved.get("appliedAt").asString().substring(0,10));
+        perform(alternate,monday,4);perform(planned,monday.plusDays(2),4);
+        var sessions=jdbc.queryForList("SELECT to_jsonb(s)::text FROM workout_sessions s WHERE user_id=? ORDER BY id",String.class,owner);
+        var daily=jdbc.queryForList("SELECT to_jsonb(d)::text FROM daily_training_assessments d WHERE user_id=? ORDER BY workout_date",String.class,owner);
+        var independent=app.getBean(com.overload.overload_server.deload.DeloadWeeklyCandidates.class).calculate(owner,0,0,monday);
+        assertThat(independent.n()).isEqualTo(2);assertThat(independent.lowerE()).isEqualTo(com.overload.overload_server.completion.ExactFraction.of(2,1));
+        assertThat(independent.e()).isNull(); // G3 cursor/dirty inputs still await their ordinary review.
+        var general=overview(monday);
+        assertThat(general.get("effectiveWorkoutDays").asString()).isEqualTo("0");
+        assertThat(general.get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(2);
+        assertThat(general.get("statistics").get("routineAchievementPercent").asString()).isEqualTo("0");
+        assertThat(general.get("plannedDays").get(2).get("status").asString()).isEqualTo("REST");
+        assertThat(success(browser.get("/api/v1/deload-analysis")).get("confirmedWeeks").isNull()).isTrue();
+        assertThat(jdbc.queryForList("SELECT to_jsonb(s)::text FROM workout_sessions s WHERE user_id=? ORDER BY id",String.class,owner)).isEqualTo(sessions);
+        assertThat(jdbc.queryForList("SELECT to_jsonb(d)::text FROM daily_training_assessments d WHERE user_id=? ORDER BY workout_date",String.class,owner)).isEqualTo(daily);
+    }
     @Test void firstThursdayRegistrationStartsTodayAndEditsApplyImmediatelyWithoutChangingStartedPlans() throws Exception {
         var thursday=LocalDate.of(2026,11,12);var monday=thursday.minusDays(3);
         EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),thursday.atTime(5,0).toInstant(ZoneOffset.UTC)));
