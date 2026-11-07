@@ -8,14 +8,24 @@ import java.sql.*;
 import java.time.*;
 import java.util.*;
 
-/** V25 is the sole progress/result store. Every write joins the existing owner-locked workout transaction. */
+/** V25/V26 weekly rows are the sole progress/result store. Every write joins the existing owner-locked workout transaction. */
 @Repository
 public class DeloadWeeklyRepository {
     private final JdbcTemplate jdbc;
     public DeloadWeeklyRepository(JdbcTemplate jdbc) {this.jdbc=jdbc;}
     record Owner(UUID id,long generation) { }
     record Row(LocalDate week,String status,boolean dirty,long revision,int rule,ExactFraction e,Integer n,
-            String operation,ExactFraction contribution,String input) { }
+            String operation,ExactFraction contribution,String input) {
+        boolean resolved() {return status.equals("CONFIRMED")||status.equals("EXCLUDED");}
+    }
+    record EpochState(DeloadAnalysisState settings,Instant attempted) { }
+    List<EpochState> epochs(UUID owner,long generation) {
+        return jdbc.query("""
+            WITH c AS (SELECT DISTINCT ON(epoch) * FROM deload_analysis_versions WHERE user_id=? AND data_generation=? ORDER BY epoch,version DESC),
+            attempts AS (SELECT epoch,max(updated_at) attempted FROM deload_weekly_assessments WHERE user_id=? AND data_generation=? GROUP BY epoch)
+            SELECT c.*,coalesce(a.attempted,c.epoch_started_at) attempted FROM c LEFT JOIN attempts a ON a.epoch=c.epoch
+            """,(r,i)->new EpochState(new DeloadAnalysisState(r.getLong("version"),r.getBoolean("enabled"),r.getLong("epoch"),r.getTimestamp("recorded_at").toInstant(),r.getTimestamp("epoch_started_at").toInstant(),r.getString("time_zone"),r.getString("reason")),r.getTimestamp("attempted").toInstant()),owner,generation,owner,generation);
+    }
     private static final String ACTIVITY="""
         (EXISTS(SELECT 1 FROM performed_sets p WHERE p.session_id=ws.id AND p.kind='WEIGHT' AND p.deleted_at IS NULL)
          OR EXISTS(SELECT 1 FROM cardio_results a WHERE a.session_id=ws.id AND a.status='COMPLETED' AND a.deleted_at IS NULL AND a.active_ms>0))
@@ -33,49 +43,68 @@ public class DeloadWeeklyRepository {
         String sql="""
             WITH latest AS (SELECT DISTINCT ON(v.user_id,v.data_generation) v.* FROM deload_analysis_versions v
               JOIN users u ON u.id=v.user_id AND u.data_generation=v.data_generation ORDER BY v.user_id,v.data_generation,v.version DESC),
-            eligible AS (SELECT l.*,
-              least(date_trunc('week',l.epoch_started_at AT TIME ZONE l.time_zone)::date,
+            contexts AS (SELECT DISTINCT ON(v.user_id,v.data_generation,v.epoch) v.* FROM deload_analysis_versions v
+              JOIN latest l ON l.user_id=v.user_id AND l.data_generation=v.data_generation
+              WHERE l.enabled AND l.time_zone IS NOT NULL ORDER BY v.user_id,v.data_generation,v.epoch,v.version DESC),
+            eligible AS (SELECT c.*,
+              least(date_trunc('week',c.epoch_started_at AT TIME ZONE c.time_zone)::date,
                 (SELECT min(date_trunc('week',ws.workout_date)::date) FROM workout_sessions ws
-                  WHERE ws.user_id=l.user_id AND ws.data_generation=l.data_generation AND ws.started_at>=l.epoch_started_at
-                  AND ws.workout_date<date_trunc('week',l.epoch_started_at AT TIME ZONE l.time_zone)::date
+                  WHERE ws.user_id=c.user_id AND ws.data_generation=c.data_generation AND ws.started_at>=c.epoch_started_at
+                  AND(c.enabled OR ws.started_at<c.recorded_at)
+                  AND ws.workout_date<date_trunc('week',c.epoch_started_at AT TIME ZONE c.time_zone)::date
                   AND ws.deleted_at IS NULL AND ws.status IN('FINISHED','AUTO_CLOSED') AND
             """+ACTIVITY+"""
-                ),(SELECT min(w.week_start) FROM deload_weekly_assessments w WHERE w.user_id=l.user_id
-                    AND w.data_generation=l.data_generation AND w.epoch=l.epoch)) first_week,
-              (date_trunc('week',(?::timestamptz AT TIME ZONE l.time_zone)-interval '4 hours')-interval '7 days')::date last_week
-              FROM latest l WHERE l.enabled AND l.time_zone IS NOT NULL)
-            SELECT e.user_id,e.data_generation FROM eligible e
-            WHERE e.first_week<=e.last_week
-              AND NOT EXISTS(SELECT 1 FROM deload_weekly_assessments w WHERE w.user_id=e.user_id AND w.data_generation=e.data_generation
-                AND w.epoch=e.epoch AND w.status='CONFIRMED' AND w.needs_recheck)
+                ),summary.first_week) first_week,
+              CASE WHEN c.epoch=l.epoch THEN
+                (date_trunc('week',(?::timestamptz AT TIME ZONE c.time_zone)-interval '4 hours')-interval '7 days')::date
+                WHEN summary.published IS NOT NULL THEN least(summary.published,
+                  (date_trunc('week',(?::timestamptz AT TIME ZONE c.time_zone)-interval '4 hours')-interval '7 days')::date) END last_week,
+              coalesce(summary.attempt,c.epoch_started_at) attempt
+              FROM contexts c JOIN latest l ON l.user_id=c.user_id AND l.data_generation=c.data_generation
+              LEFT JOIN LATERAL (SELECT min(w.week_start) first_week,
+                max(w.week_start) FILTER(WHERE w.status IN('CONFIRMED','EXCLUDED')) published,max(w.updated_at) attempt
+                FROM deload_weekly_assessments w WHERE w.user_id=c.user_id AND w.data_generation=c.data_generation AND w.epoch=c.epoch) summary ON true
+              WHERE c.time_zone IS NOT NULL)
+            SELECT e.user_id,e.data_generation FROM eligible e WHERE e.first_week<=e.last_week
               AND (EXISTS(SELECT 1 FROM (
-                  SELECT e.first_week AS day UNION ALL SELECT w.week_start+7 FROM deload_weekly_assessments w
-                    WHERE w.user_id=e.user_id AND w.data_generation=e.data_generation AND w.epoch=e.epoch AND w.status='CONFIRMED'
-                      AND w.week_start>=e.first_week AND w.week_start<e.last_week) c
-                  WHERE c.day<=e.last_week AND NOT EXISTS(SELECT 1 FROM deload_weekly_assessments w
-                    WHERE w.user_id=e.user_id AND w.data_generation=e.data_generation AND w.epoch=e.epoch AND w.week_start=c.day AND w.status='CONFIRMED'))
+                  SELECT e.first_week AS candidate_date UNION ALL SELECT w.week_start+7 FROM deload_weekly_assessments w
+                    WHERE w.user_id=e.user_id AND w.data_generation=e.data_generation AND w.epoch=e.epoch
+                      AND w.status IN('CONFIRMED','EXCLUDED') AND w.week_start>=e.first_week AND w.week_start<e.last_week) c
+                  WHERE c.candidate_date<=e.last_week AND NOT EXISTS(SELECT 1 FROM deload_weekly_assessments w
+                    WHERE w.user_id=e.user_id AND w.data_generation=e.data_generation AND w.epoch=e.epoch AND w.week_start=c.candidate_date
+                      AND w.status IN('CONFIRMED','EXCLUDED') AND NOT w.needs_recheck))
                 OR EXISTS(SELECT 1 FROM deload_weekly_assessments w WHERE w.user_id=e.user_id AND w.data_generation=e.data_generation
-                  AND w.epoch=e.epoch AND w.status='CONFIRMED' AND
+                  AND w.epoch=e.epoch AND w.week_start<=e.last_week AND w.status IN('CONFIRMED','EXCLUDED') AND
             """+CHANGED+"""
                 ))
-            ORDER BY coalesce((SELECT max(w.updated_at) FROM deload_weekly_assessments w WHERE w.user_id=e.user_id
-              AND w.data_generation=e.data_generation AND w.epoch=e.epoch),e.epoch_started_at),e.user_id LIMIT 20
+            GROUP BY e.user_id,e.data_generation ORDER BY min(e.attempt),e.user_id LIMIT 20
             """;
-        return jdbc.query(sql,(r,i)->new Owner(r.getObject(1,UUID.class),r.getLong(2)),Timestamp.from(now));
+        return jdbc.query(sql,(r,i)->new Owner(r.getObject(1,UUID.class),r.getLong(2)),Timestamp.from(now),Timestamp.from(now));
     }
     boolean lock(UUID owner,long generation,boolean skipBusy) {
         return !jdbc.query("SELECT id FROM users WHERE id=? AND data_generation=? FOR UPDATE"+(skipBusy?" SKIP LOCKED":""),(r,i)->r.getObject(1,UUID.class),owner,generation).isEmpty();
     }
-    LocalDate firstWeek(UUID owner,long generation,DeloadAnalysisState state) {
-        var first=DeloadWeeklyPolicy.monday(state.epochStartedAt().atZone(ZoneId.of(state.timeZone())).toLocalDate());
-        var earlier=jdbc.queryForObject("SELECT min(ws.workout_date) FROM workout_sessions ws WHERE ws.user_id=? AND ws.data_generation=? AND ws.workout_date<? AND ws.started_at>=? AND ws.deleted_at IS NULL AND ws.status IN('FINISHED','AUTO_CLOSED') AND "+ACTIVITY,
-            LocalDate.class,owner,generation,first,Timestamp.from(state.epochStartedAt()));
-        if(earlier!=null)first=DeloadWeeklyPolicy.monday(earlier);
-        var stored=jdbc.queryForObject("SELECT min(week_start) FROM deload_weekly_assessments WHERE user_id=? AND data_generation=? AND epoch=?",LocalDate.class,owner,generation,state.epoch());
-        return stored!=null&&stored.isBefore(first)?stored:first;
-    }
     List<Row> rows(UUID owner,long generation,long epoch) {
-        return jdbc.query("SELECT * FROM deload_weekly_assessments WHERE user_id=? AND data_generation=? AND epoch=? ORDER BY week_start",(r,i)->new Row(r.getObject("week_start",LocalDate.class),r.getString("status"),r.getBoolean("needs_recheck"),r.getLong("revision"),r.getInt("rule_version"),fraction(r,"e"),r.getObject("n",Integer.class),r.getString("operation"),fraction(r,"contribution"),r.getString("input_revision")),owner,generation,epoch);
+        return jdbc.query("SELECT * FROM deload_weekly_assessments WHERE user_id=? AND data_generation=? AND epoch=? ORDER BY week_start",(r,i)->row(r),owner,generation,epoch);
+    }
+    Map<Long,TreeMap<LocalDate,Row>> allRows(UUID owner,long generation) {
+        var result=new HashMap<Long,TreeMap<LocalDate,Row>>();
+        jdbc.query("SELECT * FROM deload_weekly_assessments WHERE user_id=? AND data_generation=? ORDER BY epoch,week_start",r->{result.computeIfAbsent(r.getLong("epoch"),ignored->new TreeMap<>()).put(r.getObject("week_start",LocalDate.class),row(r));},owner,generation);
+        return result;
+    }
+    Map<Long,LocalDate> earlierWeeks(UUID owner,long generation) {
+        var result=new HashMap<Long,LocalDate>();
+        jdbc.query("""
+            WITH c AS (SELECT DISTINCT ON(epoch) * FROM deload_analysis_versions WHERE user_id=? AND data_generation=? ORDER BY epoch,version DESC)
+            SELECT c.epoch,min(ws.workout_date) AS observed_date FROM c JOIN workout_sessions ws ON ws.user_id=c.user_id AND ws.data_generation=c.data_generation
+              AND ws.started_at>=c.epoch_started_at AND(c.enabled OR ws.started_at<c.recorded_at)
+              AND ws.workout_date<date_trunc('week',c.epoch_started_at AT TIME ZONE c.time_zone)::date
+            WHERE c.time_zone IS NOT NULL AND ws.deleted_at IS NULL AND ws.status IN('FINISHED','AUTO_CLOSED') AND
+            """+ACTIVITY+" GROUP BY c.epoch",r->{result.put(r.getLong("epoch"),DeloadWeeklyPolicy.monday(r.getObject("observed_date",LocalDate.class)));},owner,generation);
+        return result;
+    }
+    private static Row row(ResultSet r)throws SQLException {
+        return new Row(r.getObject("week_start",LocalDate.class),r.getString("status"),r.getBoolean("needs_recheck"),r.getLong("revision"),r.getInt("rule_version"),fraction(r,"e"),r.getObject("n",Integer.class),r.getString("operation"),fraction(r,"contribution"),r.getString("input_revision"));
     }
     private static ExactFraction fraction(ResultSet r,String prefix)throws SQLException {
         var n=r.getBigDecimal(prefix+"_numerator");var d=r.getBigDecimal(prefix+"_denominator");
@@ -88,6 +117,10 @@ public class DeloadWeeklyRepository {
             """,owner,generation,epoch,week,Timestamp.from(now));
     }
     void pending(UUID owner,long generation,long epoch,Row row,String input,boolean dirty,Instant now) {
+        if(row.resolved()) {
+            changed(jdbc.update("UPDATE deload_weekly_assessments SET needs_recheck=true,updated_at=greatest(updated_at,?) WHERE user_id=? AND data_generation=? AND epoch=? AND week_start=? AND revision=?",Timestamp.from(now),owner,generation,epoch,row.week(),row.revision()));
+            return;
+        }
         changed(jdbc.update("""
             UPDATE deload_weekly_assessments SET input_revision=?,needs_recheck=?,revision=revision+1,updated_at=?
             WHERE user_id=? AND data_generation=? AND epoch=? AND week_start=? AND status='PENDING' AND revision=?
@@ -98,12 +131,27 @@ public class DeloadWeeklyRepository {
             UPDATE deload_weekly_assessments SET status='CONFIRMED',e_numerator=?,e_denominator=?,n=?,operation=?,
               contribution_numerator=?,contribution_denominator=?,rule_version=1,input_revision=?,needs_recheck=false,
               confirmed_at=?,updated_at=?,revision=revision+1
-            WHERE user_id=? AND data_generation=? AND epoch=? AND week_start=? AND status='PENDING' AND revision=?
+            WHERE user_id=? AND data_generation=? AND epoch=? AND week_start=? AND (status='PENDING' OR status IN('CONFIRMED','EXCLUDED') AND needs_recheck) AND revision=?
             """,result.e().numerator(),result.e().denominator(),result.n(),decision.operation(),decision.contribution().numerator(),decision.contribution().denominator(),input,Timestamp.from(now),Timestamp.from(now),owner,generation,epoch,row.week(),row.revision()));
     }
     private void changed(int count) {if(count!=1)throw new DeloadAnalysisFailure(DeloadAnalysisFailure.Reason.WRITE_CONFLICT);}
-    void invalidateSources(UUID owner,long generation,long epoch,Instant now) {
-        jdbc.update("UPDATE deload_weekly_assessments w SET needs_recheck=true,revision=revision+1,updated_at=greatest(updated_at,?) WHERE user_id=? AND data_generation=? AND epoch=? AND status='CONFIRMED' AND NOT needs_recheck AND "+CHANGED,Timestamp.from(now),owner,generation,epoch);
+    void exclude(UUID owner,long generation,long epoch,Row row,String input,Instant now) {
+        changed(jdbc.update("""
+            UPDATE deload_weekly_assessments SET status='EXCLUDED',e_numerator=NULL,e_denominator=NULL,n=NULL,operation=NULL,
+              contribution_numerator=NULL,contribution_denominator=NULL,rule_version=1,input_revision=?,needs_recheck=false,
+              confirmed_at=?,updated_at=?,revision=revision+1
+            WHERE user_id=? AND data_generation=? AND epoch=? AND week_start=?
+              AND (status='PENDING' OR status IN('CONFIRMED','EXCLUDED') AND needs_recheck) AND revision=?
+            """,input,Timestamp.from(now),Timestamp.from(now),owner,generation,epoch,row.week(),row.revision()));
+    }
+    void markSuffix(UUID owner,long generation,long epoch,LocalDate from,LocalDate through,Instant now) {
+        jdbc.update("UPDATE deload_weekly_assessments SET needs_recheck=true,revision=revision+1,updated_at=greatest(updated_at,?) WHERE user_id=? AND data_generation=? AND epoch=? AND week_start>=? AND week_start<=? AND NOT needs_recheck",Timestamp.from(now),owner,generation,epoch,from,through);
+    }
+    void clearUnchanged(UUID owner,long generation,long epoch,Row row,Instant now) {
+        changed(jdbc.update("UPDATE deload_weekly_assessments SET needs_recheck=false,revision=revision+1,updated_at=greatest(updated_at,?) WHERE user_id=? AND data_generation=? AND epoch=? AND week_start=? AND revision=? AND needs_recheck AND status IN('CONFIRMED','EXCLUDED')",Timestamp.from(now),owner,generation,epoch,row.week(),row.revision()));
+    }
+    void invalidateSources(UUID owner,long generation,Long epoch,Instant now) {
+        jdbc.update("UPDATE deload_weekly_assessments w SET needs_recheck=true,revision=revision+1,updated_at=greatest(updated_at,?) WHERE user_id=? AND data_generation=? AND (?::bigint IS NULL OR epoch=?) AND status IN('CONFIRMED','EXCLUDED') AND NOT needs_recheck AND "+CHANGED,Timestamp.from(now),owner,generation,epoch,epoch);
     }
     /** Must run before G3 clears source dirty in the SAME owner-locked transaction. No derived score is recalculated. */
     @Transactional(transactionManager="workoutTransactionManager",propagation=Propagation.MANDATORY)

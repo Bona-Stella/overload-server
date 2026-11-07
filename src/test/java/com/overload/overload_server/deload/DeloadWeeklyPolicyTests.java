@@ -55,4 +55,36 @@ class DeloadWeeklyPolicyTests {
         var c=DeloadCandidateCalculator.calculate(f.owner,0,f.epoch(),f.monday,f.observed,facts,Map.of(f.monday.plusDays(1),f.daily("UNKNOWN",true)),null,null);
         assertThat(DeloadWeeklyPolicy.input(c)).isNotEqualTo(DeloadWeeklyPolicy.input(a));assertThat(c.sourceRevisions()).hasSize(7);
     }
+    @Test void replacingAnOldResetReplaysItsTrustedPrefixInsteadOfAddingToTheLastTotal() {
+        var first=LocalDate.of(2026,10,5);var rows=new ArrayList<DeloadWeeklyRepository.Row>();
+        for(int i=0;i<3;i++)rows.add(row(first.plusWeeks(i),"ADD",ExactFraction.of(1,1),"CONFIRMED",false));
+        rows.add(row(first.plusWeeks(3),"RESET",ExactFraction.ZERO,"CONFIRMED",false));
+        rows.add(row(first.plusWeeks(4),"ADD",ExactFraction.of(1,1),"CONFIRMED",false));
+        assertThat(DeloadWeeklyPolicy.fold(first,first.plusWeeks(4),rows).weeks()).isEqualTo(ExactFraction.of(1,1));
+        rows.set(3,row(first.plusWeeks(3),"RESET",ExactFraction.ZERO,"CONFIRMED",true));
+        var blocked=DeloadWeeklyPolicy.fold(first,first.plusWeeks(4),rows);assertThat(blocked.weeks()).isEqualTo(ExactFraction.of(3,1));assertThat(blocked.blockedAt()).isEqualTo(first.plusWeeks(3));
+        rows.set(3,row(first.plusWeeks(3),"ADD",ExactFraction.of(3,4),"CONFIRMED",false));
+        assertThat(DeloadWeeklyPolicy.fold(first,first.plusWeeks(4),rows).weeks()).isEqualTo(ExactFraction.of(19,4));
+    }
+    @Test void excludedWeekPreservesBothItsPrefixAndFollowingContributionButDirtyStillBlocks() {
+        var first=LocalDate.of(2026,10,5);var rows=new ArrayList<>(List.of(
+            row(first,"ADD",ExactFraction.of(1,1),"CONFIRMED",false),row(first.plusWeeks(1),null,null,"EXCLUDED",false),
+            row(first.plusWeeks(2),"ADD",ExactFraction.of(3,4),"CONFIRMED",false)));
+        assertThat(DeloadWeeklyPolicy.fold(first,first.plusWeeks(2),rows).weeks()).isEqualTo(ExactFraction.of(7,4));
+        rows.set(1,row(first.plusWeeks(1),null,null,"EXCLUDED",true));var blocked=DeloadWeeklyPolicy.fold(first,first.plusWeeks(2),rows);
+        assertThat(blocked.weeks()).isEqualTo(ExactFraction.of(1,1));assertThat(blocked.blockedAt()).isEqualTo(first.plusWeeks(1));
+    }
+    @Test void exclusionRequiresOnlyOutsideIntervalAndNeverResolvesUnknownActiveOrUninspectedInputs() {
+        var f=new DeloadCandidateCalculatorTests();
+        var outside=DeloadCandidateCalculator.calculate(f.owner,0,f.epoch(),f.monday.minusWeeks(1),f.observed,List.of(),Map.of(),null,null);
+        assertThat(DeloadWeeklyPolicy.excluded(outside)).isTrue();assertThat(DeloadWeeklyPolicy.resolvable(outside)).isTrue();
+        var unknown=DeloadCandidateCalculator.calculate(f.owner,0,f.epoch(),f.monday,f.observed,List.of(f.cardio(0,100000,null)),Map.of(),null,null);
+        assertThat(DeloadWeeklyPolicy.excluded(unknown)).isFalse();assertThat(DeloadWeeklyPolicy.resolvable(unknown)).isFalse();
+        var active=f.weight(0,0,1);active=f.alter(active,active.startedAt(),"ACTIVE",active.initialJson());
+        var waiting=DeloadCandidateCalculator.calculate(f.owner,0,f.epoch(),f.monday,f.observed,List.of(active),Map.of(),null,f.monday);
+        assertThat(DeloadWeeklyPolicy.excluded(waiting)).isFalse();assertThat(DeloadWeeklyPolicy.resolvable(waiting)).isFalse();
+        var zero=DeloadCandidateCalculator.calculate(f.owner,0,f.epoch(),f.monday,f.observed,List.of(),Map.of(),null,null);
+        assertThat(DeloadWeeklyPolicy.excluded(zero)).isFalse();assertThat(DeloadWeeklyPolicy.resolvable(zero)).isTrue();
+        assertThat(DeloadWeeklyPolicy.decide(zero.e(),zero.n()).operation()).isEqualTo("RESET");
+    }
 }

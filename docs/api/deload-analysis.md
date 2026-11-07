@@ -1,6 +1,6 @@
 # 디로딩 분석 설정·epoch API — G4-1
 
-2026-11-07. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) DL-05와 [G4 준비 계약](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#5-g4-개발-범위의존성검증-계획)을 구현한다. **설정/epoch와 [G4-3 내부 후보/E/N 계산](../tasks/deload-g4-3-report.md)은 구현했으며 [G4-4 월04시 확정/주간 저장/내부 누적](../tasks/deload-g4-4-report.md)도 구현했다. G4-5 과거 정정 재계산·G4-6 최종 조회 연동·디로딩 기간은 미구현**이다. PWA 연결은 변경하지 않는다.
+2026-11-07. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) DL-05와 [G4 준비 계약](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#5-g4-개발-범위의존성검증-계획)을 구현한다. **설정/epoch와 [G4-3 내부 후보/E/N 계산](../tasks/deload-g4-3-report.md)은 구현했으며 [G4-4 월04시 확정/주간 저장/내부 누적](../tasks/deload-g4-4-report.md)도 구현했다. [G4-5 과거 정정 재계산](../tasks/deload-g4-5-report.md)과 V26 EXCLUDED 저장/fold를 구현했다. G4-6 최종 조회 연동·디로딩 기간은 미구현**이다. PWA 연결은 변경하지 않는다.
 
 ## GET /api/v1/deload-analysis
 
@@ -21,7 +21,7 @@
 }
 ```
 
-`epochInitialWeeks`는 그 epoch의 초기값0이라는 뜻이며 실제 확정 누적이 아니다. G4-4 내부 확정/fold는 최종 조회 범위·보류·재계산 응답 계약과 아직 연결되지 않았으므로 `confirmedWeeks`는 항상null이다. 마지막 확정 범위·입력 revision·재계산 상태는 G4-5~6에서 구현한다. 현재 `calculationStatus`는 OFF면 DISABLED, ON/시간대 미확정이면 AWAITING_TIME_ZONE, ON/시간대 확정이면 NOT_IMPLEMENTED다. 현재 NOT_IMPLEMENTED는 최종 조회 미연동 상태이며 G4-4 내부 계산 부재를 뜻하지 않는다. ON/OFF와 최종 조회 구현 여부를 혼동하지 않는다.
+`epochInitialWeeks`는 그 epoch의 초기값0이라는 뜻이며 실제 확정 누적이 아니다. G4-4 내부 확정/fold는 최종 조회 범위·보류·재계산 응답 계약과 아직 연결되지 않았으므로 `confirmedWeeks`는 항상null이다. 마지막 확정 범위·입력 revision·재계산 상태의 HTTP 응답 연결은 G4-6에서 구현한다. 현재 `calculationStatus`는 OFF면 DISABLED, ON/시간대 미확정이면 AWAITING_TIME_ZONE, ON/시간대 확정이면 NOT_IMPLEMENTED다. 현재 NOT_IMPLEMENTED는 최종 조회 미연동 상태이며 G4-4 내부 계산 부재를 뜻하지 않는다. ON/OFF와 최종 조회 구현 여부를 혼동하지 않는다.
 
 ## PUT /api/v1/deload-analysis/settings
 
@@ -67,10 +67,10 @@ owner FOR UPDATE·READ_COMMITTED에서 현재 세대→설정 존재→expectedV
 
 누락 설정은 무결성/이행 부재 오류이며 GET·PUT·START에서 조용히 신규 계정으로 취급하지 않는다. DB 세부 오류/자격 정보는 응답이나 로그에 노출하지 않는다.
 
-## V25와 명시적 기존 계정 이행
+## V25/V26와 명시적 기존 계정 이행
 
-V25는 `deload_analysis_versions`와 `deload_weekly_assessments` 및 scope/FK/CHECK/전이 제약만 추가한다. 기존 V1~V24·운동/계획/수행/승인 JSON·hash는 변경하지 않는다. versions는 현재값과 설정 이력의 단일 저장소이고 epoch는 그 시작 version을 참조한다. 별도 current 설정·누적 캐시·일별 점수·이벤트 표는 없다. 주간 표는 G4-4에서 정확 E/N·RESET/ADD·기여·상태/ruleVersion/revision·시각을 저장한다. input_revision은 canonical 계산 SHA-256과 날짜별 source revision 전체 벡터를 담은 JSON TEXT다. 기존 G3 Job의 tick 뒤에 독립 분석 배치를 연결했고 별도 scheduler는 없다. G3 dirty 해제와 같은 트랜잭션에서 주간 needs_recheck를 보존하며, 확정 dirty 주는 G4-5 대기로 둔다. current-total 캐시나 중복 일별 저장소는 없다.
+V25는 `deload_analysis_versions`와 `deload_weekly_assessments` 및 scope/FK/CHECK/전이 제약만 추가한다. 기존 V1~V24·운동/계획/수행/승인 JSON·hash는 변경하지 않는다. versions는 현재값과 설정 이력의 단일 저장소이고 epoch는 그 시작 version을 참조한다. 별도 current 설정·누적 캐시·일별 점수·이벤트 표는 없다. 주간 표는 G4-4에서 정확 E/N·RESET/ADD·기여·상태/ruleVersion/revision·시각을 저장한다. input_revision은 canonical 계산 SHA-256과 날짜별 source revision 전체 벡터를 담은 JSON TEXT다. 기존 G3 Job의 tick 뒤에 독립 분석 배치를 연결했고 별도 scheduler는 없다. G3 dirty 해제와 같은 트랜잭션에서 주간 needs_recheck를 보존하며, 확정 dirty 주는 G4-5에서 기존 숫자를 보존하고 가장 이른 영향 주부터 같은 epoch의 후속 주를 재평가한다. ON 구간 밖 여행 주가 마지막 실제 수행 삭제로 분석 제외되는 경우 승인된 V26 EXCLUDED 상태를 저장한다. E/N·operation·contribution은 NULL이고 판정 확정 시각·입력 식별·revision을 보존한다. 정확히 OUTSIDE_ON_INTERVAL만 있고 날짜/후보가 없는 결과를 두 번 확인한 뒤 CAS로 확정한다. 이는 N0 RESET과 다르며 fold에서 가산/RESET 없이 진행한다. EXCLUDED도 입력이 바뀌면 dirty로 차단하고 정상 후보가 다시 생기면 CONFIRMED로 재평가한다. [G4-5 근거](../tasks/deload-g4-5-report.md)를 따른다. current-total 캐시나 중복 일별 저장소는 없다.
 
 **스키마 migration은 기존 계정을 채우지 않는다.** 내부 `DeloadAnalysisService.adoptExisting(owner,generation,T_adopt)`만 명시적 경계로 이행할 수 있도록 준비했다. HTTP·scheduler·startup hook·자동 T_adopt는 없다. owner 잠금·현재세대 확인 후 설정이 없을 때만 ADOPTED_INITIAL·ON·version0/epoch0을 삽입한다. T_adopt는 필수 마이크로초 시각이고 users.created_at 이전/서버 미래를 거부한다. 기존 일정 시간대는 재사용한다. 이미 설정이 있으면 선택을 보존하며 재실행/동시 호출은 한 번만 생성한다. 과거 users.created_at으로 소급하지 않는다. 실제 기록의 ON/epoch 구간 필터는 G4-3 내부 계산에서 사용하며 주간 확정/내부 fold는 G4-4, 과거 정정 재계산/최종 조회는 G4-5~6 범위다.
 
-실제 적용은 대상·전환 시각 확정, 가입/관리 쓰기 정지, 영구 백업·격리 복원, 스키마 적용·명시적 이행 검증 및 별도 승인이 선행되어야 한다. **이번에는 Testcontainers에만 V25를 적용하며 기존 검토 DB(V24), 개인/운영 DB에는 migration/이행을 실행하지 않는다.** 기존 검토 서버를 새 빌드로 재시작하지 않는다.
+실제 적용은 대상·전환 시각 확정, 가입/관리 쓰기 정지, 영구 백업·격리 복원, 스키마 적용·명시적 이행 검증 및 별도 승인이 선행되어야 한다. **V25/V26은 Testcontainers에서만 검증했으며 기존 검토 DB(V24), 개인/운영 DB에는 migration/이행을 실행하지 않는다.** 기존 검토 서버를 새 빌드로 재시작하지 않는다.

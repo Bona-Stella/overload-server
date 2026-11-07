@@ -195,7 +195,7 @@ class DeloadWeeklyFinalizationIntegrationTests {
         jdbc.update("UPDATE performed_sets SET deleted_at=now() WHERE id=?",s.sets().getFirst());
         var total=finalizer.accumulated(owner,0);assertThat(total.blockedAt()).isEqualTo(monday);assertThat(total.confirmedThrough()).isNull();assertThat(total.weeks()).isEqualTo(ExactFraction.ZERO);
         assertThat(weeklyRows().getFirst().dirty()).isTrue();assertThat(weeklyRows().getFirst().operation()).isEqualTo("ADD");
-        assertThat(finish().status()).isEqualTo(RECALCULATION_REQUIRED);assertThat(finalizer.runBatch()).isZero();
+        assertThat(finish().confirmed()).isEqualTo(1);assertThat(finalizer.runBatch()).isEqualTo(1);assertThat(finalizer.runBatch()).isZero();assertThat(finalizer.accumulated(owner,0).weeks()).isEqualTo(ExactFraction.ZERO);
     }
     @Test void g3DirtyClearKeepsDurableWeeklyInvalidationAndOriginalScores() {
         var s=weight(0,1,1);weight(1,1,1);calendar(monday,monday.minusDays(1));
@@ -265,7 +265,7 @@ class DeloadWeeklyFinalizationIntegrationTests {
         assertThat(finalizer.finalizeWeek(owner,0,0,monday.plusWeeks(1)).status()).isEqualTo(OUT_OF_ORDER);
         transaction().executeWithoutResult(tx->{repo().lock(owner,0,false);var w=monday.plusWeeks(1);var value=service.calculateLocked(owner,0,0,w,EmailOtpFixtures.CLOCK.instant());repo().reserve(owner,0,0,w,EmailOtpFixtures.CLOCK.instant());var row=repo().rows(owner,0,0).getFirst();repo().confirm(owner,0,0,row,value,DeloadWeeklyPolicy.input(value),DeloadWeeklyPolicy.decide(value.e(),value.n()),EmailOtpFixtures.CLOCK.instant());});
         assertThat(finalizer.accumulated(owner,0).blockedAt()).isEqualTo(monday);assertThat(finalizer.accumulated(owner,0).weeks()).isEqualTo(ExactFraction.ZERO);
-        assertThat(finalizer.runBatch()).isEqualTo(1);assertThat(finalizer.accumulated(owner,0).weeks()).isEqualTo(ExactFraction.of(1,1));
+        assertThat(finalizer.runBatch()).isEqualTo(2);assertThat(finalizer.accumulated(owner,0).weeks()).isEqualTo(ExactFraction.of(1,1));
     }
     @Test void actualHalfPlansPersistExactThreeQuartersAndSevenTenths() {
         weight(0,1,1);seed(owner,0,1,at(1),1,1,"FINISHED",false,false,true);assertThat(finish().confirmed()).isEqualTo(1);
@@ -307,6 +307,8 @@ class DeloadWeeklyFinalizationIntegrationTests {
         assertThat(finalizer.runBatch()).isEqualTo(2);assertThat(weeklyRows().getFirst().week()).isEqualTo(monday.minusWeeks(1));
         jdbc.update("UPDATE performed_sets SET deleted_at=now() WHERE id=?",early.sets().getFirst());
         var total=finalizer.accumulated(owner,0);assertThat(total.blockedAt()).isEqualTo(monday.minusWeeks(1));assertThat(total.confirmedThrough()).isNull();
-        assertThat(total.weeks()).isEqualTo(ExactFraction.ZERO);assertThat(weeklyRows().getFirst().dirty()).isTrue();assertThat(finalizer.runBatch()).isZero();
+        assertThat(total.weeks()).isEqualTo(ExactFraction.ZERO);assertThat(weeklyRows().getFirst().dirty()).isTrue();assertThat(finalizer.runBatch()).isEqualTo(2);
+        assertThat(weeklyRows().getFirst().status()).isEqualTo("EXCLUDED");assertThat(weeklyRows().getFirst().e()).isNull();
+        assertThat(finalizer.accumulated(owner,0).weeks()).isEqualTo(ExactFraction.of(1,1));assertThat(finalizer.runBatch()).isZero();
     }
 }

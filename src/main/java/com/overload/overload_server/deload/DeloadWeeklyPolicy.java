@@ -27,13 +27,20 @@ final class DeloadWeeklyPolicy {
         var ratio=new ExactFraction(e.numerator(),e.denominator().multiply(BigInteger.valueOf(n)));
         return new Decision("ADD",ratio.compareTo(ExactFraction.of(1,1))>0?ExactFraction.of(1,1):ratio);
     }
+    static boolean excluded(DeloadCandidateCalculator.Week week) {
+        return week.days().isEmpty()&&week.pending().equals(Set.of(DeloadCandidateCalculator.Pending.OUTSIDE_ON_INTERVAL));
+    }
+    static boolean resolvable(DeloadCandidateCalculator.Week week) {
+        return week.calculable()&&week.requiredReviewsComplete()||excluded(week);
+    }
     static Fold fold(LocalDate first,LocalDate last,List<DeloadWeeklyRepository.Row> rows) {
         var index=new HashMap<LocalDate,DeloadWeeklyRepository.Row>();rows.forEach(r->index.put(r.week(),r));
         var total=ExactFraction.ZERO;LocalDate through=null;
         for(var week=first;!week.isAfter(last);week=week.plusWeeks(1)) {
             var row=index.get(week);
-            if(row==null||!row.status().equals("CONFIRMED")||row.dirty()||row.rule()!=RULE_VERSION)return new Fold(total,through,week);
-            total=row.operation().equals("RESET")?ExactFraction.ZERO:total.add(row.contribution());through=week;
+            if(row==null||!row.resolved()||row.dirty()||row.rule()!=RULE_VERSION)return new Fold(total,through,week);
+            if(!row.status().equals("EXCLUDED"))total=row.operation().equals("RESET")?ExactFraction.ZERO:total.add(row.contribution());
+            through=week;
         }
         return new Fold(total,through,null);
     }

@@ -71,6 +71,7 @@ public final class DeloadCandidateCalculator {
                 } catch(RuntimeException invalid) { damaged=true; }
                 candidates.add(new Candidate(session.id(),session.version(),session.localRevision(),session.snapshotHash(),completion));
             }
+            if(!onDate&&candidates.isEmpty()&&!active)continue;
             var best=candidates.stream().filter(c->c.completion()!=null&&c.completion().hasPlan())
                 .max(Comparator.comparing((Candidate c)->c.completion().lower()).thenComparing(c->c.session().toString())).orElse(null);
             var lower=best==null?ExactFraction.ZERO:best.completion().lower();
