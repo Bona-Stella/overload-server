@@ -404,4 +404,4 @@ V10 전체 회귀·실제 V8 백업의 격리 복원/업그레이드·승인된 
 
 ### 2026-11-07 디로딩 현행 문서
 
-정책은 [v1.7](../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md), 구현 근거와 잔여 작업은 [Backend 현황 분석](../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md)을 따른다. G0~G3 기반은 구현 확인, G4 분석/epoch/E/N·G5 실제 기간/임시 계획·G6 실제 디로딩 API 연결은 미구현이다. 신규 계정은 기본ON·누적0의 초기 epoch로 확정됐고 OFF→ON은 새 epoch다. 기존 미설정 계정은 비소급 이행 경계를 사용하며 HTML 초기ON은 실제 서버 상태의 근거가 아니다. 자격은4조건, 기간 중복 생성 차단은 별도 상태 제약이다. 일반 G3는 분석OFF와 독립이다. 기존 격리 검토 DB의 V24 확인을 개인/운영DB 적용으로 확대하지 않는다.
+정책은 [v1.7](../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md), 구현 근거와 잔여 작업은 [Backend 현황 분석](../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md)을 따른다. G0~G3 기반은 구현 확인, [G4-1 설정/epoch API](docs/api/deload-analysis.md)와 V25 스키마는 구현했으며 G4-2~6 후보/E/N·확정/재계산·G5 실제 기간/임시 계획·G6 PWA 실연동은 미구현이다. V25/명시적 T_adopt 이행은 기존 검토·개인 DB에 실행하지 않았다. 신규 계정은 기본ON·누적0의 초기 epoch로 확정됐고 OFF→ON은 새 epoch다. 기존 미설정 계정은 비소급 이행 경계를 사용하며 HTML 초기ON은 실제 서버 상태의 근거가 아니다. 자격은4조건, 기간 중복 생성 차단은 별도 상태 제약이다. 일반 G3는 분석OFF와 독립이다. 기존 격리 검토 DB의 V24 확인을 개인/운영DB 적용으로 확대하지 않는다.

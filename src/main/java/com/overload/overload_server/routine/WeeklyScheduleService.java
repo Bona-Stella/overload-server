@@ -3,6 +3,7 @@ package com.overload.overload_server.routine;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import com.overload.overload_server.deload.DeloadAnalysisService;
 import org.springframework.transaction.annotation.*;
 import tools.jackson.databind.json.JsonMapper;
 import java.time.*;
@@ -15,9 +16,9 @@ import static com.overload.overload_server.routine.RoutineFailure.Reason.*;
 public class WeeklyScheduleService {
     private static final JsonMapper JSON=JsonMapper.builder().build();
     private final JdbcTemplate jdbc;private final RoutineService routines;private final RoutinePlanHistory plans;
-    private final WorkoutCalendarRepository calendars;private final Clock clock;
-    WeeklyScheduleService(JdbcTemplate jdbc,RoutineService routines,RoutinePlanHistory plans,WorkoutCalendarRepository calendars,ObjectProvider<Clock> clocks) {
-        this.jdbc=jdbc;this.routines=routines;this.plans=plans;this.calendars=calendars;clock=clocks.getIfAvailable(Clock::systemUTC);
+    private final WorkoutCalendarRepository calendars;private final Clock clock;private final DeloadAnalysisService analysis;
+    WeeklyScheduleService(JdbcTemplate jdbc,RoutineService routines,RoutinePlanHistory plans,WorkoutCalendarRepository calendars,ObjectProvider<Clock> clocks,DeloadAnalysisService analysis) {
+        this.jdbc=jdbc;this.routines=routines;this.plans=plans;this.calendars=calendars;this.analysis=analysis;clock=clocks.getIfAvailable(Clock::systemUTC);
     }
     @Transactional(transactionManager="workoutTransactionManager",readOnly=true,isolation=Isolation.REPEATABLE_READ)
     WeeklySchedule.View read(UUID owner,String zone) {return view(owner,generation(owner,false),zone);}
@@ -33,6 +34,7 @@ public class WeeklyScheduleService {
         var now=clock.instant().truncatedTo(ChronoUnit.MICROS);
         calendars.requireOpenTime(owner,generation,now);
         if(current.appliedAt()!=null&&now.isBefore(current.appliedAt()))throw new RoutineFailure(WRITE_CONFLICT);
+        analysis.bindForSchedule(owner,generation,request.timeZone());
         for(UUID id:request.assignments().stream().map(WeeklySchedule.Assignment::routineId).distinct().sorted().toList())
             plans.record(routines.detail(owner,id,false),now,false);
         jdbc.update("INSERT INTO weekly_schedule_versions(user_id,data_generation,version,recorded_at,effective_from,time_zone,assignments) VALUES (?,?,?,?,?,?,?::jsonb)",

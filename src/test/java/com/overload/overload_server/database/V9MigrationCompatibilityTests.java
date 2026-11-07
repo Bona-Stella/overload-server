@@ -60,7 +60,7 @@ class V9MigrationCompatibilityTests {
 						"--GOOGLE_OIDC_ENABLED=false", "--OTP_EMAIL_ENABLED=false", "--logging.level.root=WARN", "--spring.main.banner-mode=off")) {
 			MixedPersistenceAssertions.verify(app);
 			var flyway = app.getBean(Flyway.class);
-			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("24");
+			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("25");
 			assertThat(Arrays.stream(flyway.info().applied()).limit(8).map(value -> value.getChecksum()).toList()).isEqualTo(checksums);
 			assertThat(jdbc.queryForList("SELECT * FROM users ORDER BY id")).isEqualTo(users);
 			assertThat(jdbc.queryForList("SELECT * FROM auth_identities ORDER BY id")).isEqualTo(identities);

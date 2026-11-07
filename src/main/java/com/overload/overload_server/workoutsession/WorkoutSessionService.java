@@ -3,6 +3,7 @@ package com.overload.overload_server.workoutsession;
 import com.overload.overload_server.persistence.TransactionExecution;
 import com.overload.overload_server.routine.RoutineRepository;
 import com.overload.overload_server.routine.WorkoutCalendarRepository;
+import com.overload.overload_server.deload.DeloadAnalysisService;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -19,11 +20,12 @@ public class WorkoutSessionService {
     private final WorkoutSnapshotRepository snapshots;
     private final Clock clock;
     private final WorkoutCalendarRepository calendars;
+    private final DeloadAnalysisService analysis;
     private final TransactionTemplate starts, writes, reads;
 
-    WorkoutSessionService(WorkoutSessionRepository sessions, RoutineRepository routines, WorkoutSnapshotRepository snapshots,WorkoutCalendarRepository calendars,ObjectProvider<Clock> clocks,
+    WorkoutSessionService(WorkoutSessionRepository sessions, RoutineRepository routines, WorkoutSnapshotRepository snapshots,WorkoutCalendarRepository calendars,ObjectProvider<Clock> clocks,DeloadAnalysisService analysis,
                           @Qualifier("workoutTransactionManager") PlatformTransactionManager manager) {
-        this.sessions = sessions; this.routines = routines; this.snapshots=snapshots;this.calendars=calendars; this.clock = clocks.getIfAvailable(Clock::systemUTC);
+        this.sessions = sessions; this.routines = routines; this.snapshots=snapshots;this.calendars=calendars;this.analysis=analysis; this.clock = clocks.getIfAvailable(Clock::systemUTC);
         starts = new TransactionTemplate(manager); starts.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         writes = new TransactionTemplate(manager);
         reads = new TransactionTemplate(manager); reads.setReadOnly(true); reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
@@ -53,6 +55,7 @@ public class WorkoutSessionService {
             }
             var session = WorkoutSession.start(owner, input, InitialPlan.copy(source), clock.instant());
             session.scheduleVersionAtStart=calendars.origin(owner,input.dataGeneration(),input.startedAt(),input.workoutDate());
+            analysis.bindForStart(owner,input.dataGeneration(),input.startedTimeZone());
             sessions.insert(session); sessions.flush();
             calendars.recordStart(owner,input.dataGeneration(),session.id,session.scheduleVersionAtStart,session.workoutDate,session.sourceRoutineId);
             snapshots.initialize(session);sessions.flush();

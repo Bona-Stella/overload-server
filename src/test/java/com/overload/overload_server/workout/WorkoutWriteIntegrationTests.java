@@ -106,6 +106,7 @@ class WorkoutWriteIntegrationTests {
 		jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?",owner.id());
 		jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?",owner.id());
 		jdbc.update("DELETE FROM auth_identities WHERE user_id=?",owner.id());
+		jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?",owner.id());
 		jdbc.update("DELETE FROM users WHERE id=?",owner.id());
 		error(changeSettings(),401,"AUTHENTICATION_REQUIRED");
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE id=?",Integer.class,owner.id())).isZero();
@@ -116,7 +117,7 @@ class WorkoutWriteIntegrationTests {
 		long generation = 9007199254740993L;
 		jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", owner.id());
 		jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", owner.id());
-		jdbc.update("UPDATE users SET data_generation=? WHERE id=?", generation, owner.id());
+		jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", owner.id()); jdbc.update("UPDATE users SET data_generation=? WHERE id=?", generation, owner.id());
 		jdbc.update("INSERT INTO user_workout_settings(user_id,data_generation,rest_low_seconds,rest_medium_seconds,rest_high_seconds) VALUES (?,?,180,120,90)", owner.id(), generation);
 		var before = snapshot(owner.id());
 		error(changeSettings(), 409, "DATA_GENERATION_MISMATCH");

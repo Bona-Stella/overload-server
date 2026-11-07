@@ -112,8 +112,8 @@ class WorkoutSessionIntegrationTests {
         error(browser.send("GET",BASE+"/closed","{}",null),400,"INVALID_REQUEST");
         // Disposable fixture reset only: preserve the current-generation FK instead of bypassing it.
         jdbc.update("DELETE FROM record_change_events WHERE session_id IN (SELECT id FROM workout_sessions WHERE user_id=?)",owner.id());
-        for(String table:List.of("daily_training_assessments","workout_calendar_control","session_exercises","workout_sessions","weekly_schedule_versions","routine_plan_history","routine_weight_placements","routine_cardio_placements","routines","exercise_definitions","user_workout_settings"))jdbc.update("DELETE FROM "+table+" WHERE user_id=?",owner.id());
-        jdbc.update("UPDATE users SET data_generation=1 WHERE id=?",owner.id());
+        for(String table:List.of("deload_weekly_assessments","deload_analysis_versions","daily_training_assessments","workout_calendar_control","session_exercises","workout_sessions","weekly_schedule_versions","routine_plan_history","routine_weight_placements","routine_cardio_placements","routines","exercise_definitions","user_workout_settings"))jdbc.update("DELETE FROM "+table+" WHERE user_id=?",owner.id());
+        jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", owner.id()); jdbc.update("UPDATE users SET data_generation=1 WHERE id=?",owner.id());
         var reset=node(browser.get(BASE+"/closed"));assertThat(reset.get("dataGeneration").asString()).isEqualTo("1");assertThat(reset.get("sessions").size()).isZero();
     }
 
@@ -360,6 +360,39 @@ class WorkoutSessionIntegrationTests {
         calendarAt("2026-11-09T19:00:00Z");reviewDates();var original=daily("2026-11-09");assertThat(original.get("state")).isEqualTo("MISSED");assertThat(original.get("missed_schedule_version")).isEqualTo(1L);
         reviewDates();assertThat(daily("2026-11-09")).isEqualTo(original);
     }
+    @Test void analysisOffPreservesStartFinishDailyReviewAndGeneralStatistics() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");
+        var settings=Map.of("dataGeneration","0","expectedVersion","0","enabled",false,"timeZone","Asia/Seoul");
+        assertThat(browser.send("PUT","/api/v1/deload-analysis/settings",json(settings),csrf).statusCode()).isEqualTo(200);
+        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine),Map.of("dayOfWeek",2,"routineId",routine)))),csrf));
+        var base=startOn("2026-11-09");var initial=row().get("initial_plan_snapshot");
+        finishOn(base,"2026-11-09",List.of(calendarSet(base,"2026-11-09",1)));
+        calendarAt("2026-11-10T19:00:00Z");reviewDates();
+        assertThat(daily("2026-11-09").get("state")).isEqualTo("PERFORMED");assertThat(daily("2026-11-10").get("state")).isEqualTo("MISSED");
+        var overview=node(browser.get("/api/v1/statistics/overview?fromDate=2026-11-09&toDateExclusive=2026-11-11"));
+        assertThat(overview.get("statistics").get("summary").get("completedSets").asString()).isEqualTo("1");
+        assertThat(row().get("initial_plan_snapshot")).isEqualTo(initial);
+        var setting=node(browser.get("/api/v1/deload-analysis"));assertThat(setting.get("enabled").asBoolean()).isFalse();assertThat(setting.get("epoch").asString()).isEqualTo("0");
+    }
+    @Test void failedStartRollsBackFirstAnalysisTimeZoneAndRetryPreservesAcknowledgement() throws Exception {
+        jdbc.execute("CREATE FUNCTION fail_g4_start() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'isolated START failure' USING ERRCODE='23514'; END $$");
+        jdbc.execute("CREATE TRIGGER fail_g4_start BEFORE INSERT ON workout_sessions FOR EACH ROW EXECUTE FUNCTION fail_g4_start()");
+        try { assertThat(start(startBody()).statusCode()).isEqualTo(500); }
+        finally { jdbc.execute("DROP TRIGGER fail_g4_start ON workout_sessions");jdbc.execute("DROP FUNCTION fail_g4_start()"); }
+        assertThat(node(browser.get("/api/v1/deload-analysis")).get("version").asString()).isEqualTo("0");
+        node(start(startBody()));var bound=node(browser.get("/api/v1/deload-analysis"));assertThat(bound.get("timeZone").asString()).isEqualTo("Asia/Seoul");
+        node(start(startBody()));assertThat(node(browser.get("/api/v1/deload-analysis"))).isEqualTo(bound);
+    }
+    @Test void settingAndStartRaceBindExactlyOneZoneWithoutRewritingSessionClock() throws Exception {
+        var go=new CountDownLatch(1);
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            var writing=pool.submit(()->{go.await();return browser.send("PUT","/api/v1/deload-analysis/settings",json(Map.of("dataGeneration","0","expectedVersion","0","enabled",false,"timeZone","UTC")),csrf);});
+            var starting=pool.submit(()->{go.await();return start(startBody());});go.countDown();
+            assertThat(starting.get(20,TimeUnit.SECONDS).statusCode()).isEqualTo(201);int status=writing.get(20,TimeUnit.SECONDS).statusCode();assertThat(status).isIn(200,409);
+            var result=node(browser.get("/api/v1/deload-analysis"));assertThat(result.get("version").asString()).isEqualTo("1");assertThat(result.get("epoch").asString()).isEqualTo("0");
+            assertThat(result.get("timeZone").asString()).isEqualTo(status==200?"UTC":"Asia/Seoul");assertThat(row().get("started_time_zone")).isEqualTo("Asia/Seoul");
+        } finally {go.countDown();}
+    }
     @Test void sameDayRestCreatesNoMissOrPermanentRestRowsAndRollbackCanCatchUp() throws Exception {
         calendarAt("2026-11-12T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",4,"routineId",routine)))),csrf));
         calendarAt("2026-11-12T06:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf));calendarAt("2026-11-12T19:00:00Z");
@@ -523,7 +556,8 @@ class WorkoutSessionIntegrationTests {
         jdbc.update("DELETE FROM routines WHERE user_id=?", owner.id());
         jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", owner.id());
         jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", owner.id());
-        jdbc.update("UPDATE users SET data_generation=9007199254740993 WHERE id=?", owner.id());
+        jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", owner.id()); jdbc.update("UPDATE users SET data_generation=9007199254740993 WHERE id=?", owner.id());
+        app.getBean(com.overload.overload_server.deload.DeloadAnalysisRepository.class).initializeNewAccount(owner.id(),9007199254740993L);
         error(start(startBody()), 409, "DATA_GENERATION_MISMATCH");
         assertThat(node(browser.get(BASE + "/active")).get("dataGeneration").asString()).isEqualTo("9007199254740993");
         error(browser.get(path()), 404, "SESSION_NOT_FOUND");
@@ -592,7 +626,7 @@ class WorkoutSessionIntegrationTests {
                         .executeWithoutResult(status -> {
                             isolated.queryForObject("SELECT data_generation FROM users WHERE id=? FOR UPDATE", Long.class, owner.id());
                             isolated.update("DELETE FROM session_exercises WHERE user_id=?", owner.id());
-                            for (String table : List.of("daily_training_assessments", "workout_calendar_control", "workout_sessions", "weekly_schedule_versions", "routine_plan_history", "routine_weight_placements", "routine_cardio_placements", "routines", "exercise_definitions", "user_workout_settings"))
+                            for (String table : List.of("deload_weekly_assessments","deload_analysis_versions","daily_training_assessments", "workout_calendar_control", "workout_sessions", "weekly_schedule_versions", "routine_plan_history", "routine_weight_placements", "routine_cardio_placements", "routines", "exercise_definitions", "user_workout_settings"))
                                 isolated.update("DELETE FROM " + table + " WHERE user_id=?", owner.id());
                             isolated.update("UPDATE users SET data_generation=1 WHERE id=?", owner.id());
                         });

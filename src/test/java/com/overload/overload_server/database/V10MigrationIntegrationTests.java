@@ -56,21 +56,11 @@ class V10MigrationIntegrationTests {
         return Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                 .locations("classpath:db/migration").target("10").load();
     }
-    ConfigurableApplicationContext app(boolean latestSchema) {
-        if (!latestSchema) {
-            // Historical JDBC provisioning does not validate future JPA entities against V9.
-            var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext();
-            context.registerBean(javax.sql.DataSource.class, () -> new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()));
-            context.registerBean(JdbcTemplate.class, () -> new JdbcTemplate(context.getBean(javax.sql.DataSource.class)));
-            context.registerBean(org.springframework.transaction.PlatformTransactionManager.class,
-                    () -> new DataSourceTransactionManager(context.getBean(javax.sql.DataSource.class)));
-            context.register(org.springframework.util.ClassUtils.resolveClassName("com.overload.overload_server.account.AccountRepository", getClass().getClassLoader()), AccountProvisioningService.class);
-            context.refresh(); return context;
-        }
+    ConfigurableApplicationContext app() {
         return new SpringApplicationBuilder(OverloadServerApplication.class).web(WebApplicationType.NONE)
                 .run("--spring.profiles.active=integration", "--spring.datasource.url=" + postgres.getJdbcUrl(),
                         "--spring.datasource.username=" + postgres.getUsername(), "--spring.datasource.password=" + postgres.getPassword(),
-                        "--spring.flyway.target=24",
+                        "--spring.flyway.target=25",
                         "--GOOGLE_OIDC_ENABLED=false", "--OTP_EMAIL_ENABLED=false", "--logging.level.root=WARN", "--spring.main.banner-mode=off");
     }
 
@@ -80,7 +70,7 @@ class V10MigrationIntegrationTests {
         assertRemoved();
         assertThat(jdbc().queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();
         flyway.validate();
-        try (var context = app(true)) {
+        try (var context = app()) {
             MixedPersistenceAssertions.verify(context);
             var account = context.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email("fresh-v10@example.test"), null);
             var read = context.getBean(WorkoutReadService.class);
@@ -107,10 +97,11 @@ class V10MigrationIntegrationTests {
         historical("9").migrate();
         jdbc.update("UPDATE exercise_definitions SET version=7,deleted_at='2026-10-02T00:00:00.654321Z',intent_stamps='{\"name\":{\"legacy\":true}}'::jsonb WHERE id=?", exercise);
         jdbc.update("UPDATE user_workout_settings SET version=11,intent_stamps='{\"restLowSeconds\":{\"legacy\":true}}'::jsonb WHERE user_id=?", owner);
-        UUID emailOwner;
-        try (var context = app(false)) {
-            emailOwner = context.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email("preserved-v10@example.test"), null).id();
-        }
+        // Historical V9 data fixture: current provisioning correctly requires V25.
+        UUID emailOwner=UUID.randomUUID();
+        jdbc.update("INSERT INTO users(id) VALUES (?)",emailOwner);
+        jdbc.update("INSERT INTO auth_identities(id,user_id,provider,issuer,subject) VALUES (?, ?, 'email', 'overload:email', 'preserved-v10@example.test')",UUID.randomUUID(),emailOwner);
+        jdbc.update("INSERT INTO user_workout_settings(user_id,data_generation,rest_low_seconds,rest_medium_seconds,rest_high_seconds) VALUES (?,0,180,120,90)",emailOwner);
         seedObsolete(owner);
         var protectedBefore = protectedRows(); var historyBefore = history();
         var constraints = constraints(); var indexes = indexes();
@@ -121,7 +112,7 @@ class V10MigrationIntegrationTests {
         assertThat(history().subList(0,9)).isEqualTo(historyBefore);
         assertThat(jdbc.queryForObject("SELECT attribute_bytes FROM spring_session_attributes WHERE session_primary_id=?", byte[].class,session)).isEqualTo(bytes);
         assertRemoved(); flyway.validate(); assertThat(flyway.migrate().migrationsExecuted).isZero();
-        try (var context = app(true)) {
+        try (var context = app()) {
             MixedPersistenceAssertions.verify(context);
             var read = context.getBean(WorkoutReadService.class);
             assertThat(read.settings(owner).dataGeneration()).isEqualTo(9007199254740993L);

@@ -68,8 +68,7 @@ class EmailReauthenticationIntegrationTests {
 		// Only the disposable container created by this test class. No Compose DB connections.
 		jdbc.update("DELETE FROM spring_session"); jdbc.update("DELETE FROM email_otp_login_claims");
 		jdbc.update("UPDATE email_otp_limits SET active_challenge_id = NULL");
-		for (var table : List.of("email_otp_challenges", "email_otp_limits", "email_otp_rate_limits", "exercise_definitions",
-				"user_workout_settings", "auth_identities", "users")) { jdbc.update("DELETE FROM " + table); }
+		for (var table : List.of("email_otp_challenges", "email_otp_limits", "email_otp_rate_limits", "deload_weekly_assessments", "deload_analysis_versions", "exercise_definitions", "user_workout_settings", "auth_identities", "users")) { jdbc.update("DELETE FROM " + table); }
 		browser = new Browser();
 	}
 	@AfterEach void close() { ReauthenticationFixtures.reset(); browser.close(); }

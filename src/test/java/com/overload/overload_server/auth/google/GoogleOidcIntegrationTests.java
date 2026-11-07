@@ -101,7 +101,7 @@ class GoogleOidcIntegrationTests {
 		jdbc.update("DELETE FROM spring_session"); jdbc.update("DELETE FROM email_otp_login_claims");
 		jdbc.update("UPDATE email_otp_limits SET active_challenge_id=NULL");
 		for (var table : List.of("email_otp_challenges", "email_otp_limits", "email_otp_rate_limits",
-				"exercise_definitions", "user_workout_settings", "auth_identities", "users")) { jdbc.update("DELETE FROM " + table); }
+				"deload_weekly_assessments", "deload_analysis_versions", "exercise_definitions", "user_workout_settings", "auth_identities", "users")) { jdbc.update("DELETE FROM " + table); }
 		application.getBean(EmailOtpFixtures.FakeSender.class).reset();
 		browser = new Browser();
 	}
@@ -313,7 +313,7 @@ class GoogleOidcIntegrationTests {
 		assertSuccess(complete(browser, begin(browser))); var user = userId(browser);
 		var exercise = UUID.randomUUID();
 		jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", user); jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", user);
-		jdbc.update("UPDATE users SET data_generation=7,nickname='edited nickname' WHERE id=?", user);
+		jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", user); jdbc.update("UPDATE users SET data_generation=7,nickname='edited nickname' WHERE id=?", user);
 		jdbc.update("INSERT INTO exercise_definitions(id,user_id,data_generation,name) VALUES(?,?,7,'edited definition')", exercise, user);
 		jdbc.update("INSERT INTO user_workout_settings VALUES(?,7,210,150,100,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", user);
 		post(browser, "/api/v1/auth/logout", Map.of(), csrf(browser));

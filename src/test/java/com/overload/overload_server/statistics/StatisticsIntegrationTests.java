@@ -154,7 +154,7 @@ class StatisticsIntegrationTests {
     @Test void overviewUsesCurrentOwnerAndExactLargeGeneration() throws Exception {
         long generation=9007199254740993L;
         jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?",owner);
-        jdbc.update("UPDATE users SET data_generation=? WHERE id=?",generation,owner);
+        jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", owner); jdbc.update("UPDATE users SET data_generation=? WHERE id=?",generation,owner);
         var response=success(browser.get(PATH));var data=response.get("statistics");
         assertThat(data.get("userId").asString()).isEqualTo(owner.toString());
         assertThat(data.get("dataGeneration").asString()).isEqualTo(Long.toString(generation));

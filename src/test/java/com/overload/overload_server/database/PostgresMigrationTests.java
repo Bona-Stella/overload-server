@@ -56,16 +56,16 @@ class PostgresMigrationTests {
 			assertThat(jdbc.queryForList("""
 					SELECT table_name FROM information_schema.tables
 					WHERE table_schema = 'public' ORDER BY table_name
-					""", String.class)).containsExactly("auth_identities", "cardio_activity_catalog", "cardio_results", "daily_training_assessments", "email_otp_challenges", "email_otp_limits",
+					""", String.class)).containsExactly("auth_identities", "cardio_activity_catalog", "cardio_results", "daily_training_assessments", "deload_analysis_versions", "deload_weekly_assessments", "email_otp_challenges", "email_otp_limits",
 					"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_definitions", "exercise_muscle",
 					"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_versions", "workout_calendar_control", "workout_sessions");
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();
-			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("24");
+			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("25");
 			assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();
 			assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
 			flyway.validate();
 			history = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
-			assertThat(history).hasSize(24);
+			assertThat(history).hasSize(25);
             assertThat(history.get(21)).containsEntry("version", "22").containsEntry("script", "V22__add_bodyweight_additional_load.sql").containsEntry("success", true);
             assertThat(history.get(20)).containsEntry("version", "21").containsEntry("script", "V21__add_actual_cardio_measurements.sql").containsEntry("success", true);
 			assertThat(history.get(19)).containsEntry("version", "20").containsEntry("script", "V20__allow_immediate_first_weekly_schedule.sql").containsEntry("success", true);
@@ -112,6 +112,30 @@ class PostgresMigrationTests {
 		}
 	}
 
+    @Test void v25OnlyAddsSchemaWithoutAdoptingExistingAccountsOrChangingV24Facts() {
+        var old=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).target("24").load();old.migrate();
+        var jdbc=new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()));
+        UUID user=UUID.randomUUID(),routine=UUID.randomUUID(),session=UUID.randomUUID(),device=UUID.randomUUID();
+        jdbc.update("INSERT INTO users(id,nickname,created_at,updated_at) VALUES (?,'legacy','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')",user);
+        jdbc.update("INSERT INTO routines(id,user_id,data_generation,name,created_at,updated_at) VALUES (?,?,0,'preserve',now(),now())",routine,user);
+        jdbc.update("""
+            INSERT INTO workout_sessions(id,user_id,data_generation,source_routine_id,started_at,workout_date,started_time_zone,started_device_id,editor_device_id,
+                initial_plan_snapshot,applied_plan_snapshot,last_snapshot_hash,last_workout_synced_at,created_at,updated_at)
+            VALUES(?,?,0,?,'2026-02-01T00:00:00Z','2026-02-01','UTC',?,?,
+                '{"schemaVersion":2,"routineName":"preserve Ω","weightExercises":[],"cardioActivities":[]}',
+                '{"schemaVersion":2,"weightExercises":[],"cardioActivities":[]}',?,'2026-02-01T00:00:00Z',now(),now())
+            """,session,user,routine,device,device,"b".repeat(64));
+        var tables=jdbc.queryForList("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name<>'flyway_schema_history' ORDER BY table_name",String.class);
+        var before=new java.util.HashMap<String,java.util.List<String>>();
+        for(var table:tables)before.put(table,jdbc.queryForList("SELECT to_jsonb(t)::text FROM "+table+" t ORDER BY to_jsonb(t)::text",String.class));
+        var history=jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history ORDER BY installed_rank");
+        var latest=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).load();assertThat(latest.migrate().migrationsExecuted).isEqualTo(1);
+        for(var table:tables)assertThat(jdbc.queryForList("SELECT to_jsonb(t)::text FROM "+table+" t ORDER BY to_jsonb(t)::text",String.class)).isEqualTo(before.get(table));
+        assertThat(jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history WHERE installed_rank<=24 ORDER BY installed_rank")).isEqualTo(history);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_weekly_assessments",Integer.class)).isZero();
+        assertThat(latest.migrate().migrationsExecuted).isZero();latest.validate();
+    }
     @Test void v24PromotesLatestIntentOnceAndNeverRewritesLegacyReservationRows() {
         var old=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).target("23").load();old.migrate();
         var jdbc=new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()));
@@ -181,7 +205,7 @@ class PostgresMigrationTests {
 		var checksums = java.util.Arrays.stream(v2.info().applied()).map(info -> info.getChecksum()).toList();
 		try (var context = startApplication(WebApplicationType.NONE)) {
 			var latest = context.getBean(Flyway.class);
-			assertThat(latest.info().current().getVersion().toString()).isEqualTo("24");
+			assertThat(latest.info().current().getVersion().toString()).isEqualTo("25");
 			assertThat(java.util.Arrays.stream(latest.info().applied()).limit(2).map(info -> info.getChecksum()).toList())
 					.isEqualTo(checksums);
 			assertThat(latest.migrate().migrationsExecuted).isZero();

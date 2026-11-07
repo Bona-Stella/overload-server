@@ -76,7 +76,7 @@ class AccountProvisioningIntegrationTests {
 		assertThat(jdbc.queryForList("""
 				SELECT table_name FROM information_schema.tables
 				WHERE table_schema = 'public' ORDER BY table_name
-				""", String.class)).containsExactly("auth_identities", "cardio_activity_catalog", "cardio_results", "daily_training_assessments", "email_otp_challenges", "email_otp_limits",
+				""", String.class)).containsExactly("auth_identities", "cardio_activity_catalog", "cardio_results", "daily_training_assessments", "deload_analysis_versions", "deload_weekly_assessments", "email_otp_challenges", "email_otp_limits",
 				"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_definitions", "exercise_muscle",
 				"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_versions", "workout_calendar_control", "workout_sessions");
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions",Integer.class)).isZero();
@@ -120,6 +120,7 @@ class AccountProvisioningIntegrationTests {
 				""", userId);
 		var account = service.provision(VerifiedIdentity.email("existing@example.com"), "덮어쓰면 안 됨");
 		assertThat(account).isEqualTo(new Account(userId, 7, "기존 계정"));
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions WHERE user_id=?",Integer.class,userId)).isZero();
 		assertThat(exerciseIds(account)).containsExactly(exerciseId);
 		assertThat(jdbc.queryForObject("SELECT rest_low_seconds FROM user_workout_settings WHERE user_id = ?",
 				Integer.class, userId)).isEqualTo(100);
@@ -184,7 +185,7 @@ class AccountProvisioningIntegrationTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"users", "auth_identities", "exercise_definitions", "user_workout_settings"})
+	@ValueSource(strings = {"users", "auth_identities", "exercise_definitions", "user_workout_settings", "deload_analysis_versions"})
 	void sqlFailureAtEachStageRollsBackTheEntireAccountAndAllowsRetry(String table) {
 		jdbc.execute("""
 				CREATE FUNCTION task007_fail_insert() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -278,6 +279,8 @@ class AccountProvisioningIntegrationTests {
 	}
 
 	private void assertSeed(Account account) {
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions WHERE user_id=? AND data_generation=? AND version=0 AND epoch=0 AND enabled AND reason='INITIAL' AND time_zone IS NULL", Integer.class, account.id(), account.dataGeneration())).isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT a.epoch_started_at=u.created_at FROM deload_analysis_versions a JOIN users u ON u.id=a.user_id WHERE a.user_id=? AND a.version=0",Boolean.class,account.id())).isTrue();
 		assertThat(jdbc.queryForList("""
 				SELECT name FROM exercise_definitions WHERE user_id = ? AND data_generation = ?
 				""", String.class, account.id(), account.dataGeneration()))
@@ -295,6 +298,7 @@ class AccountProvisioningIntegrationTests {
 	}
 
 	private void assertCounts(int users, int identities, int exercises, int settings) {
+		if(users==0)assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions",Integer.class)).isZero();
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isEqualTo(users);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM auth_identities", Integer.class)).isEqualTo(identities);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions", Integer.class)).isEqualTo(exercises);

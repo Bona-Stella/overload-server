@@ -2,6 +2,7 @@ package com.overload.overload_server.account;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import com.overload.overload_server.deload.DeloadAnalysisRepository;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -10,9 +11,11 @@ import java.util.UUID;
 class AccountRepository {
 
 	private final JdbcTemplate jdbc;
+	private final DeloadAnalysisRepository analysis;
 
-	AccountRepository(JdbcTemplate jdbc) {
+	AccountRepository(JdbcTemplate jdbc, DeloadAnalysisRepository analysis) {
 		this.jdbc = jdbc;
+		this.analysis = analysis;
 	}
 
 	Optional<Account> findByIdentity(VerifiedIdentity identity) {
@@ -57,6 +60,7 @@ class AccountRepository {
 				VALUES (?, ?, ?, ?, ?)
 				""", account.id(), account.dataGeneration(), settings.restLowSeconds(),
 				settings.restMediumSeconds(), settings.restHighSeconds());
+		analysis.initializeNewAccount(account.id(), account.dataGeneration());
 	}
 
 }

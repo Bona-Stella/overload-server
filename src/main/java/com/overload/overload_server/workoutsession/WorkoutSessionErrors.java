@@ -19,6 +19,8 @@ import java.util.*;
 @RestControllerAdvice(assignableTypes = WorkoutSessionController.class)
 public class WorkoutSessionErrors {
 	public record Body(String code) { }
+	@ExceptionHandler(com.overload.overload_server.deload.DeloadAnalysisFailure.class)
+	ResponseEntity<Body> analysis(com.overload.overload_server.deload.DeloadAnalysisFailure failure) { return response(failure.status(), failure.code()); }
 	@ExceptionHandler(WorkoutSessionFailure.class)
 	ResponseEntity<Body> failure(WorkoutSessionFailure failure) { return response(failure.reason.status, failure.reason.name()); }
 	@ExceptionHandler({HttpMessageNotReadableException.class, ServletRequestBindingException.class, MethodArgumentTypeMismatchException.class})

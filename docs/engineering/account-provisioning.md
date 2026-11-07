@@ -111,3 +111,7 @@ FK는 잘못된 소유자·세대의 **관계 연결**을 거부한다. SQL에 �
 - [Google issuer 및 sub 규약](https://developers.google.com/identity/openid-connect/openid-connect#validatinganidtoken)
 - [PostgreSQL INSERT / ON CONFLICT](https://www.postgresql.org/docs/18/sql-insert.html)
 - [Spring 트랜잭션 전파](https://docs.spring.io/spring-framework/reference/data-access/transaction/declarative/tx-propagation.html)
+
+## G4-1 분석 초기 설정 추가 · 2026-11-07
+
+신규 계정은 기존 사용자·신원·휴식 설정 트랜잭션에서 [분석 설정](../api/deload-analysis.md)을 함께 생성한다. INITIAL·기본ON·version0/epoch0·users.created_at 기준이며 시간대는 미확정이다. identity 경쟁 패자/seed 실패는 분석 행도 rollback하고 재진입에서는 새 seed를 실행하지 않는다. 기존 미설정 계정은 스키마 migration/GET/로그인에서 자동 이행하지 않는다. 명시적 T_adopt와 별도 적용 승인을 사용하는 내부 이행 경계를 따르며 실제 검토/개인 DB에는 실행하지 않았다. V25는 기존 FK 원칙에 따라 분석 행을 남긴 채 세대만 바꾸는 것을 차단한다. 향후 데이터 초기화는 이 관계까지 포함한 별도 원자적 계약이 필요하다.
