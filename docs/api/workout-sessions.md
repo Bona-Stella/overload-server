@@ -483,3 +483,7 @@ T02-B V23: 유산소 Plan의 optional activityId는 세션 최초/적용 계획�
 V24의 nullable schedule_version_at_start는 신규 START에서만 설정한다. 당시 시각의 구/신 버전 경계와 저장된 workoutDate의 요일로 예정 여부를 확인하며, 첫 예정 START의 세션 참조를 날짜별로 고정한다. 기존 null·InitialPlan/요청 JSON/날짜/시간대/hash는 backfill하지 않는다. 미수행이 먼저 확정된 날짜에 늦은 START가 와도 최초 미수행 근거를 교체하지 않는다.
 
 원본 세션 상태/삭제 및 실제 수행의 변경에 대한 전용 DB trigger가 동일 workoutTransactionManager 트랜잭션에서 날짜를 dirty로 만든다. 동일 FINISH/snapshot ACK·GET·단순 높은 revision no-op은 일별 재검사나 원본 시각을 늘리지 않는다. 기존24시간 만료와 종료 후 정정/삭제/명시 누락 복구도 같은 방식으로 재검사 대상이 되며 새로운 운동 쓰기/오프라인 시스템을 도입하지 않는다. 자동 검사는 [일정·일별 계약](weekly-schedule.md)을 따르고 디로딩 엔진은 포함하지 않는다. 실제 DB의 V24 적용은 이번 범위에 없다.
+
+### 2026-11-07 현행 정책과 적용 범위
+
+디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 설정/epoch/E/N·G5 기간은 미구현이다. 현재 API에 디로딩 성공 응답/게이지가 있다고 해석하지 않는다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 이 문서의 이전 “이번 실제 DB 미적용”은 해당 개발 단계의 제한이다. 현재 V24가 확인된 대상은 기존 격리 검토DB뿐이며 개인/운영DB는 이번에 확인하거나 변경하지 않았다.

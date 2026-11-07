@@ -1,6 +1,6 @@
 # Actual Cardio Speed and Distance — Phase 2D
 
-2026-11-03 (Asia/Seoul). [Statistics and Tracking v1.3](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md) ST-47~52를 구현한다. 새 제품 정책이나 유산소 승인 평가를 만들지 않는다. 기존 실제 `activeMs`·timer·정정/복구·통계 경로를 사용한다. 기존 개인 DB에는 V18~V21을 적용하지 않았다.
+2026-11-03 (Asia/Seoul). [Statistics and Tracking v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md) ST-47~52를 구현한다. 새 제품 정책이나 유산소 승인 평가를 만들지 않는다. 기존 실제 `activeMs`·timer·정정/복구·통계 경로를 사용한다. 기존 개인 DB에는 V18~V21을 적용하지 않았다.
 
 ## 선택적인 수행 결과 확장
 

@@ -351,7 +351,7 @@ Google 클라이언트 준비·정확한 localhost 콜백·활성화·세션 상
 
 [통계·추적 2A](docs/tasks/statistics-tracking-phase-2a-report.md)에서 기존 기록을 사용하는 [읽기 집계 API](docs/api/statistics.md)와 실제 계정의 주/월 운동량·근육별 상세·기존 이력 연결을 추가했습니다. 2A 당시 미완료였던 주간 전체 계획/달성률은 아래 2B에서 구현했습니다. 승인 중량 성장선은2C에서 구현했으며 유산소 계산 거리 저장은2D에서 구현했고 디로딩 연결은 후속이며 2단계 전체 완료가 아닙니다. 개인 DB V18 미적용·운영 카탈로그 분류 검증 미완료 상태는 유지합니다.
 
-[2B](docs/tasks/statistics-tracking-phase-2b-report.md)에서 최초 등록은 당일부터 즉시 적용하고 기존 변경은 다음 월요일부터 적용하는 주간 일정·적용 이력과 미수행 예정일을 포함한 주간 달성률을 추가했습니다. 시작 계획과 실제 완료를 비교하며 추가 운동·다른 세션의 부분 기록을 합쳐 계획을 채우지 않습니다. 과거 근거가 없거나 유산소 목표를 확인할 수 없으면 수치를 추정하지 않습니다. V19·V20은 격리 검증용으로만 사용했고 개인 DB V18·V19·V20은 미적용입니다. 첫 주는 등록일~일요일의 예정일만 분모에 포함합니다. 실제 적용은 별도 승인 범위입니다.
+[2B](docs/tasks/statistics-tracking-phase-2b-report.md)는 당시 최초 등록 즉시·기존 변경 다음 월요일 방식의 역사 기록입니다. 현재 일반 일정은 [G2~G3 계약](docs/api/weekly-schedule.md)에 따라 변경도 즉시 적용하며 과거 근거를 보존합니다. 2B에서는 주간 일정·적용 이력과 미수행 예정일을 포함한 주간 달성률을 추가했습니다. 시작 계획과 실제 완료를 비교하며 추가 운동·다른 세션의 부분 기록을 합쳐 계획을 채우지 않습니다. 과거 근거가 없거나 유산소 목표를 확인할 수 없으면 수치를 추정하지 않습니다. V19·V20은 격리 검증용으로만 사용했고 개인 DB V18·V19·V20은 미적용입니다. 첫 주는 등록일~일요일의 예정일만 분모에 포함합니다. 실제 적용은 별도 승인 범위입니다.
 V1~V9 Flyway 이력은 변경하지 않았습니다. 정식 V10은 폐기 stamp·receipt/feed 구조만 제거하며 기존 데이터·version/deleted_at을 보존합니다.
 V10 전체 회귀·실제 V8 백업의 격리 복원/업그레이드·승인된 개인 로컬 DB V8→V9→V10 적용 결과는 [V10 최종 보고서](docs/tasks/task-009-v10-local-application-report.md)를 참고하세요.
 삭제 목록·DB 의존성과 검증 결과는 [1차 구조 정리 보고서](docs/tasks/task-009-phase-1-cleanup-report.md)를 참고하세요.
@@ -401,3 +401,7 @@ V10 전체 회귀·실제 V8 백업의 격리 복원/업그레이드·승인된 
 <div align="center">
   <strong>Overload — Track your lifts. Own your progress. 💪</strong>
 </div>
+
+### 2026-11-07 디로딩 현행 문서
+
+정책은 [v1.7](../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md), 구현 근거와 잔여 작업은 [Backend 현황 분석](../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md)을 따른다. G0~G3 기반은 구현 확인, G4 분석/epoch/E/N·G5 실제 기간/임시 계획·G6 실제 디로딩 API 연결은 미구현이다. 최초 분석 기본값은 미확정 제품 결정이며 HTML 초기ON은 근거가 아니다. 자격은4조건, 기간 중복 생성 차단은 별도 상태 제약이다. 일반 G3는 분석OFF와 독립이다. 기존 격리 검토 DB의 V24 확인을 개인/운영DB 적용으로 확대하지 않는다.

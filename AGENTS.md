@@ -101,6 +101,8 @@ Required:
 
 ### Task 009 Current Design
 
+**2026-11-07 현행 디로딩:** G0~G3 기반은 구현 확인, G4 분석 설정/epoch/E/N·G5 기간/임시 계획은 미구현, G6는 시안 일부와 실제 API 미연동을 구분합니다. 시작 자격은4조건이며 계획0/1일·분석OFF·게이지0 자체로 차단하지 않습니다. 중복 ACTIVE 기간은 별도 상태 제약입니다. 최초 분석 기본값은 미확정 제품 결정이며 HTML 초기ON을 서버 기본으로 사용하지 않습니다. G3 일반 검사는 OFF여도 유지하고 실제 디로딩 기간 정지는 G5 연결 전입니다.
+
 아래는 현행 계약의 진입점과 단계별 구현·적용 기록입니다. 통계·추적 2A~2E 구현과 해당 단계의 자동 검증은 완료되었습니다.
 이전 단계의 미구현 표기는 당시 범위이며, 이후 단계에서 확장된 내용은 최신 계약을 따릅니다.
 실제 개인 DB 적용·운영 분류·실기기 검증·디로딩 연결 여부는 각각 구분합니다.
@@ -113,11 +115,11 @@ Required:
 
 승인 중량 성장 2C는 [진행 보고서](docs/tasks/statistics-tracking-phase-2c-report.md)와 [조회 계약](docs/api/approved-weight-growth.md)을 따릅니다. 기존 승인 사건을 routineId+placementId별로 분리하고 과거 수행/승인 이름을 검색하며, 초기/현재 중량으로 과거 점을 생성하지 않습니다. 연결 근거가 없는 점은 선으로 잇지 않습니다. 디로딩 식별/일반 승인 차단의 실제 연결은 후속3단계이며 혼재 검증 완료로 표시하지 않습니다. 개인 DB V18~V20 미적용을 유지합니다.
 
-통계 2B는 [진행 보고서](docs/tasks/statistics-tracking-phase-2b-report.md), [주간 일정 계약](docs/api/weekly-schedule.md), [통계 overview](docs/api/statistics.md)를 따릅니다. 최신 제품 정책은 [Statistics and Tracking v1.3](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md)입니다. 일정 최초 등록은 당일부터 즉시 적용하며 첫 주는 등록일~일요일 예정일만 분모에 포함하고, 기존 요일·빈도 변경은 다음 월요일, 동일 예정일은 최고 단일 세션 InitialPlan 달성률을 사용합니다. V19는 이력2표, V20은 최초 version의 평일 적용 제약만 보완하며 과거 일정 백필은 없습니다. 개인 DB V18·V19·V20 미적용·운영 분류 미검증 상태를 유지합니다. 이력 없는 날짜·실제 유산소 목표 증거 부족은 null/확인 불가이며 추정하지 않습니다. 이전 2A endpoint는 3단계 승인 정리에서 제거했으며, 현재 통계 조회는 overview와 성장 조회 계약을 따릅니다.
+통계 2B는 [진행 보고서](docs/tasks/statistics-tracking-phase-2b-report.md), [주간 일정 계약](docs/api/weekly-schedule.md), [통계 overview](docs/api/statistics.md)를 따릅니다. 최신 제품 정책은 [Statistics and Tracking v1.4](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md)입니다. 일정 최초 등록은 당일부터 즉시 적용하며 첫 주는 등록일~일요일 예정일만 분모에 포함하고, 기존 요일·빈도 변경도 즉시 적용하며 과거 판정 근거를 보존하고, 동일 예정일은 최고 단일 세션 InitialPlan 달성률을 사용합니다. V19는 이력2표, V20은 최초 version의 평일 적용 제약만 보완하며 과거 일정 백필은 없습니다. 개인 DB V18·V19·V20 미적용·운영 분류 미검증 상태를 유지합니다. 이력 없는 날짜·실제 유산소 목표 증거 부족은 null/확인 불가이며 추정하지 않습니다. 이전 2A endpoint는 3단계 승인 정리에서 제거했으며, 현재 통계 조회는 overview와 성장 조회 계약을 따릅니다.
 
 통계 2A `/api/v1/statistics`의 과거 구현 기록은 [진행 보고서](docs/tasks/statistics-tracking-phase-2a-report.md)와 [읽기 API](docs/api/statistics.md)에 보존하며, 해당 GET endpoint는 3단계 승인 정리에서 제거했습니다. 당시에는 완료 기록의 실제 집계와 종료 세션 InitialPlan 계획만 구현했으며 주간 전체 계획/달성률은 null입니다. 성장선의 이후 구현은2C를 따르며 실제 속도/계산 거리 저장·디로딩 연결을 완료로 간주하지 않습니다. 개인 DB V18 미적용·운영 분류 검토 미완료를 유지합니다.
 
-통계·추적은 [통계 v1.3](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md), 디로딩은 [디로딩 v1.6](../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.6.md)과 [UI v0.9 결정 로그](../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md) 10.10절을 따릅니다. [서버 연동 범위](docs/engineering/backend.md#124-ui-v09와-디로딩-v16-연동--구현-예정)는 현재 계약과 디로딩 후속 구현을 구분합니다. 서버 저장소의 디로딩 v1.3 및 [0·1단계 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)는 이전 설계·검증 기록입니다. 통계는 PRIMARY/SECONDARY를 분리하며 보조근 0.5 환산을 사용하지 않습니다. V18의 nullable `joint_type`에서 NULL은 미분류, OTHER는 명시적 해당 없음입니다. 미시작 과거 예정일의 계획은 추정하지 않습니다. v1.6의 CHECK-08은 확정된 배치 정책이며 디로딩 자동 편성 및 운영 카탈로그 분류 검증은 후속입니다. 개인 DB 적용 범위는 위 기록을 따릅니다.
+통계·추적은 [통계 v1.4](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md), 디로딩은 [디로딩 v1.7](../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md)과 [UI v0.9 결정 로그](../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md)의 현행 규칙을 따릅니다. [서버 연동 범위](docs/engineering/backend.md#124-ui-v09와-디로딩-v17-연동--구현-예정)는 현재 계약과 디로딩 후속 구현을 구분합니다. 서버 저장소의 디로딩 v1.3 및 [0·1단계 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)는 이전 설계·검증 기록입니다. 통계는 PRIMARY/SECONDARY를 분리하며 보조근 0.5 환산을 사용하지 않습니다. V18의 nullable `joint_type`에서 NULL은 미분류, OTHER는 명시적 해당 없음입니다. 미시작 과거 예정일의 계획은 추정하지 않습니다. v1.7의 CHECK-08은 확정된 배치 정책이며 디로딩 자동 편성 및 운영 카탈로그 분류 검증은 후속입니다. 개인 DB 적용 범위는 위 기록을 따릅니다.
 
 표준 운동 연결은 [최종 카탈로그 설계](docs/tasks/standard-exercise-catalog-design-analysis.md)와
 [Backend 2단계 보고서](docs/tasks/standard-exercise-catalog-backend-phase-2-report.md)를 따릅니다.

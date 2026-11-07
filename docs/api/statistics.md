@@ -124,3 +124,7 @@ G2부터 일정 최초 등록과 변경은 모두 저장 즉시 적용하며, �
 plannedDays에 nullable reviewStatus/reviewRevision을 추가한다. reviewStatus는 PERFORMED/MISSED/PENDING_ACTIVE/UNKNOWN/EMPTY 또는 재검사 중 PENDING이며, 해당 일별 행이 없으면 null이다. 최초 MISS는 늦은 실제 기록에 의해 삭제되지 않는다. 일반 계획 이행률 후보는 여전히 예정 루틴이며, 다른 루틴/휴식일의 실제 세트·유산소는 실제 운동량으로 남긴다. PERFORMED는 종목 전체 완료를 뜻하지 않는다. PWA는 검사 전 또는 재검사 중인0을 자동 미수행으로 확정 표시하지 않는다.
 
 읽기 전용 REPEATABLE_READ를 유지하며 SQL 수는 미등록11개/계획 루틴 있음12개로 범위의 날짜 수와 무관하게 고정된다. 일별 검사는 별도 job가31일 창으로 같은 조회를 재사용한다. 디로딩 E/N·누적/설정/기간 계산을 이 API에 추가하지 않았다.
+
+### 2026-11-07 현행 정책과 적용 범위
+
+디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 설정/epoch/E/N·G5 기간은 미구현이다. 현재 API에 디로딩 성공 응답/게이지가 있다고 해석하지 않는다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 이 문서의 이전 “이번 실제 DB 미적용”은 해당 개발 단계의 제한이다. 현재 V24가 확인된 대상은 기존 격리 검토DB뿐이며 개인/운영DB는 이번에 확인하거나 변경하지 않았다.

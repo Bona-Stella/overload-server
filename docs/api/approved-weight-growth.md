@@ -1,6 +1,6 @@
 # Approved Weight Growth API — Phase 2C
 
-2026-11-02 (Asia/Seoul). [Statistics and Tracking v1.3](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md) ST-38~42를 구현한다. 제품 정책 버전은 변경하지 않는다. 새로운 승인·평가·집계 표·migration 없이 기존 `progress_change_events`를 읽는다. 개인 DB V18~V20 미적용 상태를 유지한다.
+2026-11-02 (Asia/Seoul). [Statistics and Tracking v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md) ST-38~42를 구현한다. 제품 정책 버전은 변경하지 않는다. 새로운 승인·평가·집계 표·migration 없이 기존 `progress_change_events`를 읽는다. 개인 DB V18~V20 미적용 상태를 유지한다.
 
 ## 공통 계약
 

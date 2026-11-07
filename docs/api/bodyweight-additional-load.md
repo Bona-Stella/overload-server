@@ -1,6 +1,6 @@
 # Bodyweight Additional Load — Phase 2E
 
-2026-11-03 (Asia/Seoul). [Statistics and Tracking v1.3](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.3.md) ST-36·37의 구현 계약이다. 제품 정책과 기준서 버전을 변경하지 않는다. 기존 [세션 계약](workout-sessions.md), [통계 API](statistics.md), [2D 유산소 측정](cardio-actual-measurements.md)을 유지한다.
+2026-11-03 (Asia/Seoul). [Statistics and Tracking v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md) ST-36·37의 구현 계약이다. 제품 정책과 기준서 버전을 변경하지 않는다. 기존 [세션 계약](workout-sessions.md), [통계 API](statistics.md), [2D 유산소 측정](cardio-actual-measurements.md)을 유지한다.
 
 ## DB와 기록 근거
 

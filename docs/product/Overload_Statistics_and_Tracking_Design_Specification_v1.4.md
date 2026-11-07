@@ -3,7 +3,7 @@
 **버전:** v1.4  
 **기준일:** 2026-11-06  
 **상태:** 제품 설계 합의본 · 단계별 구현/검증은 기술 문서 참조  
-**연계 문서:** [디로딩 v1.6](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.6.md) · 이후 확정 정책은 §14 및 [구현 계획](../tasks/weekly-schedule-immediate-implementation-plan.md)
+**연계 문서:** [디로딩 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) · 이후 확정 정책은 §14 및 [구현 계획](../tasks/weekly-schedule-immediate-implementation-plan.md)
 **변경 원칙:** 이 문서를 이후 통계·추적 정책 변경의 기준으로 사용한다. 새 합의는 해당 `ST-XX` 식별자를 유지하여 수정하고 버전·변경 이력을 갱신한다.
 
 > **한눈에 보기**  
@@ -224,3 +224,7 @@
 UI v0.9의 시각 구조를 유지하면서 현재 assignments/version/appliedAt으로 홈·루틴 일정을 연결한다. current/pending/nextEffectiveFrom 및 예약 표시·적용일 선택을 소비하지 않는다. 저장 뒤 현재값을 재조회하고 교체 확인·루틴 부분 성공·실패 입력을 유지한다. 검사 전 미수행을 확정 표시하지 않고 진행/검사 대기를 구분한다. 기존 HTML/Decision Log v0.9의 다음 월요일 문구는 이 후속 계약이 대체한다. 원래 역사 문서는 덮어쓰지 않는다.
 
 디로딩은 월~일, 서로 다른 실제 수행·미수행 평가 날짜의 E/N, E≤1 누적 초기화, 다음 월요일04시 이후 확정, OFF/epoch·기간 정지·완료/취소 보존이라는 승인 정책을 따른다. **제품 정책과 구현 상태는 다르며 분석·주별 누적·실제 기간은 G4~G5 미구현이다.** UI의 개발용 게이지는 실제 누적값이 아니다. 실제 적용은 [API 계약](../api/weekly-schedule.md) 및 별도 DB 승인 범위를 따른다.
+
+### 2026-11-07 참조 정정
+
+디로딩의 E/N·E≤1 RESET·월04시 이후 확정·OFF/epoch·취소 보존은v1.7을 따른다. ST-17~23의 일반 예정 루틴 계획 분모는 그대로 유지한다. 최초 분석 기본ON/OFF는 미확정 제품 결정이다. 디로딩 시작4조건과 ACTIVE 기간 중복 방지는 별개의 책임이며 G4/G5는 미구현이다. 정책 정정은 실제 DB 적용이나 기능 구현이 아니다.
