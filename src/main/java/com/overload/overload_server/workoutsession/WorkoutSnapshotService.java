@@ -60,7 +60,7 @@ public class WorkoutSnapshotService {
                 if (session.localRevision!=state.localRevision()||!hash(state).equals(session.lastSnapshotHash)||!input.endedAt().equals(session.endedAt)) throw failure(FINISH_REQUEST_MISMATCH);
                 return finishAck(session,true);
             }
-            sessions.requireGeneralWrite(owner,session.dataGeneration);
+            sessions.requireSessionWrite(session);
             guard(session,state.editorDeviceId(),state.writerEpoch());
             afterStart(session,input.endedAt());
             var known=data.approvals(id).stream().map(r->r.id).collect(Collectors.toSet());
@@ -91,6 +91,7 @@ public class WorkoutSnapshotService {
     private Locked lock(UUID owner,UUID id,Save input) {
         owner(owner,input.dataGeneration());
         UUID source=data.source(owner,input.dataGeneration(),id);
+        if(source==null&&!input.snapshot().approvalRequests().isEmpty())throw failure(DELOAD_APPROVAL_FORBIDDEN);
         var scope=input.snapshot().approvalRequests().isEmpty()?null:routines.lockForWorkoutApproval(owner,input.dataGeneration(),source);
         var definitions=data.definitions(owner,input.dataGeneration(),input.snapshot().sessionExercises().stream()
                 .filter(e->e.kind().equals("WEIGHT")).map(Exercise::standardExerciseId).distinct().toList());
@@ -112,7 +113,7 @@ public class WorkoutSnapshotService {
             if (!hash.equals(session.lastSnapshotHash))throw failure(REVISION_PAYLOAD_MISMATCH);
             return true;
         }
-        sessions.requireGeneralWrite(session.userId,session.dataGeneration);
+        sessions.requireSessionWrite(session);
         incrementable(session);
         data.validateManufacturers(java.util.stream.Stream.concat(
                 input.snapshot().appliedPlan().weightExercises().stream().map(WeightPlan::manufacturerId),
@@ -162,6 +163,7 @@ public class WorkoutSnapshotService {
         var result=TransactionExecution.execute(writes, () -> {
             owner(owner, input.dataGeneration());
             UUID source = data.source(owner, input.dataGeneration(), id);
+            if(source==null)throw failure(DELOAD_APPROVAL_FORBIDDEN);
             var scope = input.decision().equals("REAPPROVE")?routines.lockForWorkoutApproval(owner, input.dataGeneration(), source):null;
             var session = find(owner, input.dataGeneration(), id);
             if(session.deletedAt!=null)throw failure(SESSION_DELETED);
@@ -178,6 +180,7 @@ public class WorkoutSnapshotService {
         return TransactionExecution.execute(writes, ()->{
             owner(owner,input.scope().dataGeneration());
             UUID source=data.source(owner,input.scope().dataGeneration(),id);
+            if(source==null)throw failure(DELOAD_APPROVAL_FORBIDDEN);
             var scope=input.newApprovalRequest()==null?null:routines.lockForWorkoutApproval(owner,input.scope().dataGeneration(),source);
             var session=find(owner,input.scope().dataGeneration(),id);
             WorkoutRecordService.closed(session,input.scope().expectedVersion());
@@ -210,7 +213,7 @@ public class WorkoutSnapshotService {
             }
             return resolution(session);
         }
-        sessions.requireGeneralWrite(session.userId,session.dataGeneration);
+        sessions.requireSessionWrite(session);
         if (session.version!=input.expectedSessionVersion()||session.localRevision!=input.expectedLocalRevision())throw failure(RESOLUTION_CONFLICT);
         var pending = requests.values().stream().filter(r -> r.exerciseId.equals(input.sessionExerciseId())&&r.status.equals("PENDING")).map(r -> r.id).collect(Collectors.toSet());
         if (!pending.equals(new HashSet<>(input.pendingRequestIds())))throw failure(RESOLUTION_CONFLICT);
@@ -413,6 +416,7 @@ public class WorkoutSnapshotService {
     }
 
     static void context(WorkoutSession session, PerformedSet set, Map<UUID, WeightApprovalRequest> requests) {
+        if(session.deload()&&!set.contextKind.equals("TODAY_ONLY"))throw failure(DELOAD_APPROVAL_FORBIDDEN);
         if (set.contextKind.equals("INITIAL_APPROVED")) {
             var initial = initialWeight(session, set.exerciseId);
             if (initial==null)throw failure(INVALID_SNAPSHOT);

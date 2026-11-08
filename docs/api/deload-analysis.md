@@ -1,6 +1,6 @@
 # 디로딩 분석 설정·epoch·확정 누적 API — G4
 
-2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) DL-05~14와 [G4 준비 계약](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#5-g4-개발-범위의존성검증-계획)을 따른다. 설정/epoch·공통 판정·후보/E/N·주간 확정·재계산과 [G4-6 조회 연동](../tasks/deload-g4-6-report.md)을 구현했다. [G5-1 기간 시작/최초 임시 계획](deload-periods.md)을 추가했으며 실제 DB 적용·G5-2/3·G6 PWA 연결은 별도다.
+2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) DL-05~14와 [G4 준비 계약](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#5-g4-개발-범위의존성검증-계획)을 따른다. 설정/epoch·공통 판정·후보/E/N·주간 확정·재계산과 [G4-6 조회 연동](../tasks/deload-g4-6-report.md)을 구현했다. [G5-1 기간 시작/최초 임시 계획](deload-periods.md)을 추가했으며 [G5-2 디로딩 세션](workout-sessions.md#g5-2-디로딩-세션)은 일반 G3/G4 후보에 들어가지 않는다. 실제 DB 적용·G5-3 종료/최종 재개·G6 PWA 연결은 별도다.
 
 ## GET /api/v1/deload-analysis
 

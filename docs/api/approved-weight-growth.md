@@ -40,6 +40,8 @@ Point는 `{id,previousWeightKg,approvedWeightKg,occurredAt,recordedAt,source,ses
 
 모든 소유 자료는 user_id/current generation을 제한하고, 사건의 표준 운동 연결은 불변 FK `(user,generation,routine,placement)`와 배치의 불변 standard_exercise_id를 재사용한다. 조회는 workoutTransactionManager/read-only REPEATABLE_READ, ORM 만료·타이머·마지막 동기화 갱신·승인 쓰기가 없다. 검색은2개, 배치 목록은3개, 점 조회는4개 DB query로 고정되며 브라우저에 DB/승인 원본을 캐싱하지 않는다.
 
-**디로딩 수행은 일반 승인 성장선에서 제외한다는 정책을 유지한다.** 현재 V20 도메인에는 디로딩 유형·기간·임시 루틴 식별 및 디로딩 쓰기가 아직 없다. 현재 일반 루틴 쓰기가 만든 ROUTINE_EDITOR/WORKOUT 승인 사건만 읽으며, 실제 수행량/루틴 이름에서 디로딩을 추정하지 않는다. 임의의 디로딩 표/필드를 새로 만들거나 이미 도입된 것으로 가정하지 않았다. 후속3단계는 디로딩이 일반 승인 사건을 생성하지 못하게 보호하고, 명시적 분류 계약을 조회에 연결한 뒤 혼재 DB 검증을 수행해야 한다. 이번2C를 그 검증 완료로 표시하지 않는다.
+**디로딩 수행은 일반 승인 성장선에서 제외한다는 정책을 유지한다.** 2C 당시 V20 도메인에는 디로딩 유형·기간·임시 루틴 식별 및 디로딩 쓰기가 없었다. 현재 일반 루틴 쓰기가 만든 ROUTINE_EDITOR/WORKOUT 승인 사건만 읽으며, 실제 수행량/루틴 이름에서 디로딩을 추정하지 않는다. 임의의 디로딩 표/필드를 새로 만들거나 이미 도입된 것으로 가정하지 않았다. 후속3단계는 디로딩이 일반 승인 사건을 생성하지 못하게 보호하고, 명시적 분류 계약을 조회에 연결한 뒤 혼재 DB 검증을 수행해야 한다. 이번2C를 그 검증 완료로 표시하지 않는다.
 
 오류는400 INVALID_REQUEST,401 AUTHENTICATION_REQUIRED, 위404,503 WORKOUT_DATA_UNAVAILABLE,500 WORKOUT_DATA_READ_FAILED다. 사용자/세대가 바뀐 응답은 Frontend에서 폐기한다. 일반 API·2A/2B·IndexedDB3/schema2·고정 snapshot/finish·오프라인 permit은 그대로다.
+
+[G5-2](../tasks/deload-g5-2-report.md)에서 불변 디로딩 소속을 연결했다. 디로딩 세션의 일반 승인 요청/문맥/해결과 성장 사건은 API·DB에서 차단되며 일반 비교 benchmark에서도 제외한다. 실제 세트·볼륨·근육 및 이력은 기존 실제 운동 통계에 포함된다. 이 성장 조회는 계속 일반 승인 사건만 사용한다.

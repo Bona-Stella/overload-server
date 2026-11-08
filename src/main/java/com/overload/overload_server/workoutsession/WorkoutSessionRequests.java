@@ -12,6 +12,8 @@ final class WorkoutSessionRequests {
     private static final JsonMapper JSON = JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
     record Start(UUID id, long dataGeneration, UUID routineId, UUID editorDeviceId,
                  Instant startedAt, LocalDate workoutDate, String startedTimeZone) { }
+    record DeloadStart(Start facts,UUID planId,long planVersion) { }
+    record Abandon(long generation,long version,UUID device,long epoch,long revision) { }
     record Takeover(long dataGeneration, UUID editorDeviceId, long expectedWriterEpoch) { }
     record ClosedQuery(int limit, Instant beforeClosedAt, UUID beforeId) { }
     static ClosedQuery closed(org.springframework.util.MultiValueMap<String,String> query) {
@@ -29,6 +31,18 @@ final class WorkoutSessionRequests {
     static Start start(String raw) {
         var body = parse(raw);
         fields(body, "id", "dataGeneration", "routineId", "editorDeviceId", "startedAt", "workoutDate", "startedTimeZone");
+        return context(body,uuid(text(body,"routineId")));
+    }
+    static DeloadStart deloadStart(String raw) {
+        var b=parse(raw);fields(b,"id","dataGeneration","planId","expectedPlanVersion","editorDeviceId","startedAt","workoutDate","startedTimeZone");
+        return new DeloadStart(context(b,null),uuid(text(b,"planId")),counter(b,"expectedPlanVersion"));
+    }
+    static Abandon abandon(String raw) {
+        var b=parse(raw);fields(b,"dataGeneration","expectedVersion","editorDeviceId","writerEpoch","localRevision","confirm");
+        if(!b.get("confirm").isBoolean()||!b.get("confirm").asBoolean())throw invalid();
+        return new Abandon(counter(b,"dataGeneration"),counter(b,"expectedVersion"),uuid(text(b,"editorDeviceId")),counter(b,"writerEpoch"),counter(b,"localRevision"));
+    }
+    private static Start context(JsonNode body,UUID routine) {
         String time = text(body, "startedAt"), date = text(body, "workoutDate"), zone = text(body, "startedTimeZone");
         if (!time.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,3})?Z")
                 || time.startsWith("0000") || !date.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}") || date.startsWith("0000")) throw invalid();
@@ -38,7 +52,7 @@ final class WorkoutSessionRequests {
         if (!ZoneId.getAvailableZoneIds().contains(zone) || !LocalDate.ofInstant(started, ZoneId.of(zone)).equals(local)) {
             throw new WorkoutSessionFailure(CLOCK_CONTEXT_INVALID);
         }
-        return new Start(uuid(text(body, "id")), counter(body, "dataGeneration"), uuid(text(body, "routineId")),
+        return new Start(uuid(text(body, "id")), counter(body, "dataGeneration"), routine,
                 uuid(text(body, "editorDeviceId")), started, local, zone);
     }
 

@@ -69,6 +69,14 @@ public class WorkoutSessionController {
         return result.created() ? ResponseEntity.created(URI.create("/api/v1/workout-sessions/" + result.session().id()))
                 .cacheControl(CacheControl.noStore()).body(result.session()) : ok(result.session());
     }
+    @PostMapping(value="/deload",consumes="application/json")
+    ResponseEntity<WorkoutSessionResponses.Detail> startDeload(@AuthenticationPrincipal SessionPrincipal p,@RequestBody String body,HttpServletRequest request) {
+        validate(request,false);var result=service.startDeload(p.userId(),WorkoutSessionRequests.deloadStart(body));
+        return result.created()?ResponseEntity.created(URI.create("/api/v1/workout-sessions/"+result.session().id())).cacheControl(CacheControl.noStore()).body(result.session()):ok(result.session());
+    }
+    @PostMapping(value="/{id}/abandon",consumes="application/json")
+    ResponseEntity<WorkoutSessionResponses.Detail> abandon(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String id,@RequestBody String body,HttpServletRequest request){validate(request,false);return ok(service.abandon(p.userId(),WorkoutSessionRequests.uuid(id),WorkoutSessionRequests.abandon(body)));}
+    @GetMapping("/deload/{period}") ResponseEntity<?> period(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String period,HttpServletRequest request){validate(request,true);return ok(service.period(p.userId(),WorkoutSessionRequests.uuid(period)));}
     @GetMapping("/active")
     ResponseEntity<WorkoutSessionResponses.Active> active(@AuthenticationPrincipal SessionPrincipal principal, HttpServletRequest request) {
         validate(request, true); return ok(service.active(principal.userId()));

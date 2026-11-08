@@ -14,7 +14,7 @@ public class WorkoutSession {
     @Id UUID id;
     @Column(name = "user_id", nullable = false, updatable = false) UUID userId;
     @Column(name = "data_generation", nullable = false, updatable = false) long dataGeneration;
-    @Column(name = "source_routine_id", nullable = false, updatable = false) UUID sourceRoutineId;
+    @Column(name = "source_routine_id", updatable = false) UUID sourceRoutineId;
     @Column(name="schedule_version_at_start",updatable=false) Long scheduleVersionAtStart;
     @Column(nullable = false, columnDefinition = "text") String status;
     @Column(nullable = false) long version;
@@ -38,6 +38,11 @@ public class WorkoutSession {
     @Column(name="deleted_at") Instant deletedAt;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name="completion_assessment_snapshot",columnDefinition="jsonb") String completionAssessment;
 
+    @Column(name="deload_period_id",updatable=false) UUID deloadPeriodId;
+    @Column(name="deload_plan_id",updatable=false) UUID deloadPlanId;
+    @Column(name="first_deload_activity_at",insertable=false,updatable=false) Instant firstDeloadActivityAt;
+    @Column(name="abandoned_at") Instant abandonedAt;
+    boolean deload(){return deloadPeriodId!=null;}
     protected WorkoutSession() { }
 
     boolean expireIfDue(Instant now) {
@@ -62,7 +67,7 @@ public class WorkoutSession {
     }
 
     boolean sameStart(WorkoutSessionRequests.Start input) {
-        return sourceRoutineId.equals(input.routineId()) && startedDeviceId.equals(input.editorDeviceId())
+        return !deload() && java.util.Objects.equals(sourceRoutineId,input.routineId()) && startedDeviceId.equals(input.editorDeviceId())
                 && startedAt.equals(input.startedAt()) && workoutDate.equals(input.workoutDate()) && startedTimeZone.equals(input.startedTimeZone());
     }
 

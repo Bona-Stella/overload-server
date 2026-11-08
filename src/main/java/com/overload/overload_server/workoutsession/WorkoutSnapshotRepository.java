@@ -69,7 +69,7 @@ public class WorkoutSnapshotRepository {
     }
     void initialize(WorkoutSession session) {
         var initial = InitialPlan.read(session.initialPlan);
-        for (var p:initial.weightExercises())insert(new SessionExercise(session, new Exercise(p.sessionExerciseId(), "WEIGHT", p.standardExerciseId()), null));
+        for (var p:initial.weightExercises())insert(new SessionExercise(session, new Exercise(p.sessionExerciseId(), "WEIGHT", p.standardExerciseId()), session.deload()?p.exerciseName():null));
         for (var p:initial.cardioActivities())insert(new SessionExercise(session, new Exercise(p.sessionActivityId(), "CARDIO", null), null));
     }
     List<ApprovalResult> results(UUID session, List<WeightApprovalRequest> requests) {

@@ -19,6 +19,8 @@ import java.util.*;
 @RestControllerAdvice(assignableTypes = WorkoutSessionController.class)
 public class WorkoutSessionErrors {
 	public record Body(String code) { }
+	@ExceptionHandler(com.overload.overload_server.deload.DeloadPeriodFailure.class)
+	ResponseEntity<Body> deload(com.overload.overload_server.deload.DeloadPeriodFailure failure){return response(failure.status(),failure.code());}
 	@ExceptionHandler(com.overload.overload_server.deload.DeloadAnalysisFailure.class)
 	ResponseEntity<Body> analysis(com.overload.overload_server.deload.DeloadAnalysisFailure failure) { return response(failure.status(), failure.code()); }
 	@ExceptionHandler(WorkoutSessionFailure.class)

@@ -127,7 +127,7 @@ public class WorkoutRecordService {
     Assessment assessment(UUID owner,UUID id) {
         return reads.execute(tx->{
             var session=find(owner,id);requireClosed(session);
-            String reason=session.deletedAt!=null?"SESSION_DELETED":session.status.equals("AUTO_CLOSED")?"AUTO_CLOSED":null;
+            String reason=session.deletedAt!=null?"SESSION_DELETED":session.deload()?"DELOAD_SESSION":session.status.equals("AUTO_CLOSED")?"AUTO_CLOSED":null;
             var current=reason==null?new CurrentAssessment("EVALUATED",List.of(),null,assessments.assess(session,now()))
                     :new CurrentAssessment("EXCLUDED",List.of(reason),"UNAVAILABLE",null);
             return new Assessment(owner,Long.toString(session.dataGeneration),id,session.status,Long.toString(session.version),
@@ -144,6 +144,7 @@ public class WorkoutRecordService {
     }
 
     private void recoverContext(WorkoutSession session,PerformedSet row,Map<UUID,WeightApprovalRequest> requests) {
+        if(session.deload()&&!row.contextKind.equals("TODAY_ONLY"))throw failure(DELOAD_APPROVAL_FORBIDDEN);
         boolean verified=row.contextKind.equals("TODAY_ONLY")
                 ||row.contextKind.equals("INITIAL_APPROVED")&&WorkoutSnapshotService.initialWeight(session,row.exerciseId)!=null;
         if(row.contextKind.equals("APPROVAL_REQUEST")) {
@@ -167,9 +168,8 @@ public class WorkoutRecordService {
     }
     private WorkoutSession lock(UUID owner,UUID id,Scope scope) {
         if(sessions.generation(owner,true)!=scope.dataGeneration())throw failure(DATA_GENERATION_MISMATCH);
-        sessions.requireGeneralWrite(owner,scope.dataGeneration());
         var session=sessions.find(owner,scope.dataGeneration(),id,true).orElseThrow(()->failure(SESSION_NOT_FOUND));
-        closed(session,scope.expectedVersion());return session;
+        sessions.requireSessionWrite(session);closed(session,scope.expectedVersion());return session;
     }
     private WorkoutSession find(UUID owner,UUID id) {
         return sessions.find(owner,sessions.generation(owner,false),id,false).orElseThrow(()->failure(SESSION_NOT_FOUND));

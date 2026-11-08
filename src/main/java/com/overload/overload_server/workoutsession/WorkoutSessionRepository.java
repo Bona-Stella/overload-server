@@ -13,6 +13,12 @@ public class WorkoutSessionRepository {
     private final com.overload.overload_server.deload.DeloadPeriods periods;
     WorkoutSessionRepository(JdbcTemplate jdbc,com.overload.overload_server.deload.DeloadPeriods periods) { this.jdbc = jdbc;this.periods=periods; }
     void requireGeneralWrite(UUID owner,long generation){if(periods.active(owner,generation))throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.DELOAD_ACTIVE_PERIOD);}
+    void requireSessionWrite(WorkoutSession session){if(!session.deload())requireGeneralWrite(session.userId,session.dataGeneration);}
+    boolean hadActivity(UUID session){return Boolean.TRUE.equals(jdbc.queryForObject("SELECT first_deload_activity_at IS NOT NULL FROM workout_sessions WHERE id=?",Boolean.class,session));}
+    List<WorkoutSession> period(UUID owner,long generation,UUID period) {
+        if(!Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM deload_periods WHERE user_id=? AND data_generation=? AND id=?)",Boolean.class,owner,generation,period)))throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.SESSION_NOT_FOUND);
+        return entityManager.createQuery("select s from WorkoutSession s where s.userId=:u and s.dataGeneration=:g and s.deloadPeriodId=:p and s.abandonedAt is null order by s.startedAt,s.id",WorkoutSession.class).setParameter("u",owner).setParameter("g",generation).setParameter("p",period).getResultList();
+    }
 
     record ExpiryCandidate(UUID owner, long generation, UUID session) { }
     Optional<Long> currentGeneration(UUID owner) {
@@ -22,14 +28,14 @@ public class WorkoutSessionRepository {
         return jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE user_id=? AND data_generation=? AND id=?)",Boolean.class,owner,generation,id);
     }
     List<WorkoutSession> closed(UUID owner,long generation,WorkoutSessionRequests.ClosedQuery page) {
-        var query=entityManager.createQuery("select s from WorkoutSession s where s.userId=:u and s.dataGeneration=:g and s.status in ('FINISHED','AUTO_CLOSED')"
+        var query=entityManager.createQuery("select s from WorkoutSession s where s.userId=:u and s.dataGeneration=:g and s.abandonedAt is null and s.status in ('FINISHED','AUTO_CLOSED')"
                 +(page.beforeId()==null?"":" and (s.closedAt<:at or (s.closedAt=:at and s.id<:id))")+" order by s.closedAt desc,s.id desc",WorkoutSession.class)
                 .setParameter("u",owner).setParameter("g",generation).setMaxResults(page.limit()+1);
         if(page.beforeId()!=null)query.setParameter("at",page.beforeClosedAt()).setParameter("id",page.beforeId());
         return query.getResultList();
     }
     List<WorkoutSession> finishedBefore(WorkoutSession current) {
-        return entityManager.createQuery("select s from WorkoutSession s where s.userId=:u and s.dataGeneration=:g and s.status='FINISHED' and s.deletedAt is null and s.id<>:id and s.endedAt<=:start order by s.id",WorkoutSession.class)
+        return entityManager.createQuery("select s from WorkoutSession s where s.userId=:u and s.dataGeneration=:g and s.deloadPeriodId is null and s.status='FINISHED' and s.deletedAt is null and s.id<>:id and s.endedAt<=:start order by s.id",WorkoutSession.class)
                 .setParameter("u",current.userId).setParameter("g",current.dataGeneration).setParameter("id",current.id).setParameter("start",current.startedAt).getResultList();
     }
     List<ExpiryCandidate> expiryCandidates(Instant cutoff) {

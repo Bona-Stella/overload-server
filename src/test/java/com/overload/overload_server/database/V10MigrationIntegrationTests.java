@@ -60,7 +60,6 @@ class V10MigrationIntegrationTests {
         return new SpringApplicationBuilder(OverloadServerApplication.class).web(WebApplicationType.NONE)
                 .run("--spring.profiles.active=integration", "--spring.datasource.url=" + postgres.getJdbcUrl(),
                         "--spring.datasource.username=" + postgres.getUsername(), "--spring.datasource.password=" + postgres.getPassword(),
-                        "--spring.flyway.target=25",
                         "--GOOGLE_OIDC_ENABLED=false", "--OTP_EMAIL_ENABLED=false", "--logging.level.root=WARN", "--spring.main.banner-mode=off");
     }
 
@@ -97,7 +96,7 @@ class V10MigrationIntegrationTests {
         historical("9").migrate();
         jdbc.update("UPDATE exercise_definitions SET version=7,deleted_at='2026-10-02T00:00:00.654321Z',intent_stamps='{\"name\":{\"legacy\":true}}'::jsonb WHERE id=?", exercise);
         jdbc.update("UPDATE user_workout_settings SET version=11,intent_stamps='{\"restLowSeconds\":{\"legacy\":true}}'::jsonb WHERE user_id=?", owner);
-        // Historical V9 data fixture: current provisioning correctly requires V25.
+        // Historical V9 fixture; app() subsequently boots with the current mappings and migrations.
         UUID emailOwner=UUID.randomUUID();
         jdbc.update("INSERT INTO users(id) VALUES (?)",emailOwner);
         jdbc.update("INSERT INTO auth_identities(id,user_id,provider,issuer,subject) VALUES (?, ?, 'email', 'overload:email', 'preserved-v10@example.test')",UUID.randomUUID(),emailOwner);

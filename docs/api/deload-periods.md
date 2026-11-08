@@ -1,10 +1,10 @@
-# 디로딩 기간 시작·최초 임시 계획 API — G5-1
+# 디로딩 기간·임시 계획 API — G5-1/2
 
-2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md)과 [G5-1 구현 기록](../tasks/deload-g5-1-report.md)을 따른다. 기존 사용 환경에는 적용하지 않는다. 실제 디로딩 운동 실행/임시 계획 변경은 G5-2, 완료·취소·10일차 종료와 최종 재개는 G5-3 책임이다. 이 단계만 배포하면 ACTIVE 기간을 종료할 API가 없으므로 부분 배포하지 않는다.
+2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md), [G5-1 기록](../tasks/deload-g5-1-report.md), [G5-2 기록](../tasks/deload-g5-2-report.md)을 따른다. 디로딩 운동은 [공통 세션 계약](workout-sessions.md#g5-2-디로딩-세션)을 사용한다. 기간 완료·취소·10일차 종료와 최종 재개는 G5-3 책임이며 기존 사용 환경에 부분 배포하지 않는다.
 
 ## 인증·읽기·쓰기
 
-모든 API는 principal의 사용자와 현재 dataGeneration만 처리한다. GET은 query/body 없이 read-only REPEATABLE_READ이며 설정·기간·계획을 생성하지 않는다. POST는 application/json·세션 쿠키·X-CSRF-TOKEN이 필요하고 query를 허용하지 않는다. 미지원/누락 필드·중복 JSON 키·비정규 Counter·조작된 userId/epoch/승인 중량/시작 시각은 거절한다. 성공200, 성공/오류 모두 no-store, 오류는 code-only다.
+모든 API는 principal의 사용자와 현재 dataGeneration만 처리한다. GET은 query/body 없이 read-only REPEATABLE_READ이며 설정·기간·계획을 생성하지 않는다. POST·PUT·DELETE는 application/json·세션 쿠키·X-CSRF-TOKEN이 필요하고 query를 허용하지 않는다. 미지원/누락 필드·중복 JSON 키·비정규 Counter·조작된 userId/epoch/승인 중량/시작 시각은 거절한다. 성공200, 성공/오류 모두 no-store, 오류는 code-only다.
 
 | Method/경로 | 결과 |
 |---|---|
@@ -47,7 +47,7 @@ preview 응답에는 source(일정 version·배정 요일·루틴 Detail·승인
 
 token은 서버 원본·자격 revision·오늘·정규화 선택·편성 규칙 version=1을 SHA-256으로 결합한다. 토큰은 권한을 부여하지 않으며 최종 시작 시 동일 소유자의 출처/자격을 다시 읽는다. 날짜·원본 version/승인 중량·일정·분류·자격 증거가 바뀌면 재미리보기가 필요하다. 원래 미리보기 요청과 같은 dates 표현 또는 정규화된 dates를 첫 시작에 사용할 수 있지만, 멱등 재시도는 첫 시작의 정확한 요청 표현을 유지한다.
 
-시작은 사용자 FOR UPDATE로 일반 START·일정/원본 쓰기와 직렬화한다. 배정 원본/표준 분류는 공유 잠금으로 검증한다. requestId는 사용자/세대 내 유일하고 같은 ID+같은 요청은 최초 결과를 반환한다. 다른 요청 내용의 재사용은 충돌이다. ACTIVE 유일 인덱스가 최종 중복을 차단한다. 자격·출처를 재확인한 뒤 기간과 모든 자식 계획을 한 트랜잭션에서 저장하며 일부 생성 실패는 전체 rollback한다.
+시작은 사용자 FOR UPDATE로 일반 START·일정/원본 쓰기와 직렬화한다. 배정 원본/표준 분류는 공유 잠금으로 검증한다. requestId는 사용자/세대 내 유일하고 같은 ID+같은 요청은 기존 기간을 반환하며 새 기간을 만들지 않는다. G5-2 계획 변경이 적용된 뒤라면 같은 기간의 현재 표현을 반환한다. 다른 요청 내용의 재사용은 충돌이다. ACTIVE 유일 인덱스가 최종 중복을 차단한다. 자격·출처를 재확인한 뒤 기간과 모든 자식 계획을 한 트랜잭션에서 저장하며 일부 생성 실패는 전체 rollback한다.
 
 period에는 id/userId/dataGeneration/version/status/startedAt/startDate/timeZone/recommendedEndDate/maximumEndDate/method/split/sourceHash/source/plans가 있다. version은 십진 문자열이며 최초0이다. plans는 id/position/plan을 제공한다. 권장 종료일=start+6, 최대 종료일=start+9이지만 이 단계에서 자동 종료하지 않는다. 원본 routine/assignments/승인 중량을 수정하지 않으며, 원본 JSON·소속·요청·시작 경계는 DB UPDATE trigger로 보존한다.
 
@@ -67,14 +67,41 @@ period에는 id/userId/dataGeneration/version/status/startedAt/startDate/timeZon
 
 ## 기간 중 기존 기능 보호
 
-ACTIVE 기간 중 새 일반 START, 원본 루틴 생성/수정/삭제, 주간 일정 저장, 일반 기록 정정/복구/논리삭제/승인 해결 및 새 snapshot/FINISH 쓰기는409 DELOAD_ACTIVE_PERIOD다. 이미 확정된 START/snapshot/FINISH/승인 해결의 동일 요청 ACK는 기존 무변경 재시도 규칙을 유지한다. 읽기와 분석 ON/OFF는 허용하고 OFF/새 epoch가 기간을 종료하지 않는다.
+ACTIVE 기간 중 새 일반 START, 원본 루틴 생성/수정/삭제, 주간 일정 저장, 일반 기록 정정/복구/논리삭제/승인 해결 및 새 일반 snapshot/FINISH 쓰기는409 DELOAD_ACTIVE_PERIOD다. 이미 확정된 동일 요청 ACK와 일반 조회는 유지한다. 소속이 디로딩인 세션은 공통 운동 쓰기를 사용하며 일반 승인·성장 평가에서는 제외한다. 읽기와 분석 ON/OFF는 허용하고 OFF/새 epoch가 기간을 종료하지 않는다.
 
 G3는 기간 날짜에 새 MISS를 만들거나 기존 최초 MISS를 수정하지 않고 cursor만 전진할 수 있다. 정지된 과거 dirty는 그대로 보존하며 반복 검사 대상으로 재선택하지 않는다. G4는 ON 평가 구간과 기간이 겹치는 주를 DELOAD_PERIOD 사유로 PENDING 처리한다. N0 RESET/ADD를 생성하지 않고 후속 누적 공개를 막는다. GET은 가능한 마지막 확정 prefix와 PAUSED/blockedAt/추천false를 반환한다. 더 이른 보류가 있으면 그 기존 상태가 우선이다. OFF/시간대 부재도 기존 우선순위다. 최종 기간 재개·완료 새 epoch·취소 처리까지 구현한 것은 아니다.
 
 주요 오류:400 INVALID_REQUEST,409 DATA_GENERATION_MISMATCH/DELOAD_ACTIVE_PERIOD/DELOAD_REQUEST_CONFLICT/DELOAD_NOT_ELIGIBLE/DELOAD_PLAN_REQUIRES_POLICY/DELOAD_PREVIEW_STALE/DELOAD_SOURCE_CHANGED/DELOAD_TIME_ZONE_CONFLICT/AWAITING_TIME_ZONE, DB 경합409 WRITE_CONFLICT, 장애503 DELOAD_DATA_UNAVAILABLE 또는500 DELOAD_DATA_FAILED. 기존 설정 누락 오류는 분석 API와 같다.
 
+## 임시 계획 관리 — G5-2
+
+`GET /current`와 변경 성공 응답의 `period`에는 `currentMethod`, `currentSplit`, `hasActivity`가 추가된다. `method`/`split`과 `source`는 최초 출처다. `plans`는 살아 있는 계획이며 각 원소는 `id`, `position`, `plan`(해당 계획이 생성될 때의 불변 편성), `version`, `plannedDate`, `current`(현재 label/weights/cardio)를 담는다. 삭제된 계획은 응답에서 제외하지만 출처와 기존 세션 참조는 보존한다. `hasActivity`는 기간에 소속된 세션의 첫 수행 표식이 하나라도 있음을 뜻한다. 논리 삭제된 세션도 이 증거를 유지한다.
+
+| Method/상대 경로 (`/api/v1/deload-periods`) | 추가 입력 및 결과 |
+|---|---|
+| PUT /{period}/plans/{plan} | `name`, `weightPlacements`, `cardioPlacements`. 전체 현재 계획 교체. 기존 루틴 생성의 항목 형식과 단위 검증을 공유하며 여기서 `initialWeightKg`는 임시 목표 중량이다 |
+| PUT /{period}/plans/{plan}/date | `date`(ISO 로컬 날짜), `swapPlanId`(빈 날짜면 null). 날짜 이동 또는 두 계획의 원자 맞교환 |
+| DELETE /{period}/plans/{plan} | 계획을 논리 삭제. 삭제 날짜는 휴식이며 기간이나 다른 계획은 자동 변경하지 않는다 |
+| PUT /{period}/method | `method`, `split`, `dates`. 실제 수행 및 진행 세션이 없고 남은 날짜가 맞을 때 최초 source로 새 편성을 생성 |
+
+모두 `dataGeneration`, `expectedVersion`, `requestId`가 공통 필수다. `expectedVersion`은 기간 `version`, START의 `expectedPlanVersion`은 선택한 계획의 `version`이다. 쿠키·CSRF·JSON·정확한 필드 집합을 확인한다. 서버가 현재 사용자/세대의 ACTIVE 기간과 소속 계획을 읽고 owner FOR UPDATE에서 START/쓰기와 직렬화한다. 변경된 계획 및 기간 버전을 증가시킨다. 마지막 변경의 동일 requestId·내용은 추가 쓰기 없이 현재 응답을 반환하고, 다른 내용은 DELOAD_REQUEST_CONFLICT다. 이후 변경이 이미 적용되었다면 오래된 expectedVersion을 거절해 중복 반영을 막는다. 별도 요청 영수증 목록은 없다.
+
+```json
+{"dataGeneration":"0","expectedVersion":"2","requestId":"00000000-0000-0000-0000-000000000002","date":"2026-11-17","swapPlanId":null}
+```
+
+맞교환은 대상 날짜의 실제 소속 계획 ID와 `swapPlanId`가 일치해야 한다. 두 계획 모두 편집 가능해야 하며 두 날짜가 함께 저장되거나 모두 롤백된다. 오늘 다른 계획 선택은 현재 오늘 계획을 명시해 맞교환한다. 빈 날짜로의 이동과는 구분한다. 대상 날짜는 기간 시간대의 오늘 이후이며 시작일~+9 안이다. 이미 시작해 유효한 세션이 연결된 계획은 날짜·내용·삭제가 동결된다. 명시적으로 무수행 정리한 세션의 불변 InitialPlan은 남지만 해당 계획은 다시 수정/실행할 수 있다.
+
+자동 생성 날짜는 최초 7일이다. 첫 7일 중 방식 변경은 아직 실제 수행이 없고 유효 세션이 없어야 하며 선택한 슬롯 전체가 남은 최초 7일 범위에 들어가야 한다. 8~10일에는 기존 미수행 계획 이동·수정·삭제는 가능하며 새 자동 계획은 생성하지 않는다. 수행 전 REST 전환은 빈 계획만 남기며 새 계획을 만들지 않는다. 모든 계획이 삭제되어도 기간은 ACTIVE이고, 11일차에 이 API가 기간을 완료하지 않는다. 직접 편집에는 감량을 다시 적용하지 않는다.
+
+추가 충돌 코드는 다음과 같다.
+
+- 기간: `DELOAD_PERIOD_NOT_FOUND`, `DELOAD_PERIOD_NOT_ACTIVE`, `DELOAD_PERIOD_WINDOW_CLOSED`, `DELOAD_PERIOD_VERSION_CONFLICT`
+- 계획: `DELOAD_PLAN_NOT_FOUND`, `DELOAD_PLAN_DELETED`, `DELOAD_PLAN_FROZEN`, `DELOAD_PLAN_VERSION_CONFLICT`, `DELOAD_EXERCISE_UNAVAILABLE`
+- 날짜·방식: `DELOAD_DATE_CONFLICT`, `DELOAD_DATE_OCCUPIED`, `DELOAD_METHOD_FROZEN`, `DELOAD_GENERATION_WINDOW_CLOSED`, `DELOAD_INSUFFICIENT_DATES`
+
 ## 저장과 후속 책임
 
-V27은 deload_periods/deload_temporary_plans와 workout_sessions의 nullable 쌍 deload_period_id/deload_plan_id를 추가한다. owner/generation/period/plan 복합 FK와 소속 불변 trigger를 사용한다. 기존 V1~26·세션 JSON/hash·현재 원본 데이터는 재작성하지 않는다. 일반 통계는 실제 디로딩 수행의 볼륨을 유지할 수 있지만 일반 계획 이행 후보와 G3/G4 일반 수행에는 명시적 디로딩 소속을 제외한다.
+V27 기간·임시 계획·소속 FK 위에 V28이 가변 `current_plan`, 논리 삭제, 맞교환 가능한 살아 있는 날짜 유일성, 현재 방식과 마지막 변경 키를 추가한다. 최초 `source_snapshot`/`initial_plan`은 변경하지 않는다. 세션 출처는 일반의 기존 scoped routine FK 또는 디로딩의 scoped period/plan FK로 구분한다. 최초 실제 수행 표식은 세션에만 저장하며 기간별 존재 여부를 계산한다. G3/G4는 일반 사실만 사용하고 전체 운동량/근육 통계에는 유효한 디로딩 수행도 포함한다.
 
-임시 계획은 일반 routine을 복제하지 않는 별도 JSON이다. 따라서 실제 실행 시 기존 source_routine_id/InitialPlan/승인 차단/고정 snapshot 계약에 이 소속을 연결하는 작업은 G5-2에 남는다. 최초 계획 날짜는 첫7일로 제한하며 이후 미수행 계획을 8~10일로 옮기는 저장 구조·이동 불변성은 G5-2에서 확장한다. G5-1에는 실행·사후 편집·완료·취소 endpoint가 없으며, 완료 이력은 테스트 fixture로만 검증한다.
+기간 완료·취소·자동 종료·정지 최종 재개는 G5-3이다. 신규 migration은 격리 검증에서만 적용했다. 기존 V1~V27과 실제 검토 환경은 그대로 유지한다.

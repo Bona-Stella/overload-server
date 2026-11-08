@@ -12,7 +12,12 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/deload-periods")
 class DeloadPeriodController {
     private final DeloadPeriodService service;
-    DeloadPeriodController(DeloadPeriodService service){this.service=service;}
+    private final DeloadTemporaryPlans plans;
+    DeloadPeriodController(DeloadPeriodService service,DeloadTemporaryPlans plans){this.service=service;this.plans=plans;}
+    @PutMapping(path="/{period}/plans/{plan}",consumes="application/json") ResponseEntity<?> edit(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String period,@PathVariable String plan,@RequestBody String raw,HttpServletRequest r){query(r);return ok(plans.edit(p.userId(),DeloadPeriodRequests.id(period),DeloadPeriodRequests.edit(raw,DeloadPeriodRequests.id(plan))));}
+    @PutMapping(path="/{period}/plans/{plan}/date",consumes="application/json") ResponseEntity<?> move(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String period,@PathVariable String plan,@RequestBody String raw,HttpServletRequest r){query(r);return ok(plans.move(p.userId(),DeloadPeriodRequests.id(period),DeloadPeriodRequests.move(raw,DeloadPeriodRequests.id(plan))));}
+    @DeleteMapping(path="/{period}/plans/{plan}",consumes="application/json") ResponseEntity<?> remove(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String period,@PathVariable String plan,@RequestBody String raw,HttpServletRequest r){query(r);return ok(plans.remove(p.userId(),DeloadPeriodRequests.id(period),DeloadPeriodRequests.remove(raw,DeloadPeriodRequests.id(plan))));}
+    @PutMapping(path="/{period}/method",consumes="application/json") ResponseEntity<?> method(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String period,@RequestBody String raw,HttpServletRequest r){query(r);return ok(plans.change(p.userId(),DeloadPeriodRequests.id(period),DeloadPeriodRequests.change(raw)));}
     @GetMapping("/eligibility") ResponseEntity<?> eligibility(@AuthenticationPrincipal SessionPrincipal p,HttpServletRequest r){read(r);return ok(service.eligibility(p.userId()));}
     @GetMapping("/options") ResponseEntity<?> options(@AuthenticationPrincipal SessionPrincipal p,HttpServletRequest r){read(r);return ok(service.options(p.userId()));}
     @GetMapping("/current") ResponseEntity<?> current(@AuthenticationPrincipal SessionPrincipal p,HttpServletRequest r){read(r);return ok(service.current(p.userId()));}

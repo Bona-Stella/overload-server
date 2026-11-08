@@ -127,4 +127,4 @@ plannedDays에 nullable reviewStatus/reviewRevision을 추가한다. reviewStatu
 
 ### 2026-11-07 현행 정책과 적용 범위
 
-디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 설정/epoch/E/N·G5 기간은 미구현이다. 현재 API에 디로딩 성공 응답/게이지가 있다고 해석하지 않는다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 이 문서의 이전 “이번 실제 DB 미적용”은 해당 개발 단계의 제한이다. 현재 V24가 확인된 대상은 기존 격리 검토DB뿐이며 개인/운영DB는 이번에 확인하거나 변경하지 않았다.
+[G5-2 디로딩 세션](workout-sessions.md#g5-2-디로딩-세션)의 유효 실제 세트·유산소·볼륨·근육 집계는 이 API에 포함된다. 일반 계획 ST-17~23의 후보, G3 일반 실제 수행과 G4 후보에는 불변 기간 소속을 기준으로 제외한다. 성장선은 별도 승인 사건 계약을 따른다. G3는 분석 OFF와 독립이고 ACTIVE 기간의 일반 검사는 정지한다. G5-3 종료/최종 재개와 실제 DB·PWA 연결은 별도이며 기존 검토 DB는 중지 상태로 유지했다.

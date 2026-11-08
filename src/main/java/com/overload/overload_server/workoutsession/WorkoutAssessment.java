@@ -31,6 +31,11 @@ public class WorkoutAssessment {
     record Evaluation(Boolean complete,List<ExerciseResult> exercises) { }
 
     Result assess(WorkoutSession session,Instant assessedAt) {
+        if(session.deload()) {
+            var all=records.sets(session.id);var results=new ArrayList<ExerciseResult>();
+            for(var w:InitialPlan.read(session.initialPlan).weightExercises()){var actual=all.stream().filter(v->v.deletedAt==null&&v.exerciseId.equals(w.sessionExerciseId())).toList();results.add(new ExerciseResult(w.sessionExerciseId(),false,List.of("DELOAD_SESSION"),null,actual.stream().map(v->v.id).toList(),actual.stream().map(v->v.reps).toList(),Long.toString(actual.stream().mapToLong(v->v.reps).sum()),null,"UNAVAILABLE","DELOAD_SESSION"));}
+            sessions.flush();return new Result(2,"deload-record-only-v1",assessedAt,Long.toString(session.version),null,List.copyOf(results));
+        }
         var current=evaluate(InitialPlan.read(session.initialPlan),JSON.readValue(session.appliedPlan,Plan.class),records.sets(session.id));
         var benchmarks=new HashMap<Context,Benchmark>();
         if (current.exercises().stream().anyMatch(ExerciseResult::eligible)) {

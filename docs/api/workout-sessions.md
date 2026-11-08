@@ -486,8 +486,38 @@ V24의 nullable schedule_version_at_start는 신규 START에서만 설정한다.
 
 ### 2026-11-07 현행 정책과 적용 범위
 
-디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 설정/epoch/E/N·G5 기간은 미구현이다. 현재 API에 디로딩 성공 응답/게이지가 있다고 해석하지 않는다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 이 문서의 이전 “이번 실제 DB 미적용”은 해당 개발 단계의 제한이다. 현재 V24가 확인된 대상은 기존 격리 검토DB뿐이며 개인/운영DB는 이번에 확인하거나 변경하지 않았다.
+디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 분석, G5-1 기간 시작, G5-2 운동 세션이 구현되었다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 기존 격리 검토DB는 이전 확인 기준 V24이며, 이번에는 중지 상태를 유지하고 개인/운영DB를 조회하거나 변경하지 않았다.
 
 ## G5-1 ACTIVE 기간 보호
 
-[디로딩 기간 계약](deload-periods.md)의 ACTIVE 기간에는 새 일반 START와 원본 기록 정정·복구·논리 삭제·승인 해결/새 snapshot·FINISH을409 DELOAD_ACTIVE_PERIOD로 차단한다. 읽기와 기존 확정 요청의 무변경 ACK는 유지한다. 기간 시작과 일반 쓰기는 기존 사용자 잠금으로 직렬화하며 실제 디로딩 운동 실행/종료는 G5-2/3 전이다. 기존 검토 DB와 서버에는 새 기능을 배포하지 않는다.
+[디로딩 기간 계약](deload-periods.md)의 ACTIVE 기간에는 새 일반 START와 원본 기록 정정·복구·논리 삭제·승인 해결/새 snapshot·FINISH를409 DELOAD_ACTIVE_PERIOD로 차단한다. 읽기와 기존 확정 요청의 무변경 ACK는 유지한다. 기간 시작과 일반 쓰기는 기존 사용자 잠금으로 직렬화한다. 디로딩 소속 세션은 아래의 공통 운동 경로를 사용하며 기간 종료는 G5-3이다. 기존 검토 DB와 서버에는 새 기능을 배포하지 않는다.
+
+## G5-2 디로딩 세션
+
+`POST /api/v1/workout-sessions/deload`는 기존 START의 인증·CSRF·세대·단일 ACTIVE·owner 잠금·ID 재시도를 공유한다. 요청에는 일반 `routineId` 대신 `planId`와 `expectedPlanVersion`이 필요하다. 기간과 세션 유형은 서버가 소속 계획으로 결정한다. `periodId`, `userId`, `initialPlan`, 승인 중량을 입력받지 않는다.
+
+```json
+{"id":"00000000-0000-0000-0000-000000000001","dataGeneration":"0","planId":"00000000-0000-0000-0000-000000000002","expectedPlanVersion":"0","editorDeviceId":"00000000-0000-0000-0000-000000000003","startedAt":"2026-11-08T03:00:00Z","workoutDate":"2026-11-08","startedTimeZone":"Asia/Seoul"}
+```
+
+성공201, 동일 START 재전송200이다. 서버가 현재 사용자·세대의 ACTIVE 기간, 살아 있는 미수행 계획, 계획 버전, 저장된 기간 시간대, 서버의 오늘/예정일/최대 10일을 대조한다. 다른 기간·계정·세대·오래된 계획을 사용할 수 없다. 시작 이후 해당 계획은 편집·이동·삭제를 차단한다. 이미 생성된 START의 재시도는 처음 봉인한 출처를 확인하며 새 계획 또는 변경된 버전으로 시작하지 않는다.
+
+V28에서 일반 세션의 `source_routine_id`는 기존 owner/generation 루틴 FK와 필수 조건을 유지한다. 디로딩만 이 필드와 일반 일정 version이 NULL이며 V27의 `deload_period_id`/`deload_plan_id` 소속 FK를 사용한다. 상세·ACTIVE·종료 목록에서 디로딩이면 두 소속 ID를 반환한다. 일반 응답에 이 필드를 추가하지 않는다.
+
+디로딩 `InitialPlan`은 schemaVersion2, `routineId=null`, `routineName`=임시 이름, `routineVersion`=계획 version이다. `deloadOrigin`에 기간/계획/버전·날짜·시간대·현재 목표와 최초 편성 출처를 봉인한다. 압축형의 각 최초 항목은 해당 원본 루틴/배치/버전을 유지한다. 사용자 편집으로 추가한 항목은 현재 계획에만 있고 원본에서 가져온 것으로 꾸미지 않는다. 일반 루틴을 복제하지 않으며 기존 일반 InitialPlan JSON 및 고정 요청 hash 형식은 보존한다.
+
+### 공통 진행, 평가와 이력
+
+기존 snapshot·FINISH·takeover·AUTO_CLOSED·record 정정·논리 삭제·명시 복구를 그대로 사용한다. 디로딩 세트 문맥은 `TODAY_ONLY`만 사용하며 `approvalRequests`는 빈 배열이다. 일반 승인 문맥 및 승인 해결 시도는409 DELOAD_APPROVAL_FORBIDDEN이다. 편집 기기/epoch/revision·고정 요청 재전송·원본 장비/완료시각·종료 뒤 version 경계를 유지한다.
+
+부분 수행도 FINISH 가능하다. 최초 평가 ruleVersion=`deload-record-only-v1`, `overallWeightPlanComplete=null`, 종목 advice=`UNAVAILABLE`, `DELOAD_SESSION` 사유다. 사후 평가 역시 일반 평가에서 제외한다. 실제 세트/유산소·근육 통계·전체 이력은 유지하며 일반 승인/성장 사건·일반 비교 후보·G3/G4 일반 계획에는 넣지 않는다.
+
+`GET /api/v1/workout-sessions/deload/{period}`는 해당 사용자·현재 세대의 기간 소속 세션 상세만 반환한다. 무수행 명시 정리 세션은 전체 종료 목록과 이 조회에서 제외한다. 논리 삭제된 실제 기록은 기존대로 deletedAt을 표시하며 유효 실제 운동량에는 합산하지 않는다. 타 사용자/누락 기간은404 SESSION_NOT_FOUND다. GET은 query/body 없이 읽기 전용이다.
+
+### 무수행 세션 정리
+
+`POST /api/v1/workout-sessions/{id}/abandon`은 기간을 취소하지 않는다. 현재 편집 기기의 `dataGeneration`, `expectedVersion`, `editorDeviceId`, `writerEpoch`, `localRevision`, `confirm:true`가 일치하는 디로딩 세션에만 적용한다. 서버에 한 번이라도 실제 수행이 저장됐다면 논리삭제 이후에도409 DELOAD_ACTIVITY_RECORDED다. 성공 시 무수행 세션을 이력에서 제외하고 계획 잠금을 풀지만 봉인 출처를 지우지 않는다. 아직 ACTIVE면 AUTO_CLOSED로 정리하고 이미 종료됐다면 기존 FINISH/AUTO_CLOSED 사실은 유지한다. 동일 요청 재시도는 버전이나 시각을 다시 바꾸지 않는다.
+
+클라이언트는 이 API 전 자신이 아는 미동기화 수행·고정 요청을 확인하고 정리 ACK가 오기 전 로컬 원본을 제거하지 않아야 한다. 서버는 아직 전송되지 않은 타 기기 사실을 추정하지 않는다. 동시 snapshot과 정리는 기존 owner 잠금/버전으로 직렬화한다. 24시간 AUTO_CLOSED는 공통 세션 정책이며 기간의 10일차 자동 종료는 G5-3이다.
+
+실제 수행 표식 `first_deload_activity_at`은 유효 웨이트 세트 또는 양의 COMPLETED 유산소와 같은 트랜잭션에서 한 번 저장한다. START·SKIPPED·무수행 종료만으로는 설정하지 않는다. 정정·논리삭제·복구·종료 이후에도 처음 저장한 표식을 바꾸지 않는다. 기록 저장이 롤백되면 표식도 롤백된다. 기간 `hasActivity`는 이 표식의 존재이며 현재 화면의 세트 개수와 별개다.

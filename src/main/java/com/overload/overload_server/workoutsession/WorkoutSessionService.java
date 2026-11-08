@@ -21,14 +21,49 @@ public class WorkoutSessionService {
     private final Clock clock;
     private final WorkoutCalendarRepository calendars;
     private final DeloadAnalysisService analysis;
+    private final com.overload.overload_server.deload.DeloadTemporaryPlans temporary;
     private final TransactionTemplate starts, writes, reads;
 
     WorkoutSessionService(WorkoutSessionRepository sessions, RoutineRepository routines, WorkoutSnapshotRepository snapshots,WorkoutCalendarRepository calendars,ObjectProvider<Clock> clocks,DeloadAnalysisService analysis,
-                          @Qualifier("workoutTransactionManager") PlatformTransactionManager manager) {
+                          @Qualifier("workoutTransactionManager") PlatformTransactionManager manager,com.overload.overload_server.deload.DeloadTemporaryPlans temporary) {
+        this.temporary=temporary;
         this.sessions = sessions; this.routines = routines; this.snapshots=snapshots;this.calendars=calendars;this.analysis=analysis; this.clock = clocks.getIfAvailable(Clock::systemUTC);
         starts = new TransactionTemplate(manager); starts.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         writes = new TransactionTemplate(manager);
         reads = new TransactionTemplate(manager); reads.setReadOnly(true); reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+    }
+    WorkoutSessionResponses.Started startDeload(UUID owner,WorkoutSessionRequests.DeloadStart request) {
+        return TransactionExecution.execute(starts,()->{
+            var input=request.facts();if(sessions.lockOwnerForStart(owner)!=input.dataGeneration())throw new WorkoutSessionFailure(DATA_GENERATION_MISMATCH);
+            if(sessions.exists(owner,input.dataGeneration(),input.id())) {
+                var old=find(owner,input.dataGeneration(),input.id(),true);
+                if(!old.deload()||!old.deloadPlanId.equals(request.planId())||!old.startedDeviceId.equals(input.editorDeviceId())||!old.startedAt.equals(input.startedAt())||!old.workoutDate.equals(input.workoutDate())||!old.startedTimeZone.equals(input.startedTimeZone())||!InitialPlan.read(old.initialPlan).routineVersion().equals(Long.toString(request.planVersion())))throw new WorkoutSessionFailure(SESSION_ID_CONFLICT);
+                old.expireIfDue(clock.instant());sessions.flush();return new WorkoutSessionResponses.Started(false,response(old));
+            }
+            if(sessions.occupied(input.id()))throw new WorkoutSessionFailure(SESSION_ID_CONFLICT);
+            var active=sessions.activeId(owner,input.dataGeneration());
+            if(active.isPresent()&&sessions.activeNotDue(owner,input.dataGeneration(),clock.instant().minus(java.time.Duration.ofHours(24))))throw new WorkoutSessionFailure(ACTIVE_SESSION_EXISTS);
+            var plan=temporary.forStart(owner,input.dataGeneration(),request.planId(),request.planVersion(),input.workoutDate(),input.startedTimeZone(),input.startedAt());
+            if(active.isPresent()){var old=find(owner,input.dataGeneration(),active.get(),true);old.expireIfDue(clock.instant());sessions.flush();if(old.status.equals("ACTIVE"))throw new WorkoutSessionFailure(ACTIVE_SESSION_EXISTS);}
+            var session=WorkoutSession.start(owner,input,InitialPlan.deload(plan),clock.instant());session.deloadPeriodId=plan.periodId();session.deloadPlanId=plan.planId();
+            sessions.insert(session);sessions.flush();snapshots.initialize(session);sessions.flush();return new WorkoutSessionResponses.Started(true,response(session));
+        });
+    }
+    Object period(UUID owner,UUID id){return TransactionExecution.execute(reads,()->{long g=sessions.generation(owner,false);return java.util.Map.of("userId",owner,"dataGeneration",Long.toString(g),"periodId",id,"sessions",sessions.period(owner,g,id).stream().map(this::response).toList());});}
+    WorkoutSessionResponses.Detail abandon(UUID owner,UUID id,WorkoutSessionRequests.Abandon input) {
+        return TransactionExecution.execute(starts,()->{
+            if(sessions.lockOwnerForStart(owner)!=input.generation())throw new WorkoutSessionFailure(DATA_GENERATION_MISMATCH);
+            var session=find(owner,input.generation(),id,true);if(!session.deload())throw new WorkoutSessionFailure(INVALID_SNAPSHOT);
+            if(!session.editorDeviceId.equals(input.device())||session.writerEpoch!=input.epoch())throw new WorkoutSessionFailure(EDITOR_OWNERSHIP_LOST);
+            if(session.localRevision!=input.revision())throw new WorkoutSessionFailure(REVISION_STALE);
+            if(session.abandonedAt!=null){if(input.version()==Long.MAX_VALUE||session.version!=input.version()+1)throw new WorkoutSessionFailure(SESSION_VERSION_CONFLICT);return response(session);}
+            if(session.version!=input.version())throw new WorkoutSessionFailure(SESSION_VERSION_CONFLICT);
+            if(sessions.hadActivity(id))throw new WorkoutSessionFailure(DELOAD_ACTIVITY_RECORDED);
+            if(session.version==Long.MAX_VALUE)throw new WorkoutSessionFailure(WRITE_CONFLICT);
+            var at=clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);if(at.isBefore(session.startedAt))throw new WorkoutSessionFailure(CLOCK_CONTEXT_INVALID);
+            if(session.status.equals("ACTIVE")){session.status="AUTO_CLOSED";session.closedAt=at;}
+            session.abandonedAt=at;if(session.deletedAt==null)session.deletedAt=at;session.updatedAt=at;session.version++;sessions.flush();return response(session);
+        });
     }
 
     WorkoutSessionResponses.Started start(UUID owner, WorkoutSessionRequests.Start input) {
@@ -80,7 +115,7 @@ public class WorkoutSessionService {
             long generation=sessions.generation(owner,false);
             var rows=sessions.closed(owner,generation,page);
             var values=rows.stream().limit(page.limit()).map(s->new WorkoutSessionResponses.ClosedSummary(s.id,
-                    InitialPlan.read(s.initialPlan).routineName(),s.status,Long.toString(s.version),s.workoutDate,s.startedAt,s.endedAt,s.closedAt,s.deletedAt)).toList();
+                    InitialPlan.read(s.initialPlan).routineName(),s.status,Long.toString(s.version),s.workoutDate,s.startedAt,s.endedAt,s.closedAt,s.deletedAt,s.deloadPeriodId,s.deloadPlanId)).toList();
             var last=values.isEmpty()?null:values.getLast();
             return new WorkoutSessionResponses.ClosedPage(owner,Long.toString(generation),values,
                     rows.size()>page.limit()?new WorkoutSessionResponses.ClosedCursor(last.closedAt(),last.id()):null);
@@ -88,8 +123,9 @@ public class WorkoutSessionService {
     }
     WorkoutSessionResponses.Detail takeover(UUID owner, UUID id, WorkoutSessionRequests.Takeover input) {
         var result=TransactionExecution.execute(writes, () -> {
-            owner(owner, input.dataGeneration());sessions.requireGeneralWrite(owner,input.dataGeneration());
+            owner(owner, input.dataGeneration());
             var session = find(owner, input.dataGeneration(), id, true);
+            sessions.requireSessionWrite(session);
             if(session.deletedAt!=null)throw new WorkoutSessionFailure(SESSION_DELETED);
             if (session.expireIfDue(clock.instant())) { sessions.flush(); return null; }
             if (session.status.equals("AUTO_CLOSED")) return null;

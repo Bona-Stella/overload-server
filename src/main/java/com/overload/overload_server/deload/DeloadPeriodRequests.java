@@ -11,6 +11,20 @@ final class DeloadPeriodRequests {
     private static final JsonMapper JSON=JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
     record Preview(long generation,Choice choice){}
     record Start(long generation,UUID requestId,String previewToken,Choice choice){}
+    static DeloadTemporaryPlans.Edit edit(String raw,UUID plan) {
+        var b=parse(raw);fields(b,"dataGeneration","expectedVersion","requestId","name","weightPlacements","cardioPlacements");
+        var values=new LinkedHashMap<String,Object>();values.put("id",plan);for(String field:List.of("dataGeneration","name","weightPlacements","cardioPlacements"))values.put(field,b.get(field));
+        return new DeloadTemporaryPlans.Edit(counter(b.get("dataGeneration")),counter(b.get("expectedVersion")),id(text(b,"requestId")),plan,com.overload.overload_server.routine.RoutineRequests.canonicalCreate(JSON.writeValueAsString(values)).orElseThrow(DeloadPeriodRequests::invalid));
+    }
+    static DeloadTemporaryPlans.Move move(String raw,UUID plan) {
+        var b=parse(raw);fields(b,"dataGeneration","expectedVersion","requestId","date","swapPlanId");
+        try{return new DeloadTemporaryPlans.Move(counter(b.get("dataGeneration")),counter(b.get("expectedVersion")),id(text(b,"requestId")),plan,LocalDate.parse(text(b,"date")),b.get("swapPlanId").isNull()?null:id(text(b,"swapPlanId")));}
+        catch(DateTimeException bad){throw invalid();}
+    }
+    static DeloadTemporaryPlans.Remove remove(String raw,UUID plan) {var b=parse(raw);fields(b,"dataGeneration","expectedVersion","requestId");return new DeloadTemporaryPlans.Remove(counter(b.get("dataGeneration")),counter(b.get("expectedVersion")),id(text(b,"requestId")),plan);}
+    static DeloadTemporaryPlans.Change change(String raw) {var b=parse(raw);fields(b,"dataGeneration","expectedVersion","requestId","method","split","dates");return new DeloadTemporaryPlans.Change(counter(b.get("dataGeneration")),counter(b.get("expectedVersion")),id(text(b,"requestId")),choice(b));}
+    static UUID id(String text){try{var id=UUID.fromString(text);if(!id.toString().equalsIgnoreCase(text))throw invalid();return id;}catch(IllegalArgumentException bad){throw invalid();}}
+    private static DeloadPeriodFailure invalid(){return DeloadPeriodFailure.invalid();}
     static Preview preview(String raw){var b=parse(raw);fields(b,"dataGeneration","method","split","dates");return new Preview(counter(b.get("dataGeneration")),choice(b));}
     static Start start(String raw) {
         var b=parse(raw);fields(b,"dataGeneration","requestId","previewToken","method","split","dates");String token=text(b,"previewToken");if(!token.matches("[0-9a-f]{64}"))throw DeloadPeriodFailure.invalid();

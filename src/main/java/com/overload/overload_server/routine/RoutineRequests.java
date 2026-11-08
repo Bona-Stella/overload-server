@@ -12,6 +12,10 @@ import java.util.*;
 public final class RoutineRequests {
 	private static final JsonMapper JSON = JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
 	private RoutineRequests() { }
+	/** Shares the existing plan boundary without exposing routine-internal exceptions across domains. */
+	public static Optional<Create> canonicalCreate(String raw) {
+		try{return Optional.of(create(raw));}catch(RoutineFailure invalid){return Optional.empty();}
+	}
 	public enum Mode { NEW, EXISTING, RESTORE }
 	/** Reuses the existing closed CardioPlan contract without changing the routine HTTP boundary. */
 	public static Optional<JsonNode> canonicalCardioPlan(JsonNode value) {
