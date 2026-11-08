@@ -312,6 +312,11 @@ class AccountProvisioningIntegrationTests {
 		assertThatThrownBy(() -> jdbc.update("""
 				UPDATE weekly_schedule_presets SET assignments = '{}'::jsonb WHERE user_id = ?
 				""", second.id())).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> jdbc.update("""
+				UPDATE weekly_schedule_presets SET assignments =
+				    (SELECT jsonb_agg(jsonb_build_object('dayOfWeek', n)) FROM generate_series(1, 8) n)
+				WHERE user_id = ?
+				""", second.id())).isInstanceOf(DataIntegrityViolationException.class);
 	}
 
 	private UUID presetId(Account account) {

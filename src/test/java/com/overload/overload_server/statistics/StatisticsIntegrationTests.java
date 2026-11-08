@@ -611,12 +611,38 @@ class StatisticsIntegrationTests {
         assertThat(same.get("appliedScheduleVersion")).isEqualTo(on.get("appliedScheduleVersion"));
         assertThat(same.get("nextRotationAt").asString()).isEqualTo("2026-11-22T15:00:00Z");
 
-        scheduleClock("2026-11-29T16:00:00Z"); // Two elapsed Mondays advance directly to C.
-        WorkoutReadFixtures.observer=event->{
-            if(event.before()&&event.sql().stripLeading().toLowerCase(Locale.ROOT).startsWith("insert into weekly_schedule_versions"))
-                throw new org.springframework.dao.DataAccessResourceFailureException("isolated rotation write failure");
-        };
-        try { rotation().runBatch(); } finally { WorkoutReadFixtures.observer=null; }
+        scheduleClock("2026-11-22T16:00:00Z");
+        try(var healthy=new Browser()) {
+            healthy.login();
+            String token=JSON.readTree(healthy.get("/api/v1/auth/csrf").body()).get("token").asString();
+            var healthyInitial=success(healthy.get(SCHEDULE));
+            var created=healthy.send("POST",SCHEDULE+"/presets",JSON.writeValueAsString(config(healthyInitial)),token);
+            assertThat(created.statusCode()).as(created.body()).isEqualTo(201);
+            var healthyTwo=JSON.readTree(created.body());
+            String next=presetId(healthyTwo,1);
+            var enable=config(healthyTwo);
+            enable.put("autoEnabled",true);enable.put("timeZone","Asia/Seoul");
+            enable.put("presets",List.of(rotationEntry(activeId(healthyTwo),true),rotationEntry(next,true)));
+            var healthyOn=success(healthy.send("PUT",SCHEDULE+"/rotation",JSON.writeValueAsString(enable),token));
+            assertThat(healthyOn.get("nextRotationAt").asString()).isEqualTo("2026-11-29T15:00:00Z");
+
+            scheduleClock("2026-11-29T16:00:00Z"); // Two elapsed Mondays advance the first owner directly to C.
+            var failedWrites=new java.util.concurrent.atomic.AtomicInteger();
+            WorkoutReadFixtures.observer=event->{
+                if(event.before()&&event.sql().stripLeading().toLowerCase(Locale.ROOT).startsWith("insert into weekly_schedule_versions")) {
+                    failedWrites.incrementAndGet();
+                    throw new org.springframework.dao.DataAccessResourceFailureException("isolated rotation write failure");
+                }
+            };
+            try {
+                rotation().runBatch();
+                rotation().runBatch();
+            } finally { WorkoutReadFixtures.observer=null; }
+            assertThat(failedWrites.get()).isGreaterThanOrEqualTo(2);
+            var healthyAfter=success(healthy.get(SCHEDULE));
+            assertThat(activeId(healthyAfter)).isEqualTo(next);
+            assertThat(healthyAfter.get("stateVersion").asInt()).isEqualTo(healthyOn.get("stateVersion").asInt()+1);
+        }
         assertThat(schedule()).isEqualTo(same);
         rotation().runBatch();
         var after = schedule();

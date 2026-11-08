@@ -348,6 +348,51 @@ class WorkoutSessionIntegrationTests {
         }
     }
 
+    private JsonNode enableRotationWithBlankPreset(JsonNode schedule) throws Exception {
+        String root="/api/v1/weekly-schedule";
+        var two=node(browser.send("POST",root+"/presets",json(Map.of("dataGeneration","0",
+                "expectedStateVersion",schedule.get("stateVersion").asString())),csrf));
+        return node(browser.send("PUT",root+"/rotation",json(Map.of("dataGeneration","0",
+                "expectedStateVersion",two.get("stateVersion").asString(),"autoEnabled",true,
+                "presets",List.of(Map.of("id",two.get("presets").get(0).get("id").asString(),"rotationIncluded",true),
+                        Map.of("id",two.get("presets").get(1).get("id").asString(),"rotationIncluded",true)))),csrf));
+    }
+
+    @Test void dueRotationSkipsInFlightStartWithoutConsumingTheWeek() throws Exception {
+        String root="/api/v1/weekly-schedule";
+        calendarAt("2026-11-09T00:00:00Z");
+        var first=node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        var on=enableRotationWithBlankPreset(first);
+        calendarAt("2026-11-16T03:00:00Z");
+        var input=startBody();input.put("startedAt","2026-11-16T03:00:00Z");input.put("workoutDate","2026-11-16");
+        var locked=new CountDownLatch(1);
+        var release=new CountDownLatch(1);
+        var observed=new AtomicBoolean();
+        WorkoutReadFixtures.observer=event->{
+            String sql=event.sql().toLowerCase(Locale.ROOT);
+            if(!event.before()&&sql.contains("from routines ")&&sql.contains("for share")&&observed.compareAndSet(false,true)) {
+                locked.countDown();
+                await(release);
+            }
+        };
+        var rotation=app.getBean(WeeklyScheduleRotation.class);
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            try {
+                var starting=pool.submit(()->start(input));
+                assertThat(locked.await(10,TimeUnit.SECONDS)).isTrue();
+                pool.submit(rotation::runBatch).get(5,TimeUnit.SECONDS);
+                assertThat(node(browser.get(root))).isEqualTo(on);
+                release.countDown();
+                node(starting.get(10,TimeUnit.SECONDS));
+            } finally { release.countDown(); }
+        } finally { WorkoutReadFixtures.observer=null; }
+
+        rotation.runBatch();
+        assertThat(node(browser.get(root))).isEqualTo(on);
+        assertThat(row().get("schedule_version_at_start")).isEqualTo(1L);
+        assertThat(daily("2026-11-16").get("first_session_id")).isEqualTo(session);
+    }
+
     @ParameterizedTest
     @ValueSource(strings={"FINISH","AUTO_CLOSED","MULTI_WEEK"})
     void rotationDefersToExistingWorkoutLifecycleAndRecoversTheCurrentWeek(String exit) throws Exception {
@@ -547,10 +592,20 @@ class WorkoutSessionIntegrationTests {
         assertThat(daily("2026-11-09").get("needs_recheck")).isEqualTo(true);assertThat(daily("2026-11-09").get("next_check_at")).isNull();
         reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("PERFORMED");assertThat(daily("2026-11-09").get("first_missed_at")).isNull();
     }
-    @Test void latePartialFactsThenDeletionAndExplicitRecoveryReevaluateOneDateAndKeepFirstMiss() throws Exception {
-        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+    @Test void lateFactsAfterDelayedRotationKeepFirstMissThroughCorrectionDeletionAndRecovery() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");
+        var first=node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        var on=enableRotationWithBlankPreset(first);
         calendarAt("2026-11-09T19:00:00Z");reviewDates();var missed=daily("2026-11-09").get("first_missed_at");
+        assertThat(missed).isNotNull();
+        calendarAt("2026-11-16T03:00:00Z");
+        app.getBean(WeeklyScheduleRotation.class).runBatch();
+        var rotated=node(browser.get("/api/v1/weekly-schedule"));
+        assertThat(rotated.get("activePresetId")).isEqualTo(on.get("presets").get(1).get("id"));
+        assertThat(rotated.get("appliedAt").asString()).isEqualTo("2026-11-16T03:00:00Z");
         var base=startOn("2026-11-09");reviewDates();
+        assertThat(row().get("schedule_version_at_start")).isEqualTo(1L);
+        assertThat(daily("2026-11-09").get("missed_schedule_version")).isEqualTo(1L);
         assertThat(daily("2026-11-09").get("state")).isEqualTo("PENDING_ACTIVE");
         assertThat(daily("2026-11-09").get("first_missed_at")).isEqualTo(missed);
         assertThatThrownBy(()->jdbc.update("UPDATE daily_training_assessments SET first_session_id=? WHERE user_id=? AND workout_date='2026-11-09'",session,owner.id())).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);

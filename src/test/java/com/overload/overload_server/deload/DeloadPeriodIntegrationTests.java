@@ -43,12 +43,14 @@ class DeloadPeriodIntegrationTests {
         boot();
         DeloadScenarioClock.alignAccountDefaults(jdbc, POSTGRES);
     }
-    static void boot() {
+    static void boot() { boot(false); }
+
+    static void boot(boolean reviewEnabled) {
         var key=new byte[32];new java.security.SecureRandom().nextBytes(key);
         app=new SpringApplicationBuilder(OverloadServerApplication.class,EmailOtpFixtures.class,WorkoutReadFixtures.class).web(WebApplicationType.SERVLET).run(
             "--spring.profiles.active=local,integration","--spring.datasource.url="+POSTGRES.getJdbcUrl(),"--spring.datasource.username="+POSTGRES.getUsername(),"--spring.datasource.password="+POSTGRES.getPassword(),
             "--server.address=127.0.0.1","--server.port=0","--OTP_HMAC_KEY="+Base64.getEncoder().encodeToString(key),"--OTP_EMAIL_ENABLED=false",
-            "--GOOGLE_OIDC_ENABLED=false","--GOOGLE_REAUTH_ENABLED=false","--overload.workout.review.enabled=false","--spring.session.jdbc.cleanup-cron=-","--logging.level.root=WARN","--spring.main.banner-mode=off");
+            "--GOOGLE_OIDC_ENABLED=false","--GOOGLE_REAUTH_ENABLED=false","--overload.workout.review.enabled="+reviewEnabled,"--spring.session.jdbc.cleanup-cron=-","--logging.level.root=WARN","--spring.main.banner-mode=off");
         jdbc=app.getBean(JdbcTemplate.class);
     }
     @AfterAll static void stop() {if(app!=null)app.close();}
@@ -185,8 +187,10 @@ class DeloadPeriodIntegrationTests {
         return new LinkedHashMap<>(Map.of("dataGeneration","0","expectedStateVersion",view.get("stateVersion").asString()));
     }
 
-    private JsonNode addPreset(JsonNode view) throws Exception {
-        var response=browser.send("POST",WEEKLY+"/presets",JSON.writeValueAsString(weeklyConfig(view)),browser.csrf());
+    private JsonNode addPreset(JsonNode view) throws Exception { return addPreset(browser,view); }
+
+    private JsonNode addPreset(Browser client,JsonNode view) throws Exception {
+        var response=client.send("POST",WEEKLY+"/presets",JSON.writeValueAsString(weeklyConfig(view)),client.csrf());
         assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
         return JSON.readTree(response.body());
     }
@@ -315,6 +319,77 @@ class DeloadPeriodIntegrationTests {
         rotation().runBatch();
         assertThat(weekly().get("activePresetId").asString()).isEqualTo(b.toString());
         assertThat(journalSize()).isEqualTo(1);
+    }
+
+    @Test void firstTickAfterRestartCompletesG5AndCatchesUpAnotherOwnerWithoutMovingReturningPreset() throws Exception {
+        weight(2,1,1);
+        UUID normalRoutine=planRoutine(), excludedRoutine=planRoutine();
+        var four=addPreset(addPreset(addPreset(weekly())));
+        UUID first=weeklyId(four,0), returning=weeklyId(four,1), following=weeklyId(four,2), excluded=weeklyId(four,3);
+        four=savePreset(four,returning,"0",List.of(Map.of("dayOfWeek",2,"routineId",normalRoutine)));
+        four=savePreset(four,excluded,"0",List.of(Map.of("dayOfWeek",1,"routineId",excludedRoutine)));
+        var command=rotationBody(four,true,first,returning,following);
+        command.put("presets",List.of(Map.of("id",first,"rotationIncluded",true),Map.of("id",returning,"rotationIncluded",true),
+                Map.of("id",following,"rotationIncluded",true),Map.of("id",excluded,"rotationIncluded",false)));
+        ok(browser.send("PUT",WEEKLY+"/rotation",JSON.writeValueAsString(command),browser.csrf()));
+        clock("2026-11-09T03:00:00Z");
+        rotation().runBatch();
+        var active=weekly();
+        assertThat(active.get("activePresetId").asString()).isEqualTo(returning.toString());
+
+        var preview=service().preview(owner,0,excluded,new Choice(Method.KEEP,Split.ORIGINAL,List.of()));
+        var request=new DeloadPeriodRequests.Start(0,UUID.randomUUID(),preview.previewToken(),excluded,preview.choice());
+        var period=service().start(owner,request).period();
+        assertThat(period.source().presetId()).isEqualTo(excluded);
+        assertThat(period.plans().getFirst().plan().weights().getFirst().sourceRoutineId()).isEqualTo(excludedRoutine);
+        assertThat(weekly().get("nextRotationAt").isNull()).isTrue();
+        long before=journalSize();
+
+        try(var other=new Browser()) {
+            other.login();
+            UUID otherOwner=UUID.fromString(ok(other.get("/__otp_test__/me")).get("id").asString());
+            var three=addPreset(other,addPreset(other,ok(other.get(WEEKLY))));
+            UUID later=weeklyId(three,2);
+            var enable=rotationBody(three,true,weeklyId(three,0),weeklyId(three,1),later);
+            enable.put("timeZone","Asia/Seoul");
+            var otherOn=ok(other.send("PUT",WEEKLY+"/rotation",JSON.writeValueAsString(enable),other.csrf()));
+            assertThat(otherOn.get("nextRotationAt").asString()).isEqualTo("2026-11-15T15:00:00Z");
+
+            clock("2026-11-23T03:00:00Z");
+            app.close();
+            try {
+                // The scheduler's first tick is immediate. The next tick is 60 seconds later.
+                boot(true);
+                var deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(10);
+                while(System.nanoTime()<deadline && !later.equals(jdbc.queryForObject(
+                        "SELECT active_preset_id FROM weekly_schedule_state WHERE user_id=?",UUID.class,otherOwner))) {
+                    Thread.sleep(25);
+                }
+                var caughtUp=ok(other.get(WEEKLY));
+                assertThat(caughtUp.get("activePresetId").asString()).isEqualTo(later.toString());
+                assertThat(caughtUp.get("stateVersion").asInt()).isEqualTo(otherOn.get("stateVersion").asInt()+1);
+                assertThat(caughtUp.get("appliedScheduleVersion")).isEqualTo(otherOn.get("appliedScheduleVersion"));
+                assertThat(caughtUp.get("nextRotationAt").asString()).isEqualTo("2026-11-29T15:00:00Z");
+
+                var ended=service().detail(owner,period.id()).period();
+                assertThat(ended.endReason()).isEqualTo("AUTOMATIC_COMPLETION");
+                assertThat(ended.processedAt()).isEqualTo(Instant.parse("2026-11-23T03:00:00Z"));
+                assertThat(ended.source()).isEqualTo(period.source());
+                var restored=weekly();
+                assertThat(restored.get("activePresetId").asString()).isEqualTo(returning.toString());
+                assertThat(restored.get("nextRotationAt").asString()).isEqualTo("2026-11-29T15:00:00Z");
+                assertThat(journalSize()).isEqualTo(before);
+            } finally {
+                // Drain G3/G4 from the first tick before moving the fixture clock to another week.
+                app.close();
+                boot();
+            }
+
+            clock("2026-11-29T15:00:00Z");
+            rotation().runBatch();
+            assertThat(weekly().get("activePresetId").asString()).isEqualTo(following.toString());
+            assertThat(journalSize()).isEqualTo(before+1);
+        }
     }
 
     @Test void rotationWriteFailureRollsBackPeriodStartAndCancellation() throws Exception {
