@@ -21,7 +21,7 @@ class V22BrowserEnvironmentIntegrationTests {
             var evidence = environment.evidence();
             directory = environment.directory();
             container = (String) evidence.get("containerId");
-            assertThat(evidence).containsEntry("migrations", 29).containsEntry("initialUsers", 0)
+            assertThat(evidence).containsEntry("migrations", 30).containsEntry("initialUsers", 0)
                     .containsEntry("preparedUsers", 1).containsEntry("httpSmokePassed", true)
                     .containsEntry("schemaValidated", true).containsEntry("noDeveloperEnv", true)
                     .containsEntry("freshDatabase", true).containsEntry("loopbackDatabase", true)
@@ -61,7 +61,7 @@ class V22BrowserEnvironmentIntegrationTests {
         assertThat(Files.exists(directory.resolve("ready.json"))).isFalse();
         var result = JsonMapper.builder().build().readTree(Files.readString(directory.resolve("result.json")));
         assertThat(result.get("status").asString()).isEqualTo("FAILED");
-        assertThat(result.get("migrations").asInt()).isEqualTo(29);
+        assertThat(result.get("migrations").asInt()).isEqualTo(30);
         assertThat(result.get("httpSmokePassed").asBoolean()).isTrue();
         assertThat(result.get("applicationStopped").asBoolean()).isTrue();
         assertThat(result.get("containerStopped").asBoolean()).isTrue();

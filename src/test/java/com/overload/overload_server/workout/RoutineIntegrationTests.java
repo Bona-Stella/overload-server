@@ -249,7 +249,9 @@ class RoutineIntegrationTests {
 	}
 	@Test void largeGenerationIsExactAndOldGenerationCannotWrite() throws Exception {
 		jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", owner.id()); jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", owner.id());
-		long generation = 9007199254740993L; jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", owner.id()); jdbc.update("UPDATE users SET data_generation=? WHERE id=?", generation, owner.id());
+		long generation = 9007199254740993L;
+		WeeklyPresetFixtures.clear(jdbc, owner.id());
+		jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", owner.id()); jdbc.update("UPDATE users SET data_generation=? WHERE id=?", generation, owner.id());
 		error(create(), 409, "DATA_GENERATION_MISMATCH");
 		var body = createBody(); body.put("dataGeneration", Long.toString(generation));
 		assertThat(node(browser.send("POST", "/api/v1/routines", json(body), csrf)).get("dataGeneration").asString()).isEqualTo(Long.toString(generation));

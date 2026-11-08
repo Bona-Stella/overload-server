@@ -61,6 +61,15 @@ class AccountRepository {
 				""", account.id(), account.dataGeneration(), settings.restLowSeconds(),
 				settings.restMediumSeconds(), settings.restHighSeconds());
 		analysis.initializeNewAccount(account.id(), account.dataGeneration());
+		var presetId = UUID.randomUUID();
+		jdbc.update("""
+				INSERT INTO weekly_schedule_presets (user_id, data_generation, id, display_order)
+				VALUES (?, ?, ?, 1)
+				""", account.id(), account.dataGeneration(), presetId);
+		jdbc.update("""
+				INSERT INTO weekly_schedule_state (user_id, data_generation, active_preset_id)
+				VALUES (?, ?, ?)
+				""", account.id(), account.dataGeneration(), presetId);
 	}
 
 }

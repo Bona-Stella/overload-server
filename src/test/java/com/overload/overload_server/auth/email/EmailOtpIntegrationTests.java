@@ -4,6 +4,7 @@ import com.overload.overload_server.OverloadServerApplication;
 import com.overload.overload_server.account.AccountProvisioningService;
 import com.overload.overload_server.account.VerifiedIdentity;
 import com.overload.testfixture.EmailOtpFixtures;
+import com.overload.testfixture.WeeklyPresetFixtures;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -88,7 +89,8 @@ class EmailOtpIntegrationTests {
 		jdbc.update("DELETE FROM email_otp_login_claims");
 		jdbc.update("UPDATE email_otp_limits SET active_challenge_id = NULL");
 		for (var table : List.of("email_otp_challenges", "email_otp_limits", "email_otp_rate_limits",
-				"deload_weekly_assessments", "deload_analysis_versions", "exercise_definitions", "user_workout_settings", "auth_identities", "users")) {
+				"deload_weekly_assessments", "deload_analysis_versions", "exercise_definitions", "user_workout_settings",
+				"weekly_schedule_state", "weekly_schedule_presets", "auth_identities", "users")) {
 			jdbc.update("DELETE FROM " + table);
 		}
 		cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
@@ -146,6 +148,7 @@ class EmailOtpIntegrationTests {
 		var email = accounts.provision(VerifiedIdentity.email("a@example.com"), "보존할 닉네임");
 		jdbc.update("DELETE FROM exercise_definitions WHERE user_id = ?", email.id());
 		jdbc.update("DELETE FROM user_workout_settings WHERE user_id = ?", email.id());
+		WeeklyPresetFixtures.clear(jdbc, email.id());
 		jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", email.id()); jdbc.update("UPDATE users SET data_generation = 7 WHERE id = ?", email.id());
 		var definition = UUID.randomUUID();
 		jdbc.update("INSERT INTO exercise_definitions (id, user_id, data_generation, name) VALUES (?, ?, 7, '개인 종목')",
@@ -518,7 +521,7 @@ class EmailOtpIntegrationTests {
 
 	@Test
 	void schemaHasDurableConstraintsAndIndexesAndMigrationIsNotRepeated() {
-		assertThat(application.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("29");
+		assertThat(application.getBean(Flyway.class).info().current().getVersion().toString()).isEqualTo("30");
 		assertThat(application.getBean(Flyway.class).migrate().migrationsExecuted).isZero();
 		assertThat(jdbc.queryForList("SELECT indexname FROM pg_indexes WHERE tablename = 'email_otp_challenges'", String.class))
 				.contains("email_otp_challenges_pkey", "email_otp_challenges_expiry_index");

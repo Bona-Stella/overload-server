@@ -8,6 +8,7 @@ import com.overload.testfixture.EmailOtpFixtures;
 import com.overload.testfixture.GoogleOidcFixtures;
 import com.overload.testfixture.GoogleOidcFixtures.Fault;
 import com.overload.testfixture.GoogleOidcFixtures.MockProvider;
+import com.overload.testfixture.WeeklyPresetFixtures;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -313,6 +314,7 @@ class GoogleOidcIntegrationTests {
 		assertSuccess(complete(browser, begin(browser))); var user = userId(browser);
 		var exercise = UUID.randomUUID();
 		jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", user); jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", user);
+		WeeklyPresetFixtures.clear(jdbc, user);
 		jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", user); jdbc.update("UPDATE users SET data_generation=7,nickname='edited nickname' WHERE id=?", user);
 		jdbc.update("INSERT INTO exercise_definitions(id,user_id,data_generation,name) VALUES(?,?,7,'edited definition')", exercise, user);
 		jdbc.update("INSERT INTO user_workout_settings VALUES(?,7,210,150,100,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)", user);

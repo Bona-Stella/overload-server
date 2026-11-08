@@ -71,6 +71,7 @@ class AccountProvisioningIntegrationTests {
 		assertThat(second.nickname()).isNull();
 		assertSeed(first);
 		assertSeed(second);
+		assertThat(presetId(first)).isNotEqualTo(presetId(second));
 		assertThat(exerciseIds(first)).isEmpty();assertThat(exerciseIds(second)).isEmpty();
 		assertCounts(2, 2, 0, 2);
 		assertThat(jdbc.queryForList("""
@@ -78,15 +79,18 @@ class AccountProvisioningIntegrationTests {
 				WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name
 				""", String.class)).containsExactly("auth_identities", "cardio_activity_catalog", "cardio_results", "daily_training_assessments", "deload_analysis_versions", "deload_periods", "deload_temporary_plans", "deload_weekly_assessments", "email_otp_challenges", "email_otp_limits",
 				"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_definitions", "exercise_muscle",
-				"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_versions", "workout_calendar_control", "workout_sessions");
+				"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_presets", "weekly_schedule_state", "weekly_schedule_versions", "workout_calendar_control", "workout_sessions");
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions",Integer.class)).isZero();
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM routine_plan_history",Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM workout_calendar_control", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM daily_training_assessments", Integer.class)).isZero();
 	}
 
 	@Test
 	void reentryPreservesExistingNamesSettingsAndPersonalExerciseIds() {
 		var identity = VerifiedIdentity.email("First.Last+Tag@EXAMPLE.COM");
 		var first = service.provision(identity, "원래 닉네임");
+		var initialPreset = presetId(first);
 		com.overload.testfixture.CatalogFixtures.personalExercises(jdbc, first.id());
 		var ids = exerciseIds(first);
 		jdbc.update("UPDATE exercise_definitions SET name = '개인 편집' WHERE id = ? AND user_id = ?",
@@ -94,6 +98,7 @@ class AccountProvisioningIntegrationTests {
 		jdbc.update("UPDATE user_workout_settings SET rest_low_seconds = 77 WHERE user_id = ?", first.id());
 		var again = service.provision(VerifiedIdentity.email("First.Last+Tag@example.com"), "새 닉네임");
 		assertThat(again).isEqualTo(first);
+		assertThat(presetId(again)).isEqualTo(initialPreset);
 		assertThat(exerciseIds(again)).containsExactlyElementsOf(ids);
 		assertThat(jdbc.queryForObject("SELECT rest_low_seconds FROM user_workout_settings WHERE user_id = ?",
 				Integer.class, first.id())).isEqualTo(77);
@@ -120,6 +125,8 @@ class AccountProvisioningIntegrationTests {
 				""", userId);
 		var account = service.provision(VerifiedIdentity.email("existing@example.com"), "덮어쓰면 안 됨");
 		assertThat(account).isEqualTo(new Account(userId, 7, "기존 계정"));
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_presets", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_state", Integer.class)).isZero();
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions WHERE user_id=?",Integer.class,userId)).isZero();
 		assertThat(exerciseIds(account)).containsExactly(exerciseId);
 		assertThat(jdbc.queryForObject("SELECT rest_low_seconds FROM user_workout_settings WHERE user_id = ?",
@@ -185,7 +192,8 @@ class AccountProvisioningIntegrationTests {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"users", "auth_identities", "exercise_definitions", "user_workout_settings", "deload_analysis_versions"})
+	@ValueSource(strings = {"users", "auth_identities", "exercise_definitions", "user_workout_settings", "deload_analysis_versions",
+			"weekly_schedule_presets", "weekly_schedule_state"})
 	void sqlFailureAtEachStageRollsBackTheEntireAccountAndAllowsRetry(String table) {
 		jdbc.execute("""
 				CREATE FUNCTION task007_fail_insert() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -272,6 +280,46 @@ class AccountProvisioningIntegrationTests {
 		assertCounts(2, 2, 0, 2);
 	}
 
+	@Test
+	void databaseEnforcesPresetScopeOrderAndActiveReference() {
+		var first = service.provision(VerifiedIdentity.email("first@example.com"), null);
+		var second = service.provision(VerifiedIdentity.email("second@example.com"), null);
+		for (int order = 2; order <= 4; order++) {
+			jdbc.update("""
+					INSERT INTO weekly_schedule_presets(user_id, data_generation, id, display_order)
+					VALUES (?, ?, ?, ?)
+					""", first.id(), first.dataGeneration(), UUID.randomUUID(), order);
+		}
+		for (int invalidOrder : List.of(1, 5)) {
+			assertThatThrownBy(() -> jdbc.update("""
+					INSERT INTO weekly_schedule_presets(user_id, data_generation, id, display_order)
+					VALUES (?, ?, ?, ?)
+					""", first.id(), first.dataGeneration(), UUID.randomUUID(), invalidOrder))
+					.isInstanceOf(DataIntegrityViolationException.class);
+		}
+		assertThatThrownBy(() -> jdbc.update("""
+				UPDATE weekly_schedule_state SET active_preset_id = ? WHERE user_id = ?
+				""", presetId(second), first.id())).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> jdbc.update("""
+				UPDATE weekly_schedule_state SET data_generation = data_generation + 1 WHERE user_id = ?
+				""", first.id())).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> jdbc.update("""
+				UPDATE weekly_schedule_state SET next_rotation_at = now() WHERE user_id = ?
+				""", first.id())).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> jdbc.update("""
+				DELETE FROM weekly_schedule_presets WHERE user_id = ? AND display_order = 1
+				""", first.id())).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> jdbc.update("""
+				UPDATE weekly_schedule_presets SET assignments = '{}'::jsonb WHERE user_id = ?
+				""", second.id())).isInstanceOf(DataIntegrityViolationException.class);
+	}
+
+	private UUID presetId(Account account) {
+		return jdbc.queryForObject("""
+				SELECT id FROM weekly_schedule_presets WHERE user_id = ? AND data_generation = ?
+				""", UUID.class, account.id(), account.dataGeneration());
+	}
+
 	private List<UUID> exerciseIds(Account account) {
 		return jdbc.queryForList("""
 				SELECT id FROM exercise_definitions WHERE user_id = ? AND data_generation = ? ORDER BY id
@@ -279,6 +327,16 @@ class AccountProvisioningIntegrationTests {
 	}
 
 	private void assertSeed(Account account) {
+		var preset = presetId(account);
+		assertThat(preset).isNotNull();
+		assertThat(jdbc.queryForObject("""
+				SELECT display_order = 1 AND NOT rotation_included AND preset_version = 0 AND assignments = '[]'::jsonb
+				FROM weekly_schedule_presets WHERE user_id = ? AND data_generation = ? AND id = ?
+				""", Boolean.class, account.id(), account.dataGeneration(), preset)).isTrue();
+		assertThat(jdbc.queryForObject("""
+				SELECT active_preset_id = ? AND NOT auto_enabled AND state_version = 0 AND next_rotation_at IS NULL
+				FROM weekly_schedule_state WHERE user_id = ? AND data_generation = ?
+				""", Boolean.class, preset, account.id(), account.dataGeneration())).isTrue();
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions WHERE user_id=? AND data_generation=? AND version=0 AND epoch=0 AND enabled AND reason='INITIAL' AND time_zone IS NULL", Integer.class, account.id(), account.dataGeneration())).isEqualTo(1);
 		assertThat(jdbc.queryForObject("SELECT a.epoch_started_at=u.created_at FROM deload_analysis_versions a JOIN users u ON u.id=a.user_id WHERE a.user_id=? AND a.version=0",Boolean.class,account.id())).isTrue();
 		assertThat(jdbc.queryForList("""
@@ -298,7 +356,11 @@ class AccountProvisioningIntegrationTests {
 	}
 
 	private void assertCounts(int users, int identities, int exercises, int settings) {
-		if(users==0)assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions",Integer.class)).isZero();
+		if (users == 0) {
+			for (var table : List.of("deload_analysis_versions", "weekly_schedule_presets", "weekly_schedule_state")) {
+				assertThat(jdbc.queryForObject("SELECT count(*) FROM " + table, Integer.class)).isZero();
+			}
+		}
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isEqualTo(users);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM auth_identities", Integer.class)).isEqualTo(identities);
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions", Integer.class)).isEqualTo(exercises);

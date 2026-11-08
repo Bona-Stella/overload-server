@@ -113,6 +113,7 @@ class WorkoutSessionIntegrationTests {
         // Disposable fixture reset only: preserve the current-generation FK instead of bypassing it.
         jdbc.update("DELETE FROM record_change_events WHERE session_id IN (SELECT id FROM workout_sessions WHERE user_id=?)",owner.id());
         for(String table:List.of("deload_weekly_assessments","deload_analysis_versions","daily_training_assessments","workout_calendar_control","session_exercises","workout_sessions","weekly_schedule_versions","routine_plan_history","routine_weight_placements","routine_cardio_placements","routines","exercise_definitions","user_workout_settings"))jdbc.update("DELETE FROM "+table+" WHERE user_id=?",owner.id());
+        WeeklyPresetFixtures.clear(jdbc, owner.id());
         jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", owner.id()); jdbc.update("UPDATE users SET data_generation=1 WHERE id=?",owner.id());
         var reset=node(browser.get(BASE+"/closed"));assertThat(reset.get("dataGeneration").asString()).isEqualTo("1");assertThat(reset.get("sessions").size()).isZero();
     }
@@ -556,6 +557,7 @@ class WorkoutSessionIntegrationTests {
         jdbc.update("DELETE FROM routines WHERE user_id=?", owner.id());
         jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", owner.id());
         jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", owner.id());
+        WeeklyPresetFixtures.clear(jdbc, owner.id());
         jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", owner.id()); jdbc.update("UPDATE users SET data_generation=9007199254740993 WHERE id=?", owner.id());
         app.getBean(com.overload.overload_server.deload.DeloadAnalysisRepository.class).initializeNewAccount(owner.id(),9007199254740993L);
         error(start(startBody()), 409, "DATA_GENERATION_MISMATCH");
@@ -628,6 +630,7 @@ class WorkoutSessionIntegrationTests {
                             isolated.update("DELETE FROM session_exercises WHERE user_id=?", owner.id());
                             for (String table : List.of("deload_weekly_assessments","deload_analysis_versions","daily_training_assessments", "workout_calendar_control", "workout_sessions", "weekly_schedule_versions", "routine_plan_history", "routine_weight_placements", "routine_cardio_placements", "routines", "exercise_definitions", "user_workout_settings"))
                                 isolated.update("DELETE FROM " + table + " WHERE user_id=?", owner.id());
+                            WeeklyPresetFixtures.clear(isolated, owner.id());
                             isolated.update("UPDATE users SET data_generation=1 WHERE id=?", owner.id());
                         });
             });

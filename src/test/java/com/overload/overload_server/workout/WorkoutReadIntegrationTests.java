@@ -7,6 +7,7 @@ import com.overload.overload_server.account.VerifiedIdentity;
 import com.overload.testfixture.EmailOtpFixtures;
 import com.overload.testfixture.MixedPersistenceAssertions;
 import com.overload.testfixture.WorkoutReadFixtures;
+import com.overload.testfixture.WeeklyPresetFixtures;
 import jakarta.persistence.EntityManagerFactory;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -102,6 +103,7 @@ class WorkoutReadIntegrationTests {
 			jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", id);
 			jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", id);
 			jdbc.update("DELETE FROM auth_identities WHERE user_id=?", id);
+			WeeklyPresetFixtures.clear(jdbc, id);
 			jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", id); jdbc.update("DELETE FROM users WHERE id=?", id);
 			error(missing.get(path), 401, "AUTHENTICATION_REQUIRED");
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE id=?", Integer.class, id)).isZero();
@@ -295,6 +297,7 @@ class WorkoutReadIntegrationTests {
 				var writer = new JdbcTemplate(new org.springframework.jdbc.datasource.SingleConnectionDataSource(connection, true));
 				writer.update("DELETE FROM exercise_definitions WHERE user_id=?", owner.id());
 				writer.update("DELETE FROM user_workout_settings WHERE user_id=?", owner.id());
+				WeeklyPresetFixtures.clear(writer, owner.id());
 				writer.update("DELETE FROM deload_analysis_versions WHERE user_id=?", owner.id()); writer.update("UPDATE users SET data_generation=? WHERE id=?", generation, owner.id());
 				writer.update("INSERT INTO user_workout_settings(user_id,data_generation,rest_low_seconds,rest_medium_seconds,rest_high_seconds) VALUES (?,?,77,88,99)", owner.id(), generation);
 				connection.commit();

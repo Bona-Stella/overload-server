@@ -7,6 +7,7 @@ import com.overload.overload_server.account.VerifiedIdentity;
 import com.overload.testfixture.EmailOtpFixtures;
 import com.overload.testfixture.MixedPersistenceAssertions;
 import com.overload.testfixture.WorkoutReadFixtures;
+import com.overload.testfixture.WeeklyPresetFixtures;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -107,6 +108,7 @@ class WorkoutWriteIntegrationTests {
 		jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?",owner.id());
 		jdbc.update("DELETE FROM auth_identities WHERE user_id=?",owner.id());
 		jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?",owner.id());
+		WeeklyPresetFixtures.clear(jdbc, owner.id());
 		jdbc.update("DELETE FROM users WHERE id=?",owner.id());
 		error(changeSettings(),401,"AUTHENTICATION_REQUIRED");
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE id=?",Integer.class,owner.id())).isZero();
@@ -117,6 +119,7 @@ class WorkoutWriteIntegrationTests {
 		long generation = 9007199254740993L;
 		jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", owner.id());
 		jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", owner.id());
+		WeeklyPresetFixtures.clear(jdbc, owner.id());
 		jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?", owner.id()); jdbc.update("UPDATE users SET data_generation=? WHERE id=?", generation, owner.id());
 		jdbc.update("INSERT INTO user_workout_settings(user_id,data_generation,rest_low_seconds,rest_medium_seconds,rest_high_seconds) VALUES (?,?,180,120,90)", owner.id(), generation);
 		var before = snapshot(owner.id());

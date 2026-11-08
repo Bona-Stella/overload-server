@@ -239,7 +239,10 @@ class DeloadWeeklyFinalizationIntegrationTests {
         assertThat(finalizer.runBatch()).isZero();assertThat(finish().status()).isEqualTo(DISABLED);
         var before=weeklyRows().getFirst();var enabled=app.getBean(DeloadAnalysisService.class).save(owner,new DeloadAnalysisRequests.Save(0,2,true,"Asia/Seoul"));
         assertThat(finish().status()).isEqualTo(STALE);assertThat(enabled.epoch()).isEqualTo("3");
-        clock("2026-11-15T19:00:00Z");assertThat(finalizer.finalizeWeek(owner,0,3,LocalDate.of(2026,11,2)).confirmed()).isEqualTo(1);
+        // The settings write timestamps the new epoch with the database clock.
+        var reactivatedWeek = DeloadWeeklyPolicy.monday(enabled.epochStartedAt().atZone(ZoneId.of(enabled.timeZone())).toLocalDate());
+        clock(DeloadWeeklyPolicy.dueAt(reactivatedWeek, enabled.timeZone()).toString());
+        assertThat(finalizer.finalizeWeek(owner,0,3,reactivatedWeek).confirmed()).isEqualTo(1);
         assertThat(finalizer.accumulated(owner,0).weeks()).isEqualTo(ExactFraction.ZERO);assertThat(weeklyRows().getFirst()).isEqualTo(before);
     }
     @Test void toggleThatWinsTheOwnerLockPreventsAnOldEpochPublication()throws Exception {

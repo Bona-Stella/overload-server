@@ -59,14 +59,16 @@ class PostgresMigrationTests {
 					WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name
 					""", String.class)).containsExactly("auth_identities", "cardio_activity_catalog", "cardio_results", "daily_training_assessments", "deload_analysis_versions", "deload_periods", "deload_temporary_plans", "deload_weekly_assessments", "email_otp_challenges", "email_otp_limits",
 					"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_definitions", "exercise_muscle",
-					"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_versions", "workout_calendar_control", "workout_sessions");
+					"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_presets", "weekly_schedule_state", "weekly_schedule_versions", "workout_calendar_control", "workout_sessions");
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();
-			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("29");
+			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("30");
 			assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();
 			assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
 			flyway.validate();
 			history = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
-			assertThat(history).hasSize(29);
+			assertThat(history).hasSize(30);
+			assertThat(history.getLast()).containsEntry("version", "30")
+					.containsEntry("script", "V30__create_weekly_schedule_presets.sql").containsEntry("success", true);
             assertThat(history.get(25)).containsEntry("version", "26").containsEntry("script", "V26__add_excluded_deload_weekly_assessments.sql").containsEntry("success", true);
             assertThat(history.get(21)).containsEntry("version", "22").containsEntry("script", "V22__add_bodyweight_additional_load.sql").containsEntry("success", true);
             assertThat(history.get(20)).containsEntry("version", "21").containsEntry("script", "V21__add_actual_cardio_measurements.sql").containsEntry("success", true);
@@ -134,7 +136,7 @@ class PostgresMigrationTests {
         var before=jdbc.queryForObject("SELECT to_jsonb(p)::text FROM deload_periods p WHERE id=?",String.class,period);
         var analysis=jdbc.queryForObject("SELECT to_jsonb(v)::text FROM deload_analysis_versions v WHERE user_id=?",String.class,owner);
         var checksums=jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history ORDER BY installed_rank");
-        var latest=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).load();
+        var latest=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).target("29").load();
         assertThat(latest.migrate().migrationsExecuted).isOne();
         assertThat(jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history WHERE version::int<=28 ORDER BY installed_rank")).isEqualTo(checksums);
         assertThat(jdbc.queryForObject("SELECT (to_jsonb(p)-'end_reason'-'end_request_id')::text FROM deload_periods p WHERE id=?",String.class,period)).isEqualTo(before);
@@ -225,7 +227,7 @@ class PostgresMigrationTests {
         assertThatThrownBy(()->jdbc.update("UPDATE deload_weekly_assessments SET contribution_numerator=1 WHERE user_id=? AND week_start='2026-11-09'",owner)).isInstanceOf(DataIntegrityViolationException.class);
         assertThat(jdbc.queryForObject("SELECT status FROM deload_weekly_assessments WHERE user_id=? AND week_start='2026-11-02'",String.class,owner)).isEqualTo("EXCLUDED");
     }
-    @Test void v24ThroughV29PreservesWorkoutOriginsAndLeavesExistingAccountsUnadopted() {
+    @Test void v24ThroughV30PreservesWorkoutOriginsAndLeavesExistingAccountsUnadopted() {
         var old=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).target("24").load();old.migrate();
         var jdbc=new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()));
         UUID user=UUID.randomUUID(),routine=UUID.randomUUID(),session=UUID.randomUUID(),device=UUID.randomUUID();
@@ -292,7 +294,7 @@ class PostgresMigrationTests {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_weekly_assessments",Integer.class)).isZero();
         assertThat(latest.migrate().migrationsExecuted).isZero();latest.validate();
         var finalSchema=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).load();
-        assertThat(finalSchema.migrate().migrationsExecuted).isEqualTo(4);
+        assertThat(finalSchema.migrate().migrationsExecuted).isEqualTo(5);
         for(var table:tables) {
             var projected=table.equals("workout_sessions")
                 ? "(to_jsonb(t)-'deload_period_id'-'deload_plan_id'-'first_deload_activity_at'-'abandoned_at')"
@@ -302,7 +304,9 @@ class PostgresMigrationTests {
         }
         assertThat(jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history WHERE installed_rank<=24 ORDER BY installed_rank")).isEqualTo(history);
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history WHERE installed_rank>24 ORDER BY installed_rank",String.class))
-            .containsExactly("25","26","27","28","29");
+            .containsExactly("25","26","27","28","29","30");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_presets",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_state",Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions",Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_weekly_assessments",Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_periods",Integer.class)).isZero();
@@ -383,7 +387,7 @@ class PostgresMigrationTests {
 		var checksums = java.util.Arrays.stream(v2.info().applied()).map(info -> info.getChecksum()).toList();
 		try (var context = startApplication(WebApplicationType.NONE)) {
 			var latest = context.getBean(Flyway.class);
-			assertThat(latest.info().current().getVersion().toString()).isEqualTo("29");
+			assertThat(latest.info().current().getVersion().toString()).isEqualTo("30");
 			assertThat(java.util.Arrays.stream(latest.info().applied()).limit(2).map(info -> info.getChecksum()).toList())
 					.isEqualTo(checksums);
 			assertThat(latest.migrate().migrationsExecuted).isZero();
