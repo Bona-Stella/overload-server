@@ -39,6 +39,7 @@ class DeloadSessionIntegrationTests {
     @BeforeAll static void start() {
         assertThat(POSTGRES.getMappedPort(5432)).isNotIn(5432,5433,12296);
         boot();
+        DeloadScenarioClock.alignAccountDefaults(jdbc, POSTGRES);
     }
     static void boot() {
         var key=new byte[32];new java.security.SecureRandom().nextBytes(key);
@@ -51,12 +52,20 @@ class DeloadSessionIntegrationTests {
     @AfterAll static void stop() {if(app!=null)app.close();}
 
     @BeforeEach void setup()throws Exception {
-        clock("2026-11-08T03:00:00Z");jdbc.update("DELETE FROM email_otp_rate_limits");app.getBean(EmailOtpFixtures.FakeSender.class).reset();
+        DeloadScenarioClock.set(DeloadScenarioClock.START);
+        jdbc.update("DELETE FROM email_otp_rate_limits");
+        app.getBean(EmailOtpFixtures.FakeSender.class).reset();
         browser=new Browser();browser.login();owner=UUID.fromString(JSON.readTree(browser.get("/__otp_test__/me").body()).get("id").asString());
-        var repository=app.getBean(DeloadAnalysisRepository.class);var initial=repository.current(owner,0);repository.append(owner,0,initial.change(true,"Asia/Seoul",EmailOtpFixtures.CLOCK.instant()));
+        DeloadScenarioClock.bindNewAccount(app.getBean(DeloadAnalysisRepository.class), owner);
     }
-    @AfterEach void closeBrowser(){browser.close();}
-    static void clock(String value){EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),Instant.parse(value)));}
+    @AfterEach void closeBrowser() {
+        try {
+            if (browser != null) browser.close();
+        } finally {
+            EmailOtpFixtures.CLOCK.reset();
+        }
+    }
+    static void clock(String value){DeloadScenarioClock.set(Instant.parse(value));}
     Instant at(int day){return monday.plusDays(day).atTime(12,0).atZone(ZoneId.of("Asia/Seoul")).toInstant();}
     DeloadTemporaryPlans temporary(){return app.getBean(DeloadTemporaryPlans.class);}
     DeloadPeriodService service(){return app.getBean(DeloadPeriodService.class);}
