@@ -13,7 +13,8 @@ public class DeloadAnalysisService {
     public record Fraction(String numerator,String denominator) { }
     public record View(UUID userId,String dataGeneration,boolean enabled,String version,String epoch,Instant epochStartedAt,
                        String timeZone,String calculationStatus,Fraction epochInitialWeeks,Fraction confirmedWeeks,
-                       LocalDate confirmedFrom,LocalDate confirmedThrough,LocalDate blockedAt,Fraction recommendationThreshold,boolean recommendationReady) { }
+                       LocalDate confirmedFrom,LocalDate confirmedThrough,LocalDate blockedAt,Fraction recommendationThreshold,boolean recommendationReady,
+                       LocalDate analysisResumesOn) { }
     private final DeloadAnalysisRepository repository;
     private final DeloadAnalysisQuery query;
     public DeloadAnalysisService(DeloadAnalysisRepository repository,DeloadAnalysisQuery query) { this.repository=repository;this.query=query; }
@@ -68,7 +69,7 @@ public class DeloadAnalysisService {
         var result=query.read(owner,generation,state);
         return new View(owner,Long.toString(generation),state.enabled(),Long.toString(state.version()),Long.toString(state.epoch()),state.epochStartedAt(),state.timeZone(),
             result.status(),new Fraction("0","1"),fraction(result.weeks()),
-            result.from(),result.through(),result.blockedAt(),fraction(DeloadAnalysisQuery.THRESHOLD),result.recommendationReady());
+            result.from(),result.through(),result.blockedAt(),fraction(DeloadAnalysisQuery.THRESHOLD),result.recommendationReady(),state.enabled()?state.resumeDate():null);
     }
     private static Fraction fraction(ExactFraction value) {return value==null?null:new Fraction(value.numerator().toString(),value.denominator().toString());}
 }

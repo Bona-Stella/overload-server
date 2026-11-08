@@ -139,7 +139,7 @@ public final class V22BrowserEnvironment implements AutoCloseable {
         }
         app.getBean(Flyway.class).validate();
         var versions = jdbc.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
-        require(versions.equals(java.util.stream.IntStream.rangeClosed(1, 28).mapToObj(Integer::toString).toList()), "V1 through V28 required");
+        require(versions.equals(java.util.stream.IntStream.rangeClosed(1, 29).mapToObj(Integer::toString).toList()), "V1 through V29 required");
         require(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class) == 0, "Failed migration");
         require(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class) == 0, "Fresh users required");
         require(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions", Integer.class) == 0, "Personal seed prohibited");

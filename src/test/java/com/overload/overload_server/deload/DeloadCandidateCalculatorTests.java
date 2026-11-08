@@ -30,6 +30,24 @@ class DeloadCandidateCalculatorTests {
         return new CompletionSession(base.id(),base.date(),base.startedAt(),"AUTO_CLOSED",2,1,null,json(p),Map.of(),Map.of(item,new InitialPlanCompletion.CardioEvidence(ms,distance==null?null:new BigDecimal(distance),null)));
     }
     Week run(List<CompletionSession> sessions) {return calculate(owner,0,epoch(),monday,observed,sessions,Map.of(),null,null);}
+    @Test void protectedDateKeepsUnknownPendingAndAllowsOnlyGenuineNormalAdd() {
+        var stopped=monday.plusDays(1);
+        var resumed=monday.plusDays(2);
+        var protection=Map.of(stopped,new DeloadPeriods.Protection(null),resumed,
+            new DeloadPeriods.Protection(resumed.atTime(10,0).atZone(ZoneId.of("Asia/Seoul")).toInstant()));
+        var evidence=Map.of(stopped,daily("MISSED",true),resumed,daily("MISSED",true));
+        var neutral=calculate(owner,0,epoch(),monday,observed,List.of(weight(1,1,1),weight(2,1,1)),evidence,null,null,protection);
+        assertThat(neutral.pending()).containsExactly(Pending.PROTECTED_RESET);
+        assertThat(DeloadWeeklyPolicy.excluded(neutral)).isTrue();
+        assertThat(neutral.n()).isOne();
+        var real=calculate(owner,0,epoch(),monday,observed,List.of(weight(0,1,1),weight(2,1,1)),evidence,null,null,protection);
+        assertThat(real.e()).isEqualTo(ExactFraction.of(2,1));
+        assertThat(real.n()).isEqualTo(2);
+        assertThat(DeloadWeeklyPolicy.excluded(real)).isFalse();
+        var uncertain=calculate(owner,0,epoch(),monday,observed,List.of(cardio(2,100000,null)),evidence,null,null,protection);
+        assertThat(uncertain.pending()).containsExactly(Pending.UNKNOWN_COMPLETION);
+        assertThat(DeloadWeeklyPolicy.excluded(uncertain)).isFalse();
+    }
     DailyEvidence daily(String state,boolean dirty) {return new DailyEvidence(state,7,dirty,observed,observed.minusSeconds(1),1L,UUID.randomUUID(),"0");}
     WorkoutCalendarRepository.Control calendar(LocalDate through) {return new WorkoutCalendarRepository.Control("Asia/Seoul",1,from,monday,through);}
     @Test void noActivityStartIsExcludedButOneActualSetIsAZeroValuedCandidate() {

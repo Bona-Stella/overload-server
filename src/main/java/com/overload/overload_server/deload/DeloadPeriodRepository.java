@@ -15,8 +15,17 @@ class DeloadPeriodRepository {
     private final JdbcTemplate jdbc;private final RoutineService routines;private final RoutineRepository routineData;private final DeloadAnalysisRepository analysis;
     DeloadPeriodRepository(JdbcTemplate jdbc,RoutineService routines,RoutineRepository routineData,DeloadAnalysisRepository analysis){this.jdbc=jdbc;this.routines=routines;this.routineData=routineData;this.analysis=analysis;}
     record Eligibility(boolean eligible,String timeZone,LocalDate today,boolean recentActual,boolean afterPreviousCompletion,boolean todayClear,boolean activeSessionClear,List<String> reasons,String revision){}
-    record Stored(UUID id,UUID userId,String dataGeneration,String version,String status,Instant startedAt,LocalDate startDate,String timeZone,LocalDate recommendedEndDate,LocalDate maximumEndDate,Method method,Split split,String sourceHash,Source source,List<SavedPlan> plans,Method currentMethod,Split currentSplit,boolean hasActivity){}
-    record SavedPlan(UUID id,int position,Plan plan,String version,LocalDate plannedDate,DeloadTemporaryPlans.Content current){}
+    record Stored(UUID id,UUID userId,String dataGeneration,String version,String status,Instant startedAt,LocalDate startDate,String timeZone,LocalDate recommendedEndDate,LocalDate maximumEndDate,Method method,Split split,String sourceHash,Source source,List<SavedPlan> plans,Method currentMethod,Split currentSplit,boolean hasActivity,
+                  Instant closedAt, LocalDate closedDate, String endReason, Instant processedAt){}
+    record Lifecycle(UUID id, long version, String status, Instant startedAt, ZoneId zone,
+                     LocalDate startDate, LocalDate maximumEndDate, UUID endRequestId, String endReason, Instant updatedAt) {
+        Instant deadline() {
+            return maximumEndDate.plusDays(1).atStartOfDay(zone).toInstant();
+        }
+    }
+    record HistoryItem(UUID id, String status, LocalDate startDate, LocalDate closedDate, Instant closedAt,
+                       String endReason, String timeZone, String method, String split) {}
+    record SavedPlan(UUID id,int position,Plan plan,String version,LocalDate plannedDate,DeloadTemporaryPlans.Content current,Instant deletedAt){}
     record Request(String hash,Stored period){}
     long generation(UUID owner,boolean lock){return analysis.generation(owner,lock);}
     String zone(UUID owner,long generation){return analysis.current(owner,generation).timeZone();}
@@ -67,10 +76,86 @@ class DeloadPeriodRepository {
         return new Source(owner,Long.toString(generation),zone,eligibility.today(),schedule.version(),days,List.copyOf(classes));
     }
     Optional<Stored> active(UUID owner,long generation){return jdbc.query("SELECT * FROM deload_periods WHERE user_id=? AND data_generation=? AND status='ACTIVE'",(r,i)->stored(r),owner,generation).stream().findFirst();}
+    Optional<Stored> current(UUID owner, long generation, Instant now) {
+        return jdbc.query("""
+            SELECT * FROM deload_periods WHERE user_id=? AND data_generation=? AND
+              (status='ACTIVE' OR status='COMPLETED' AND closed_date=(?::timestamptz AT TIME ZONE time_zone)::date)
+            ORDER BY started_at DESC LIMIT 1
+            """,(r,i)->stored(r),owner,generation,Timestamp.from(now)).stream().findFirst();
+    }
+    Stored detail(UUID owner, long generation, UUID period) {
+        return jdbc.query("SELECT * FROM deload_periods WHERE user_id=? AND data_generation=? AND id=?",
+            (r,i)->stored(r),owner,generation,period).stream().findFirst()
+            .orElseThrow(()->new DeloadPeriodFailure(404,"DELOAD_PERIOD_NOT_FOUND"));
+    }
+    List<HistoryItem> history(UUID owner, long generation, int offset) {
+        return jdbc.query("""
+            SELECT id,status,start_date,closed_date,closed_at,end_reason,time_zone,method,split
+            FROM deload_periods WHERE user_id=? AND data_generation=? AND status<>'ACTIVE'
+            ORDER BY closed_at DESC,id DESC LIMIT 50 OFFSET ?
+            """,(r,i)->new HistoryItem(r.getObject("id",UUID.class),r.getString("status"),r.getObject("start_date",LocalDate.class),
+                r.getObject("closed_date",LocalDate.class),instant(r,"closed_at"),r.getString("end_reason"),r.getString("time_zone"),
+                r.getString("method"),r.getString("split")),owner,generation,offset);
+    }
+    Lifecycle lifecycle(UUID owner, long generation, UUID period) {
+        return jdbc.query("SELECT * FROM deload_periods WHERE user_id=? AND data_generation=? AND id=?",
+            (r,i)->new Lifecycle(period,r.getLong("version"),r.getString("status"),instant(r,"started_at"),ZoneId.of(r.getString("time_zone")),
+                r.getObject("start_date",LocalDate.class),r.getObject("maximum_end_date",LocalDate.class),
+                r.getObject("end_request_id",UUID.class),r.getString("end_reason"),instant(r,"updated_at")),owner,generation,period)
+            .stream().findFirst().orElseThrow(()->new DeloadPeriodFailure(404,"DELOAD_PERIOD_NOT_FOUND"));
+    }
+    boolean endRequestUsed(UUID owner, long generation, UUID request) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+            SELECT EXISTS(SELECT 1 FROM deload_periods WHERE user_id=? AND data_generation=? AND end_request_id=?)
+            """,Boolean.class,owner,generation,request));
+    }
+    boolean activeWorkout(UUID owner, long generation) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+            SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE user_id=? AND data_generation=? AND status='ACTIVE')
+            """,Boolean.class,owner,generation));
+    }
+    boolean hasActivity(UUID period) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+            SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE deload_period_id=? AND first_deload_activity_at IS NOT NULL)
+            """,Boolean.class,period));
+    }
+    boolean hasUnabandonedWorkout(UUID period) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+            SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE deload_period_id=? AND abandoned_at IS NULL)
+            """,Boolean.class,period));
+    }
+    record DuePeriod(UUID owner, long generation, UUID period) {}
+    List<DuePeriod> due(Instant now) {
+        return jdbc.query("""
+            SELECT p.user_id,p.data_generation,p.id FROM deload_periods p
+            JOIN users u ON u.id=p.user_id AND u.data_generation=p.data_generation
+            WHERE p.status='ACTIVE' AND p.maximum_end_date<(?::timestamptz AT TIME ZONE p.time_zone)::date
+              AND NOT EXISTS(SELECT 1 FROM workout_sessions ws WHERE ws.user_id=p.user_id
+                AND ws.data_generation=p.data_generation AND ws.status='ACTIVE')
+            ORDER BY p.maximum_end_date,p.id LIMIT 20
+            """,(r,i)->new DuePeriod(r.getObject(1,UUID.class),r.getLong(2),r.getObject(3,UUID.class)),Timestamp.from(now));
+    }
+    void end(UUID owner, long generation, Lifecycle period, UUID request, String status, String reason,
+             Instant closedAt, LocalDate closedDate, Instant processedAt) {
+        int changed=jdbc.update("""
+            UPDATE deload_periods SET status=?,end_reason=?,end_request_id=?,closed_at=?,closed_date=?,updated_at=?,version=version+1
+            WHERE id=? AND user_id=? AND data_generation=? AND status='ACTIVE' AND version=?
+            """,status,reason,request,Timestamp.from(closedAt),closedDate,Timestamp.from(processedAt),period.id(),owner,generation,period.version());
+        if(changed!=1)throw DeloadPeriodFailure.conflict("DELOAD_PERIOD_VERSION_CONFLICT");
+    }
     Optional<Request> request(UUID owner,long generation,UUID request){return jdbc.query("SELECT * FROM deload_periods WHERE user_id=? AND data_generation=? AND request_id=?",(r,i)->new Request(r.getString("request_hash"),stored(r)),owner,generation,request).stream().findFirst();}
     private Stored stored(ResultSet r)throws SQLException {
-        UUID id=r.getObject("id",UUID.class);var plans=jdbc.query("SELECT id,position,initial_plan::text,version,planned_date,current_plan::text FROM deload_temporary_plans WHERE period_id=? AND deleted_at IS NULL ORDER BY position",(p,i)->new SavedPlan(p.getObject(1,UUID.class),p.getInt(2),JSON.readValue(p.getString(3),Plan.class),p.getString(4),p.getObject(5,LocalDate.class),JSON.readValue(p.getString(6),DeloadTemporaryPlans.Content.class)),id);
-        return new Stored(id,r.getObject("user_id",UUID.class),r.getString("data_generation"),r.getString("version"),r.getString("status"),r.getTimestamp("started_at").toInstant(),r.getObject("start_date",LocalDate.class),r.getString("time_zone"),r.getObject("recommended_end_date",LocalDate.class),r.getObject("maximum_end_date",LocalDate.class),Method.valueOf(r.getString("method")),Split.valueOf(r.getString("split")),r.getString("source_hash"),JSON.readValue(r.getString("source_snapshot"),Source.class),List.copyOf(plans),Method.valueOf(r.getString("current_method")),Split.valueOf(r.getString("current_split")),Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE deload_period_id=? AND first_deload_activity_at IS NOT NULL)",Boolean.class,id)));
+        UUID id=r.getObject("id",UUID.class);
+        var closedAt=instant(r,"closed_at");
+        var plans=jdbc.query("""
+            SELECT id,position,initial_plan::text,version,planned_date,current_plan::text,deleted_at
+            FROM deload_temporary_plans WHERE period_id=? AND (? OR deleted_at IS NULL)
+            ORDER BY position,deleted_at NULLS LAST,id
+            """,(p,i)->new SavedPlan(p.getObject(1,UUID.class),p.getInt(2),JSON.readValue(p.getString(3),Plan.class),
+                p.getString(4),p.getObject(5,LocalDate.class),JSON.readValue(p.getString(6),DeloadTemporaryPlans.Content.class),instant(p,"deleted_at")),
+            id,closedAt!=null);
+        return new Stored(id,r.getObject("user_id",UUID.class),r.getString("data_generation"),r.getString("version"),r.getString("status"),r.getTimestamp("started_at").toInstant(),r.getObject("start_date",LocalDate.class),r.getString("time_zone"),r.getObject("recommended_end_date",LocalDate.class),r.getObject("maximum_end_date",LocalDate.class),Method.valueOf(r.getString("method")),Split.valueOf(r.getString("split")),r.getString("source_hash"),JSON.readValue(r.getString("source_snapshot"),Source.class),List.copyOf(plans),Method.valueOf(r.getString("current_method")),Split.valueOf(r.getString("current_split")),hasActivity(id),
+            closedAt,r.getObject("closed_date",LocalDate.class),r.getString("end_reason"),closedAt==null?null:instant(r,"updated_at"));
     }
     Stored insert(UUID owner,long generation,UUID request,String requestHash,String sourceHash,Source source,Choice choice,Generated generated,Instant at) {
         UUID id=UUID.randomUUID();

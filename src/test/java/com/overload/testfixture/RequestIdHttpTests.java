@@ -72,6 +72,7 @@ import static org.mockito.Mockito.when;
 		SecurityFixtures.class, SecurityFixtures.FixtureController.class})
 @MockitoBean(types = {JdbcTemplate.class, PlatformTransactionManager.class, EmailOtpService.class, EmailIdentityService.class, OtpEmailSender.class,
 		com.overload.overload_server.statistics.DailyTrainingReviewService.class,
+		com.overload.overload_server.deload.DeloadPeriodLifecycle.class,
 		com.overload.overload_server.deload.DeloadWeeklyFinalization.class,
 		com.overload.overload_server.workoutsession.WorkoutRecordService.class,
 		com.overload.overload_server.workoutsession.WorkoutSnapshotService.class, com.overload.overload_server.workoutsession.WorkoutSnapshotRepository.class, com.overload.overload_server.workoutsession.WorkoutSessionService.class, com.overload.overload_server.workoutsession.WorkoutSessionRepository.class,

@@ -486,11 +486,11 @@ V24의 nullable schedule_version_at_start는 신규 START에서만 설정한다.
 
 ### 2026-11-07 현행 정책과 적용 범위
 
-디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 분석, G5-1 기간 시작, G5-2 운동 세션이 구현되었다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 기존 격리 검토DB는 이전 확인 기준 V24이며, 이번에는 중지 상태를 유지하고 개인/운영DB를 조회하거나 변경하지 않았다.
+디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 분석, G5-1 기간 시작, G5-2 운동 세션과 G5-3 종료·재개가 구현되었다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 기존 격리 검토DB는 이전 확인 기준 V24이며, 이번에는 중지 상태를 유지하고 개인/운영DB를 조회하거나 변경하지 않았다.
 
 ## G5-1 ACTIVE 기간 보호
 
-[디로딩 기간 계약](deload-periods.md)의 ACTIVE 기간에는 새 일반 START와 원본 기록 정정·복구·논리 삭제·승인 해결/새 snapshot·FINISH를409 DELOAD_ACTIVE_PERIOD로 차단한다. 읽기와 기존 확정 요청의 무변경 ACK는 유지한다. 기간 시작과 일반 쓰기는 기존 사용자 잠금으로 직렬화한다. 디로딩 소속 세션은 아래의 공통 운동 경로를 사용하며 기간 종료는 G5-3이다. 기존 검토 DB와 서버에는 새 기능을 배포하지 않는다.
+[디로딩 기간 계약](deload-periods.md)의 ACTIVE 기간과 COMPLETED 당일에는 새 일반 START와 원본 기록 정정·복구·논리 삭제·승인 해결/새 snapshot·FINISH를409 DELOAD_ACTIVE_PERIOD로 차단한다. 읽기와 기존 확정 요청의 무변경 ACK는 유지한다. 기간 시작과 일반 쓰기는 기존 사용자 잠금으로 직렬화한다. 디로딩 소속 세션은 아래의 공통 운동 경로를 사용한다. 다음 고정 로컬 날짜부터 일반 쓰기가 재개되며 무수행 취소는 즉시 재개된다. 기존 검토 DB와 서버에는 새 기능을 배포하지 않는다.
 
 ## G5-2 디로딩 세션
 
@@ -518,6 +518,6 @@ V28에서 일반 세션의 `source_routine_id`는 기존 owner/generation 루틴
 
 `POST /api/v1/workout-sessions/{id}/abandon`은 기간을 취소하지 않는다. 현재 편집 기기의 `dataGeneration`, `expectedVersion`, `editorDeviceId`, `writerEpoch`, `localRevision`, `confirm:true`가 일치하는 디로딩 세션에만 적용한다. 서버에 한 번이라도 실제 수행이 저장됐다면 논리삭제 이후에도409 DELOAD_ACTIVITY_RECORDED다. 성공 시 무수행 세션을 이력에서 제외하고 계획 잠금을 풀지만 봉인 출처를 지우지 않는다. 아직 ACTIVE면 AUTO_CLOSED로 정리하고 이미 종료됐다면 기존 FINISH/AUTO_CLOSED 사실은 유지한다. 동일 요청 재시도는 버전이나 시각을 다시 바꾸지 않는다.
 
-클라이언트는 이 API 전 자신이 아는 미동기화 수행·고정 요청을 확인하고 정리 ACK가 오기 전 로컬 원본을 제거하지 않아야 한다. 서버는 아직 전송되지 않은 타 기기 사실을 추정하지 않는다. 동시 snapshot과 정리는 기존 owner 잠금/버전으로 직렬화한다. 24시간 AUTO_CLOSED는 공통 세션 정책이며 기간의 10일차 자동 종료는 G5-3이다.
+클라이언트는 이 API 전 자신이 아는 미동기화 수행·고정 요청을 확인하고 정리 ACK가 오기 전 로컬 원본을 제거하지 않아야 한다. 서버는 아직 전송되지 않은 타 기기 사실을 추정하지 않는다. 동시 snapshot과 정리는 기존 owner 잠금/버전으로 직렬화한다. 24시간 AUTO_CLOSED는 공통 세션 정책이며 기간 종료는 별도 상태 전이다. 기간 자동 완료는 ACTIVE 세션이 있으면 기다린다. 기존 FINISH ACK와 명시적 복구는 기간 종료 후에도 유지된다.
 
 실제 수행 표식 `first_deload_activity_at`은 유효 웨이트 세트 또는 양의 COMPLETED 유산소와 같은 트랜잭션에서 한 번 저장한다. START·SKIPPED·무수행 종료만으로는 설정하지 않는다. 정정·논리삭제·복구·종료 이후에도 처음 저장한 표식을 바꾸지 않는다. 기록 저장이 롤백되면 표식도 롤백된다. 기간 `hasActivity`는 이 표식의 존재이며 현재 화면의 세트 개수와 별개다.

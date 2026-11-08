@@ -26,7 +26,7 @@ public class WeeklyScheduleService {
     @Transactional(transactionManager="workoutTransactionManager",isolation=Isolation.READ_COMMITTED)
     WeeklySchedule.View save(UUID owner,WeeklySchedule.Save request) {
         long generation=generation(owner,true);if(generation!=request.generation())throw new RoutineFailure(DATA_GENERATION_MISMATCH);
-        if(periods.active(owner,generation))throw new RoutineFailure(DELOAD_ACTIVE_PERIOD);
+        if(periods.generalWriteBlocked(owner,generation))throw new RoutineFailure(DELOAD_ACTIVE_PERIOD);
         var current=view(owner,generation,request.timeZone());long version=Long.parseLong(current.version());
         if(version!=request.expectedVersion())throw new RoutineFailure(SCHEDULE_VERSION_CONFLICT);
         if(version!=0&&!current.timeZone().equals(request.timeZone()))throw new RoutineFailure(SCHEDULE_TIME_ZONE_CONFLICT);

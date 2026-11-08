@@ -1,6 +1,6 @@
 # 디로딩 분석 설정·epoch·확정 누적 API — G4
 
-2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) DL-05~14와 [G4 준비 계약](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#5-g4-개발-범위의존성검증-계획)을 따른다. 설정/epoch·공통 판정·후보/E/N·주간 확정·재계산과 [G4-6 조회 연동](../tasks/deload-g4-6-report.md)을 구현했다. [G5-1 기간 시작/최초 임시 계획](deload-periods.md)을 추가했으며 [G5-2 디로딩 세션](workout-sessions.md#g5-2-디로딩-세션)은 일반 G3/G4 후보에 들어가지 않는다. 실제 DB 적용·G5-3 종료/최종 재개·G6 PWA 연결은 별도다.
+2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) DL-05~14와 [G4 준비 계약](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#5-g4-개발-범위의존성검증-계획)을 따른다. 설정/epoch·공통 판정·후보/E/N·주간 확정·재계산과 [G4-6 조회 연동](../tasks/deload-g4-6-report.md)을 구현했다. [G5 기간 계약](deload-periods.md)에 따라 종료 후 분석을 재개한다. [디로딩 세션](workout-sessions.md#g5-2-디로딩-세션)은 일반 G3/G4 후보에 들어가지 않는다. 실제 DB 적용과 G6 PWA 연결은 별도다.
 
 ## GET /api/v1/deload-analysis
 
@@ -24,18 +24,19 @@
   "confirmedThrough": "2026-11-23",
   "blockedAt": null,
   "recommendationThreshold": {"numerator": "8", "denominator": "1"},
-  "recommendationReady": false
+  "recommendationReady": false,
+  "analysisResumesOn": null
 }
 ```
 
-기존 필드와 분수/Counter의 십진 문자열 타입을 유지하며 confirmedFrom/confirmedThrough/blockedAt/recommendationThreshold/recommendationReady만 추가한다. version은 설정의 expectedVersion이며 주간 결과 version이 아니다. 같은 설정 version에서도 원본·Job 변화로 조회 결과가 달라질 수 있다. NOT_IMPLEMENTED는 다음 실제 상태로 교체한다.
+분수와 Counter는 십진 문자열로 유지한다. version은 설정의 expectedVersion이며 주간 결과 version이 아니다. 같은 설정 version에서도 원본·Job 변화로 조회 결과가 달라질 수 있다.
 
 | calculationStatus | 의미 |
 |---|---|
 | DISABLED | OFF. 누적·범위·blockedAt=null, 추천false. 저장 이력/일반 운동/G3/통계는 유지 |
 | AWAITING_TIME_ZONE | ON이나 분석 시간대 미확정. 누적·범위=null, 추천false |
 | INITIAL | 시간대가 있지만 아직 확정 시각에 도달한 평가 주가 없음. 초기 기준0만 알려졌으며 confirmedWeeks/범위=null |
-| PAUSED | G5-1 기간이 현재 ON 구간과 겹침. 더 이른 미해결이 없으면 마지막 신뢰 prefix/blockedAt을 제공하고 추천false. 최종 재개는 G5-3 |
+| PAUSED | ACTIVE 기간이 현재 ON 구간과 겹침. 더 이른 미해결이 없으면 마지막 신뢰 prefix/blockedAt을 제공하고 추천false |
 | CONFIRMED | 필요한 마지막 due 주까지 연속된 저장 결과가 신뢰 가능. 정확 누적과 범위 제공 |
 | AWAITING_REVIEW | 첫 미해결 주에 필요한 G3 cursor/날짜 검사/시간대 근거가 미완료. 확정 prefix만 제공 |
 | PENDING | due gap 또는 아직 확정하지 않은 주. Job 대기·후보 UNKNOWN/ACTIVE 등을 포함하며 확정 prefix만 제공 |
@@ -48,6 +49,14 @@ epochInitialWeeks=0/1은 초기 기준이고 완료값이 아니다. 첫 해결 
 현재 epoch의 저장 결과를 week_start 순으로 기존 fold에 전달한다. RESET0·정확 ADD·EXCLUDED 무변경을 적용하고 첫 gap/PENDING/dirty/규칙 불일치에서 중단한다. blockedAt은 그 월요일이며 RECALCULATING에서는 재계산 시작 위치다. 뒤의 ADD를 건너뛰어 공개하지 않는다. 표시할 확정 prefix가 없으면 null이며 가짜0을 만들지 않는다. 이전 epoch는 읽어 합산하지 않는다.
 
 GET은 저장 입력의 날짜7개 revision 벡터와 rule/hash 형식을 최신 G3 revision에 대조하여 snapshot 안에서만 유효 dirty를 계산한다. 설정/주간 행을 생성하거나 dirty를 저장·해소하지 않는다. G4 Job과 같은 최초 주 경계 탐색을 사용하며, 일반 기록의 완료 판정·주간 E/N을 매 GET 다시 계산하지 않는다. 최초 주보다 앞선 여행 날짜의 실제 후보/ACTIVE 존재만 탐색한다. 수행 없는 ACTIVE는 N에 가산하지 않고 보류하며, 빈 종료가 확정되면 Job이 EXCLUDED 처리한다.
+
+## G5-3 완료와 취소 후 분석 재개
+
+- ON 상태에서 수동·자동 완료하면 종료와 같은 트랜잭션에서 새 version이자 epoch인 `DELOAD_COMPLETED`를 저장한다. `epochStartedAt`은 기간의 유효 종료 시각이다. `analysisResumesOn`은 기간의 고정 시간대에서 종료 다음 날짜이며, 완료에서 시작된 ON epoch에 제공한다. 초기 기준은 `epochInitialWeeks=0/1`이고 첫 주가 해결되기 전 `confirmedWeeks=null`이다. OFF→ON의 `ENABLED`와 별도 사유이며 OFF 중 완료는 설정을 유지한다.
+- 완료 이후 같은 월~일 주의 나머지 일반 날짜를 다음 월요일 04시 이후 평가한다. 실제 시작 시각에 재개 경계를 적용하고 후보는 저장된 수행일로 묶는다. 이전 epoch는 완료 시각 이후의 실적을 사용하지 않는다. 완료로 해제된 이전 epoch의 보류 행은 이미 검사한 주 범위에서 재평가하고, 새 epoch의 누적에는 합산하지 않는다.
+- 무수행 취소는 기존 epoch와 신뢰 가능한 확정 누적을 유지한다. 종료된 기간의 보호 날짜는 G3에서 최초 MISS를 새로 만들지 않으며 G4에서 일반 N에 미수행으로 들어가지 않는다. 취소 처리 뒤 같은 날의 새 일반 실제 운동은 후보가 될 수 있다.
+- 보호 날짜가 있는 주라도 일반 후보의 실제 E>1이면 기존 ADD 규칙을 적용한다. 정상 검사와 후보 근거가 해결됐으나 보호 구간 때문에 E≤1 RESET을 막아야 하면 기여 없이 EXCLUDED로 확정한다. 일반 N0의 RESET과 구분한다. 비보호 날짜의 UNKNOWN·dirty·검사 미완료는 계속 보류하며 다음 주를 먼저 공개하지 않는다.
+- G4는 ACTIVE 기간만 PAUSED로 본다. 종료가 영향 주간에 남기는 재검사 표시와 기존 revision/CAS를 사용한다. 장기 ACTIVE 세션 때문에 자동 종료 처리가 늦었다면 일반 쓰기가 잠긴 온전한 날짜도 보호하고, 일반 접근이 열린 날짜부터 정상 검사한다.
 
 추천은 정확 분수가8 이상이고 전체 due 범위가 CONFIRMED인 경우에만 recommendationReady=true다. 보류/재계산 중에는 prefix가8 이상이어도false다. 반올림 표시값·게이지 clamp로 판정하지 않고8 초과 원본 누적도 그대로 반환한다. 추천은 강제/기간 자동 시작/수동 시작 자격이 아니며 G5의 네 조건과 별개다.
 

@@ -51,8 +51,10 @@ public class DeloadWeeklyFinalization {
             var first=DeloadWeeklyPolicy.firstWeek(state,rows.values(),earlier.get(state.epoch()));
             var last=DeloadWeeklyPolicy.lastDue(at,state.timeZone());
             if(state.epoch()!=current.epoch()) {
-                var published=rows.values().stream().filter(DeloadWeeklyRepository.Row::resolved).map(DeloadWeeklyRepository.Row::week).max(Comparator.naturalOrder()).orElse(null);
-                if(published==null)continue;if(published.isBefore(last))last=published;
+                var lastReviewable=rows.values().stream().filter(row->entry.endedByCompletion()||row.resolved())
+                    .map(DeloadWeeklyRepository.Row::week).max(Comparator.naturalOrder()).orElse(null);
+                if(lastReviewable==null)continue;
+                if(lastReviewable.isBefore(last))last=lastReviewable;
             }
             if(!first.isAfter(last))result.add(new Scope(state,first,last,rows,entry.attempted()));
         }

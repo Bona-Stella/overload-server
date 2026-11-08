@@ -264,6 +264,297 @@ class DeloadPeriodIntegrationTests {
         var current=repository.current(owner,0);repository.append(owner,0,current.change(false,"Asia/Seoul",EmailOtpFixtures.CLOCK.instant()));current=repository.current(owner,0);repository.append(owner,0,current.change(true,"Asia/Seoul",EmailOtpFixtures.CLOCK.instant()));
         assertThat(service().current(owner).period().status()).isEqualTo("ACTIVE");assertThat(ok(browser.get("/api/v1/deload-analysis")).get("calculationStatus").asString()).isEqualTo("PAUSED");
     }
+    private DeloadPeriodLifecycle lifecycle() {
+        return app.getBean(DeloadPeriodLifecycle.class);
+    }
+    private DeloadPeriodRequests.End endRequest(DeloadPeriodRepository.Stored period) {
+        return new DeloadPeriodRequests.End(0,Long.parseLong(period.version()),UUID.randomUUID());
+    }
+    private String endBody(DeloadPeriodRequests.End request) {
+        return JSON.writeValueAsString(Map.of("dataGeneration",Long.toString(request.generation()),
+            "expectedVersion",Long.toString(request.expectedVersion()),"requestId",request.requestId()));
+    }
+    private HttpResponse<String> normalStart(UUID routine, String startedAt, String date) throws Exception {
+        return normalStart(routine,startedAt,date,"Asia/Seoul");
+    }
+    private HttpResponse<String> normalStart(UUID routine, String startedAt, String date, String zone) throws Exception {
+        var body=Map.of("id",UUID.randomUUID(),"dataGeneration","0","routineId",routine,"editorDeviceId",UUID.randomUUID(),
+            "startedAt",startedAt,"workoutDate",date,"startedTimeZone",zone);
+        return browser.send("POST","/api/v1/workout-sessions",JSON.writeValueAsString(body),browser.csrf());
+    }
+    private DeloadAnalysisRepository analysis() {
+        return app.getBean(DeloadAnalysisRepository.class);
+    }
+    private DeloadWeeklyFinalization finalization() {
+        return app.getBean(DeloadWeeklyFinalization.class);
+    }
+    private void seedFourAndThreeQuarters() {
+        jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?",owner);
+        jdbc.update("UPDATE users SET created_at='2026-01-01T00:00:00Z' WHERE id=?",owner);
+        var beginning=from.minus(Duration.ofDays(35));
+        app.getBean(DeloadAnalysisService.class).adoptExisting(owner,0,beginning);
+        analysis().append(owner,0,analysis().current(owner,0).change(true,"Asia/Seoul",beginning));
+        for(int day=-35;day<=-14;day+=7) {
+            weight(day,1,1);
+            weight(day+1,1,1);
+        }
+        for(int day=-7;day<=-5;day++)weight(day,1,1);
+        weight(-4,2,1);
+        for(int week=5;week>=1;week--) {
+            assertThat(finalization().finalizeWeek(owner,0,0,monday.minusWeeks(week)).confirmed()).isEqualTo(1);
+        }
+    }
+    private void assertTotal(String numerator,String denominator) throws Exception {
+        var weeks=ok(browser.get("/api/v1/deload-analysis")).get("confirmedWeeks");
+        assertThat(weeks.get("numerator").asString()).isEqualTo(numerator);
+        assertThat(weeks.get("denominator").asString()).isEqualTo(denominator);
+    }
+
+    @Test void completeRestImmediatelyResetsAnalysisAndPreservesOriginalsThroughLocalMidnight() throws Exception {
+        seedFourAndThreeQuarters();
+        weight(2,1,1);
+        var routine=planRoutine();
+        var period=start(rest()).period();
+        var before=originals();
+        assertTotal("19","4");
+        var request=endRequest(period);
+        var path=PATH+"/"+period.id()+"/complete";
+        var first=ok(browser.send("POST",path,endBody(request),browser.csrf()));
+        var completed=first.get("period");
+        assertThat(completed.get("status").asString()).isEqualTo("COMPLETED");
+        assertThat(completed.get("endReason").asString()).isEqualTo("MANUAL_COMPLETION");
+        assertThat(completed.get("closedDate").asString()).isEqualTo("2026-11-08");
+        assertThat(completed.get("closedAt").asString()).isEqualTo("2026-11-08T03:00:00Z");
+        assertThat(completed.get("processedAt")).isEqualTo(completed.get("closedAt"));
+        assertThat(completed.get("plans").size()).isZero();
+        assertThat(ok(browser.send("POST",path,endBody(request),browser.csrf()))).isEqualTo(first);
+        conflict(()->lifecycle().end(owner,period.id(),request,true),"DELOAD_REQUEST_CONFLICT");
+        assertThat(analysis().current(owner,0).reason()).isEqualTo("DELOAD_COMPLETED");
+        assertThat(analysis().current(owner,0).epoch()).isNotZero();
+        var after=ok(browser.get("/api/v1/deload-analysis"));
+        assertThat(after.get("epochInitialWeeks").get("numerator").asString()).isEqualTo("0");
+        assertThat(after.get("confirmedWeeks").isNull()).isTrue();
+        assertThat(after.get("calculationStatus").asString()).isEqualTo("INITIAL");
+        assertThat(after.get("analysisResumesOn").asString()).isEqualTo("2026-11-09");
+        assertThat(ok(browser.get(PATH+"/history")).get("periods").get(0).get("endReason").asString()).isEqualTo("MANUAL_COMPLETION");
+        assertThat(ok(browser.get(PATH+"/"+period.id()))).isEqualTo(first);
+        assertThat(ok(browser.get(PATH+"/current"))).isEqualTo(first);
+        assertThat(normalStart(routine,"2026-11-08T03:00:00Z","2026-11-08").statusCode()).isEqualTo(409);
+        var delete=JSON.writeValueAsString(Map.of("dataGeneration","0","expectedVersion","0"));
+        assertThat(browser.send("DELETE","/api/v1/routines/"+routine,delete,browser.csrf()).statusCode()).isEqualTo(409);
+        assertThat(originals()).isEqualTo(before);
+        clock("2026-11-08T15:00:00Z");
+        assertThat(service().current(owner).period()).isNull();
+        assertThat(normalStart(routine,"2026-11-08T14:59:59Z","2026-11-08").statusCode()).isEqualTo(409);
+        var next=normalStart(routine,"2026-11-08T15:00:00Z","2026-11-08","America/Los_Angeles");
+        assertThat(next.statusCode()).as(next.body()).isEqualTo(201);
+        assertThat(JSON.readTree(next.body()).get("workoutDate").asString()).isEqualTo("2026-11-08");
+        assertThat(analysis().epochHistory(owner,0,0)).isNotEmpty();
+    }
+
+    @Test void cancelRestAfterSeveralDaysKeepsFourAndThreeQuartersAndExcludesOnlyProtectedReset() throws Exception {
+        seedFourAndThreeQuarters();
+        weight(2,1,1);
+        var routine=planRoutine();
+        var period=start(rest()).period();
+        long settingsVersion=analysis().current(owner,0).version();
+        clock("2026-11-11T03:00:00Z");
+        var request=endRequest(period);
+        var cancelled=lifecycle().end(owner,period.id(),request,true);
+        assertThat(cancelled.period().status()).isEqualTo("CANCELLED");
+        assertThat(cancelled.period().endReason()).isEqualTo("USER_CANCELLED");
+        assertThat(lifecycle().end(owner,period.id(),request,true)).isEqualTo(cancelled);
+        assertThat(service().current(owner).period()).isNull();
+        assertThat(analysis().current(owner,0).version()).isEqualTo(settingsVersion);
+        assertThat(normalStart(routine,"2026-11-11T02:59:59Z","2026-11-11").statusCode()).isEqualTo(409);
+        assertThat(finalization().finalizeWeek(owner,0,0,monday).confirmed()).isEqualTo(1);
+        assertTotal("19","4");
+        clock("2026-11-15T19:00:00Z");
+        assertThat(finalization().finalizeWeek(owner,0,0,monday.plusWeeks(1)).confirmed()).isEqualTo(1);
+        var rows=app.getBean(DeloadWeeklyRepository.class).rows(owner,0,0);
+        assertThat(rows.stream().filter(row->!row.week().isBefore(monday))).allSatisfy(row->{
+            assertThat(row.status()).isEqualTo("EXCLUDED");
+            assertThat(row.operation()).isNull();
+        });
+        assertTotal("19","4");
+        clock("2026-11-22T19:00:00Z");
+        assertThat(finalization().finalizeWeek(owner,0,0,monday.plusWeeks(2)).confirmed()).isEqualTo(1);
+        assertTotal("0","1");
+    }
+
+    @Test void newEpochConfirmsOnlyRemainingDatesInCompletionWeekAfterMondayFour() throws Exception {
+        weight(2,1,1);
+        var routine=planRoutine();
+        schedule(routine,3,4);
+        var period=start(rest()).period();
+        clock("2026-11-10T03:00:00Z");
+        lifecycle().end(owner,period.id(),endRequest(period),false);
+        var current=analysis().current(owner,0);
+        assertThat(current.resumeDate()).isEqualTo(LocalDate.of(2026,11,11));
+        weight(9,1,1);
+        weight(10,1,1);
+        clock("2026-11-15T18:59:59Z");
+        assertThat(finalization().finalizeWeek(owner,0,current.epoch(),monday.plusWeeks(1)).status().name()).isEqualTo("NOT_DUE");
+        assertThat(ok(browser.get("/api/v1/deload-analysis")).get("confirmedWeeks").isNull()).isTrue();
+        clock("2026-11-15T19:00:00Z");
+        var review=app.getBean(com.overload.overload_server.statistics.DailyTrainingReviewService.class);
+        review.reviewBatch();
+        assertThat(finalization().finalizeWeek(owner,0,current.epoch(),monday.plusWeeks(1)).confirmed()).isEqualTo(1);
+        var row=app.getBean(DeloadWeeklyRepository.class).rows(owner,0,current.epoch()).getFirst();
+        assertThat(row.e().numerator()).hasToString("2");
+        assertThat(row.n()).isEqualTo(2);
+        assertThat(row.operation()).isEqualTo("ADD");
+        assertTotal("1","1");
+        review.reviewBatch();
+        assertThat(jdbc.queryForObject("""
+            SELECT count(*) FROM daily_training_assessments WHERE user_id=? AND workout_date BETWEEN '2026-11-08' AND '2026-11-10'
+              AND first_missed_at IS NOT NULL
+            """,Integer.class,owner)).isZero();
+    }
+
+    @Test void cancelledDatesNeverCreateRetroactiveMissAndRealWorkAfterCancelCanAdd() throws Exception {
+        weight(2,1,1);
+        schedule(planRoutine(),2,3,4);
+        var period=start(rest()).period();
+        long epoch=analysis().current(owner,0).epoch();
+        clock("2026-11-11T03:00:00Z");
+        lifecycle().end(owner,period.id(),endRequest(period),true);
+        weight(9,1,1);
+        weight(10,1,1);
+        clock("2026-11-15T19:00:00Z");
+        var review=app.getBean(com.overload.overload_server.statistics.DailyTrainingReviewService.class);
+        review.reviewBatch();
+        assertThat(finalization().finalizeWeek(owner,0,epoch,monday).confirmed()).isEqualTo(1);
+        assertThat(finalization().finalizeWeek(owner,0,epoch,monday.plusWeeks(1)).confirmed()).isEqualTo(1);
+        review.reviewBatch();
+        var rows=app.getBean(DeloadWeeklyRepository.class).rows(owner,0,epoch);
+        assertThat(rows.getFirst().status()).isEqualTo("EXCLUDED");
+        assertThat(rows.getLast().operation()).isEqualTo("ADD");
+        assertThat(rows.getLast().n()).isEqualTo(2);
+        assertThat(rows.getLast().e().numerator()).hasToString("2");
+        assertTotal("1","1");
+        assertThat(jdbc.queryForObject("""
+            SELECT count(*) FROM daily_training_assessments WHERE user_id=? AND workout_date BETWEEN '2026-11-08' AND '2026-11-11'
+              AND first_missed_at IS NOT NULL
+            """,Integer.class,owner)).isZero();
+    }
+
+    @Test void automaticDeadlineDoesNotEndOnDaysSevenThroughTenAndAllowsDayEleven() throws Exception {
+        weight(2,1,1);
+        var routine=planRoutine();
+        var period=start(rest()).period();
+        for(var time:List.of("2026-11-14T14:59:59Z","2026-11-14T15:00:00Z","2026-11-15T15:00:00Z",
+                "2026-11-16T15:00:00Z","2026-11-17T14:59:59.999999Z")) {
+            clock(time);
+            lifecycle().completeDuePeriods();
+            assertThat(service().current(owner).period().status()).isEqualTo("ACTIVE");
+        }
+        clock("2026-11-17T15:00:00Z");
+        conflict(()->lifecycle().end(owner,period.id(),endRequest(period),true),"DELOAD_AUTO_COMPLETION_DUE");
+        assertThat(normalStart(routine,"2026-11-17T15:00:00Z","2026-11-18").statusCode()).isEqualTo(409);
+        lifecycle().completeDuePeriods();
+        var ended=service().detail(owner,period.id()).period();
+        assertThat(ended.endReason()).isEqualTo("AUTOMATIC_COMPLETION");
+        assertThat(ended.closedDate()).isEqualTo(LocalDate.of(2026,11,17));
+        assertThat(ended.closedAt()).isEqualTo(Instant.parse("2026-11-17T14:59:59.999999Z"));
+        assertThat(ended.processedAt()).isEqualTo(Instant.parse("2026-11-17T15:00:00Z"));
+        assertThat(service().current(owner).period()).isNull();
+        assertThat(normalStart(routine,"2026-11-17T15:00:00Z","2026-11-18").statusCode()).isEqualTo(201);
+    }
+
+    @Test void onlyOneWorkerOrManualRequestClosesPeriodAndAppendsEpoch() throws Exception {
+        weight(2,1,1);
+        var period=start(rest()).period();
+        var request=endRequest(period);
+        clock("2026-11-18T03:00:00Z");
+        var gate=new CountDownLatch(1);
+        try(var pool=Executors.newFixedThreadPool(3)) {
+            var first=pool.submit(()->{gate.await();return lifecycle().completeDuePeriods();});
+            var second=pool.submit(()->{gate.await();return lifecycle().completeDuePeriods();});
+            var manual=pool.submit(()->{gate.await();return lifecycle().end(owner,period.id(),request,false);});
+            gate.countDown();
+            first.get(15,TimeUnit.SECONDS);
+            second.get(15,TimeUnit.SECONDS);
+            assertThat(manual.get(15,TimeUnit.SECONDS).period().endReason()).isEqualTo("AUTOMATIC_COMPLETION");
+        }
+        assertThat(service().detail(owner,period.id()).period().version()).isEqualTo("1");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions WHERE completed_period_id=?",Integer.class,period.id())).isOne();
+    }
+
+    @Test void analysisOffCompletionAndCancellationPreserveOffUntilUserReenables() {
+        weight(2,1,1);
+        analysis().append(owner,0,analysis().current(owner,0).change(false,"Asia/Seoul",EmailOtpFixtures.CLOCK.instant()));
+        var disabled=analysis().current(owner,0);
+        var cancelled=start(rest()).period();
+        lifecycle().end(owner,cancelled.id(),endRequest(cancelled),true);
+        assertThat(analysis().current(owner,0)).isEqualTo(disabled);
+        var completed=start(rest()).period();
+        lifecycle().end(owner,completed.id(),endRequest(completed),false);
+        assertThat(analysis().current(owner,0)).isEqualTo(disabled);
+        var enabled=disabled.change(true,"Asia/Seoul",EmailOtpFixtures.CLOCK.instant());
+        analysis().append(owner,0,enabled);
+        assertThat(analysis().current(owner,0).reason()).isEqualTo("ENABLED");
+        assertThat(analysis().current(owner,0).resumeDate()).isNull();
+    }
+
+    @Test void failedAutomaticEpochAppendRollsBackAndRestartRetriesSameEffectiveEnd() {
+        weight(2,1,1);
+        var period=start(rest()).period();
+        var initial=analysis().current(owner,0);
+        clock("2026-11-15T19:00:00Z");
+        assertThat(finalization().finalizeWeek(owner,0,initial.epoch(),monday).status().name()).isEqualTo("PENDING");
+        clock("2026-11-19T03:00:00Z");
+        jdbc.execute("""
+            CREATE FUNCTION fail_g53_epoch_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN IF NEW.completed_period_id='$PERIOD$' THEN RAISE EXCEPTION 'fixture rollback'; END IF; RETURN NEW; END $$;
+            """.replace("$PERIOD$",period.id().toString()));
+        jdbc.execute("""
+            CREATE TRIGGER fail_g53_epoch_fixture BEFORE INSERT ON deload_analysis_versions
+                FOR EACH ROW EXECUTE FUNCTION fail_g53_epoch_fixture()
+            """);
+        try {
+            lifecycle().completeDuePeriods();
+            assertThat(service().detail(owner,period.id()).period().status()).isEqualTo("ACTIVE");
+            assertThat(analysis().current(owner,0)).isEqualTo(initial);
+        } finally {
+            jdbc.execute("DROP TRIGGER fail_g53_epoch_fixture ON deload_analysis_versions");
+            jdbc.execute("DROP FUNCTION fail_g53_epoch_fixture()");
+        }
+        app.close();
+        boot();
+        assertThat(service().detail(owner,period.id()).period().status()).isEqualTo("ACTIVE");
+        lifecycle().completeDuePeriods();
+        var ended=service().detail(owner,period.id()).period();
+        assertThat(ended.endReason()).isEqualTo("AUTOMATIC_COMPLETION");
+        assertThat(ended.closedDate()).isEqualTo(LocalDate.of(2026,11,17));
+        assertThat(ended.processedAt()).isEqualTo(Instant.parse("2026-11-19T03:00:00Z"));
+        assertThat(analysis().current(owner,0).resumeDate()).isEqualTo(LocalDate.of(2026,11,18));
+        finalization().runBatch();
+        var previous=app.getBean(DeloadWeeklyRepository.class).rows(owner,0,initial.epoch());
+        assertThat(previous.getFirst().status()).isEqualTo("EXCLUDED");
+    }
+
+    @Test void lifecycleCommandsAndHistoryEnforceCsrfOwnershipGenerationAndShape() throws Exception {
+        weight(2,1,1);
+        var period=start(rest()).period();
+        var path=PATH+"/"+period.id()+"/complete";
+        var request=endRequest(period);
+        var body=endBody(request);
+        assertThat(browser.send("POST",path,body,null).statusCode()).isEqualTo(403);
+        assertThat(browser.send("POST",path,body.replace("\"dataGeneration\":\"0\"","\"dataGeneration\":\"1\""),browser.csrf()).statusCode()).isEqualTo(409);
+        assertThat(browser.send("POST",path,body.replace("{","{\"userId\":\""+owner+"\","),browser.csrf()).statusCode()).isEqualTo(400);
+        assertThat(browser.get(PATH+"/history?offset=0&userId="+owner).statusCode()).isEqualTo(400);
+        conflict(()->lifecycle().end(owner,period.id(),new DeloadPeriodRequests.End(0,1,UUID.randomUUID()),false),"DELOAD_PERIOD_VERSION_CONFLICT");
+        try(var other=new Browser()) {
+            assertThat(other.get(PATH+"/history").statusCode()).isEqualTo(401);
+            other.login();
+            assertThat(other.get(PATH+"/"+period.id()).statusCode()).isEqualTo(404);
+            assertThat(other.send("POST",path,body,other.csrf()).statusCode()).isEqualTo(404);
+            assertThat(ok(other.get(PATH+"/history?offset=0")).get("periods").size()).isZero();
+        }
+        assertThat(service().current(owner).period().status()).isEqualTo("ACTIVE");
+    }
+
     static class Browser implements AutoCloseable {
         final HttpClient client=HttpClient.newBuilder().cookieHandler(new CookieManager(null,CookiePolicy.ACCEPT_ALL)).build();
         void login()throws Exception {

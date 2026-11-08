@@ -17,11 +17,18 @@ class DeloadPeriodService {
     record Preview(UUID userId,String dataGeneration,DeloadPeriodRepository.Eligibility eligibility,Source source,Choice choice,Generated generated,String previewToken){}
     record Options(UUID userId,String dataGeneration,List<Option> options){}
     record Current(UUID userId,String dataGeneration,DeloadPeriodRepository.Stored period){}
+    record History(UUID userId,String dataGeneration,List<DeloadPeriodRepository.HistoryItem> periods,Integer nextOffset){}
     private final DeloadPeriodRepository data;private final Clock clock;
     DeloadPeriodService(DeloadPeriodRepository data,ObjectProvider<Clock> clocks){this.data=data;clock=clocks.getIfAvailable(Clock::systemUTC);}
     EligibilityView eligibility(UUID owner){long g=data.generation(owner,false);return new EligibilityView(owner,Long.toString(g),data.eligibility(owner,g,now()),data.active(owner,g).isPresent());}
     Options options(UUID owner){long g=data.generation(owner,false);var e=data.eligibility(owner,g,now());return new Options(owner,Long.toString(g),DeloadPlanGenerator.options(data.source(owner,g,e,false)));}
-    Current current(UUID owner){long g=data.generation(owner,false);return new Current(owner,Long.toString(g),data.active(owner,g).orElse(null));}
+    Current current(UUID owner){long g=data.generation(owner,false);return new Current(owner,Long.toString(g),data.current(owner,g,now()).orElse(null));}
+    Current detail(UUID owner,UUID period){long g=data.generation(owner,false);return new Current(owner,Long.toString(g),data.detail(owner,g,period));}
+    History history(UUID owner,int offset) {
+        long generation=data.generation(owner,false);
+        var periods=data.history(owner,generation,offset);
+        return new History(owner,Long.toString(generation),periods,periods.size()==50?offset+50:null);
+    }
     Preview preview(UUID owner,long generation,Choice choice){if(data.generation(owner,false)!=generation)throw DeloadPeriodFailure.conflict("DATA_GENERATION_MISMATCH");return preview(owner,generation,choice,false,now());}
     private Preview preview(UUID owner,long generation,Choice choice,boolean lock,Instant at) {
         var e=data.eligibility(owner,generation,at);var source=data.source(owner,generation,e,lock);var generated=DeloadPlanGenerator.generate(source,choice);
@@ -35,8 +42,9 @@ class DeloadPeriodService {
         String requestHash=hash(Arrays.asList(request.generation(),request.previewToken(),request.choice()));
         var previous=data.request(owner,request.generation(),request.requestId());
         if(previous.isPresent()){if(!previous.get().hash().equals(requestHash))throw DeloadPeriodFailure.conflict("DELOAD_REQUEST_CONFLICT");return new Current(owner,Long.toString(request.generation()),previous.get().period());}
-        if(data.active(owner,request.generation()).isPresent())throw DeloadPeriodFailure.conflict("DELOAD_ACTIVE_PERIOD");
-        var at=now();var p=preview(owner,request.generation(),request.choice(),true,at);
+        var at=now();
+        if(data.current(owner,request.generation(),at).isPresent())throw DeloadPeriodFailure.conflict("DELOAD_ACTIVE_PERIOD");
+        var p=preview(owner,request.generation(),request.choice(),true,at);
         if(!p.eligibility().eligible())throw DeloadPeriodFailure.conflict("DELOAD_NOT_ELIGIBLE");
         if(!p.generated().ready())throw DeloadPeriodFailure.conflict("DELOAD_PLAN_REQUIRES_POLICY");
         if(!p.previewToken().equals(request.previewToken()))throw DeloadPeriodFailure.conflict("DELOAD_PREVIEW_STALE");

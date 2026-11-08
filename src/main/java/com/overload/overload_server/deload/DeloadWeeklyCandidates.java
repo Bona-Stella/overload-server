@@ -35,12 +35,14 @@ public class DeloadWeeklyCandidates {
         if(history.isEmpty()||history.getFirst().version()!=epoch||!history.getFirst().enabled())throw DeloadAnalysisRequests.invalid();
         var first=history.getFirst();var last=history.getLast();
         var until=history.stream().filter(s->!s.enabled()).map(DeloadAnalysisState::recordedAt).findFirst().orElse(null);
-        var interval=new DeloadCandidateCalculator.Epoch(epoch,last.version(),first.epochStartedAt(),until,last.timeZone());
+        var completion=settings.nextCompletion(owner,generation,epoch);
+        if(completion!=null&&(until==null||completion.isBefore(until)))until=completion;
+        var interval=new DeloadCandidateCalculator.Epoch(epoch,last.version(),first.analysisFrom(),until,last.timeZone());
         var end=monday.plusDays(7);
         var sessions=interval.zone()==null?List.<StatisticsRepository.CompletionSession>of():facts.completionFacts(owner,generation,monday,end,interval.from(),interval.until());
         var result=DeloadCandidateCalculator.calculate(owner,generation,interval,monday,observed,sessions,evidence.daily(owner,generation,monday,end),
-            calendars.control(owner,generation).orElse(null),evidence.firstScheduleDate(owner,generation));
-        if(result.evaluationFrom()!=null&&periods.firstOverlap(owner,generation,result.evaluationFrom(),result.evaluationToExclusive()).isPresent())return result.hold(DeloadCandidateCalculator.Pending.DELOAD_PERIOD);
+            calendars.control(owner,generation).orElse(null),evidence.firstScheduleDate(owner,generation),periods.protection(owner,generation,monday,end));
+        if(result.evaluationFrom()!=null&&periods.firstActiveOverlap(owner,generation,result.evaluationFrom(),result.evaluationToExclusive()).isPresent())return result.hold(DeloadCandidateCalculator.Pending.DELOAD_PERIOD);
         return result;
     }
 }

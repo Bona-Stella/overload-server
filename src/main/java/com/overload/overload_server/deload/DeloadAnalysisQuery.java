@@ -31,18 +31,20 @@ class DeloadAnalysisQuery {
         var folded=DeloadWeeklyPolicy.fold(first,last,rows);
         boolean awaiting=folded.blockedAt()!=null&&awaitingReview(owner,generation,state,folded.blockedAt());
         var result=project(first,last,rows,folded,awaiting);var today=clock.instant().atZone(ZoneId.of(state.timeZone())).toLocalDate();
-        var epochDate=state.epochStartedAt().atZone(ZoneId.of(state.timeZone())).toLocalDate();
-        var pause=periods.firstOverlap(owner,generation,epochDate,today.plusDays(1)).map(DeloadWeeklyPolicy::monday).orElse(null);
+        var pause=periods.firstActiveOverlap(owner,generation,state.analysisDate(),today.plusDays(1)).map(DeloadWeeklyPolicy::monday).orElse(null);
         if(pause!=null&&(result.blockedAt()==null||!result.blockedAt().isBefore(pause)))return new Result("PAUSED",result.weeks(),result.from(),result.through(),pause,false);
         return result;
     }
     private boolean awaitingReview(UUID owner,long generation,DeloadAnalysisState state,LocalDate week) {
         var registered=evidence.firstScheduleDate(owner,generation);if(registered==null)return false;
-        var from=week;var end=week.plusDays(6);var epochDate=state.epochStartedAt().atZone(ZoneId.of(state.timeZone())).toLocalDate();
+        var from=week;var end=week.plusDays(6);var epochDate=state.analysisDate();
         if(epochDate.isAfter(from))from=epochDate;if(registered.isAfter(from))from=registered;if(from.isAfter(end))return false;
         var control=calendars.control(owner,generation).orElse(null);
         if(control==null||!control.timeZone().equals(state.timeZone())||control.reviewFrom().isAfter(from)||control.reviewedThrough().isBefore(end))return true;
-        return evidence.daily(owner,generation,from,end.plusDays(1)).values().stream().anyMatch(d->d.dirty()||d.reviewedAt()==null||!Set.of("PERFORMED","MISSED","EMPTY").contains(d.state()));
+        var protectedDates=periods.stoppedDates(owner,generation,from,end.plusDays(1));
+        return evidence.daily(owner,generation,from,end.plusDays(1)).entrySet().stream()
+            .anyMatch(entry->!protectedDates.contains(entry.getKey())&&(entry.getValue().dirty()||entry.getValue().reviewedAt()==null
+                ||!Set.of("PERFORMED","MISSED","EMPTY").contains(entry.getValue().state())));
     }
     static Result project(LocalDate first,LocalDate last,List<DeloadWeeklyRepository.Row> rows,DeloadWeeklyPolicy.Fold folded,boolean awaitingReview) {
         if(first.isAfter(last))return empty("INITIAL");

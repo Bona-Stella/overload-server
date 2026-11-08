@@ -261,6 +261,154 @@ class DeloadSessionIntegrationTests {
         var rejected=browser.send("PUT",path,JSON.writeValueAsString(body),browser.csrf());assertThat(rejected.statusCode()).as(rejected.body()).isEqualTo(409);assertThat(JSON.readTree(rejected.body()).get("code").asString()).isEqualTo("DELOAD_INSUFFICIENT_DATES");
         body.put("method","TWO");body.put("dates",List.of("2026-11-13","2026-11-14"));ok(browser.send("PUT",path,JSON.writeValueAsString(body),browser.csrf()));assertThat(current().plans()).allSatisfy(p->assertThat(p.plannedDate()).isBetween(LocalDate.of(2026,11,13),LocalDate.of(2026,11,14)));
     }
+    private DeloadPeriodLifecycle lifecycle() {
+        return app.getBean(DeloadPeriodLifecycle.class);
+    }
+    private HttpResponse<String> end(DeloadPeriodRepository.Stored period, String operation) throws Exception {
+        var body=Map.of("dataGeneration","0","expectedVersion",period.version(),"requestId",UUID.randomUUID());
+        return browser.send("POST",PATH+"/"+period.id()+"/"+operation,JSON.writeValueAsString(body),browser.csrf());
+    }
+    private void rejected(HttpResponse<String> response,String code) {
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(409);
+        assertThat(JSON.readTree(response.body()).get("code").asString()).isEqualTo(code);
+    }
+
+    @Test void noActivityCancellationRequiresExplicitAbandonAndImmediatelyAllowsNormalStart() throws Exception {
+        begin(7);
+        var period=current();
+        var workout=session(todayPlan());
+        rejected(end(period,"cancel"),"ACTIVE_SESSION_EXISTS");
+        rejected(end(period,"complete"),"ACTIVE_SESSION_EXISTS");
+        finish(workout,1,state(workout));
+        rejected(end(period,"cancel"),"DELOAD_SESSION_ABANDON_REQUIRED");
+        abandon(workout);
+        assertThat(ok(end(period,"cancel")).get("period").get("status").asString()).isEqualTo("CANCELLED");
+        assertThat(detail(workout).get("initialPlan")).isEqualTo(workout.get("initialPlan"));
+        var routine=period.source().days().getFirst().routine().id();
+        var body=Map.of("id",UUID.randomUUID(),"dataGeneration","0","routineId",routine,"editorDeviceId",UUID.randomUUID(),
+            "startedAt",EmailOtpFixtures.CLOCK.instant().toString(),"workoutDate","2026-11-08","startedTimeZone","Asia/Seoul");
+        var normal=browser.send("POST","/api/v1/workout-sessions",JSON.writeValueAsString(body),browser.csrf());
+        assertThat(normal.statusCode()).as(normal.body()).isEqualTo(201);
+    }
+
+    @Test void cancellationRejectsWeightEvenAfterLogicalDeletionAndCompletionRetainsSealedOrigin() throws Exception {
+        begin(7);
+        var period=current();
+        var workout=session(todayPlan());
+        var performed=withSets(workout,1);
+        finish(workout,1,performed);
+        rejected(end(period,"cancel"),"DELOAD_ACTIVITY_RECORDED");
+        var latest=detail(workout);
+        var workoutId=UUID.fromString(workout.get("id").asString());
+        var delete=JSON.writeValueAsString(Map.of("dataGeneration","0","expectedVersion",latest.get("version").asString()));
+        ok(browser.send("DELETE","/api/v1/workout-sessions/"+workoutId,delete,browser.csrf()));
+        rejected(end(period,"cancel"),"DELOAD_ACTIVITY_RECORDED");
+        var before=originals();
+        var completed=ok(end(period,"complete")).get("period");
+        assertThat(completed.get("status").asString()).isEqualTo("COMPLETED");
+        assertThat(completed.get("hasActivity").asBoolean()).isTrue();
+        assertThat(completed.get("sourceHash").asString()).isEqualTo(period.sourceHash());
+        assertThat(originals()).isEqualTo(before);
+        assertThat(detail(workout).get("initialPlan")).isEqualTo(workout.get("initialPlan"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM progress_change_events WHERE session_id=?",Integer.class,workoutId)).isZero();
+    }
+
+    @Test void cancellationRejectsPositiveCardioEvenWhenTargetWasNotMet() throws Exception {
+        begin(7);
+        var period=current();
+        var workout=session(todayPlan());
+        var base=state(workout);
+        var at=Instant.parse(workout.get("startedAt").asString());
+        var activity=new WorkoutSnapshotData.Cardio(UUID.randomUUID(),base.appliedPlan().cardioActivities().getFirst().sessionActivityId(),
+            "COMPLETED",at.plusSeconds(60),at.plusSeconds(120),new WorkoutSnapshotData.CardioValue(60000L,60000L,false,null,null));
+        finish(workout,1,new WorkoutSnapshotData.State(base.sessionExercises(),base.appliedPlan(),List.of(),List.of(activity),
+            List.of(),List.of(),List.of()));
+        rejected(end(period,"cancel"),"DELOAD_ACTIVITY_RECORDED");
+        assertThat(current().hasActivity()).isTrue();
+    }
+
+    @Test void completedHistoryRetainsDeletedTemporaryPlanAndDoesNotAllowNewUse() throws Exception {
+        begin(7);
+        var plan=todayPlan();
+        var delete=PATH+"/"+current().id()+"/plans/"+plan.id();
+        ok(browser.send("DELETE",delete,JSON.writeValueAsString(command()),browser.csrf()));
+        var active=current();
+        assertThat(active.plans()).isEmpty();
+        var completed=ok(end(active,"complete")).get("period");
+        var historical=completed.get("plans").get(0);
+        assertThat(historical.get("id").asString()).isEqualTo(plan.id().toString());
+        assertThat(historical.get("deletedAt").asString()).isNotBlank();
+        assertThat(historical.get("plan")).isEqualTo(JSON.valueToTree(plan.plan()));
+        rejected(browser.send("DELETE",delete,JSON.writeValueAsString(command()),browser.csrf()),"DELOAD_PERIOD_NOT_ACTIVE");
+    }
+
+    @Test void dayTenSnapshotAndFinishAckSurviveConcurrentAutomaticCompletion() throws Exception {
+        begin(7);
+        var period=current();
+        var plan=todayPlan();
+        move(plan,period.maximumEndDate(),null);
+        clock("2026-11-17T14:55:00Z");
+        var workout=session(current().plans().stream().filter(p->p.id().equals(plan.id())).findFirst().orElseThrow());
+        var facts=withSets(workout,1);
+        clock("2026-11-17T15:00:00Z");
+        var gate=new CountDownLatch(1);
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            var snapshot=pool.submit(()->{gate.await();return save(workout,1,facts);});
+            var worker=pool.submit(()->{gate.await();return lifecycle().completeDuePeriods();});
+            gate.countDown();
+            assertThat(ok(snapshot.get(15,TimeUnit.SECONDS)).get("acceptedLocalRevision").asString()).isEqualTo("1");
+            worker.get(15,TimeUnit.SECONDS);
+        }
+        assertThat(current().status()).isEqualTo("ACTIVE");
+        assertThat(ok(save(workout,1,facts)).get("duplicate").asBoolean()).isTrue();
+        assertThat(current().hasActivity()).isTrue();
+        var body=saveBody(workout,2,facts);
+        body.put("endedAt",EmailOtpFixtures.CLOCK.instant());
+        var payload=JSON.writeValueAsString(body);
+        var path="/api/v1/workout-sessions/"+workout.get("id").asString()+"/finish";
+        var first=ok(browser.send("POST",path,payload,browser.csrf()));
+        lifecycle().completeDuePeriods();
+        assertThat(service().detail(owner,period.id()).period().endReason()).isEqualTo("AUTOMATIC_COMPLETION");
+        var retry=ok(browser.send("POST",path,payload,browser.csrf()));
+        assertThat(retry.get("duplicate").asBoolean()).isTrue();
+        assertThat(retry.get("acceptedLocalRevision")).isEqualTo(first.get("acceptedLocalRevision"));
+        assertThat(retry.get("completionAssessment")).isEqualTo(first.get("completionAssessment"));
+        assertThat(detail(workout).get("initialPlan")).isEqualTo(workout.get("initialPlan"));
+    }
+
+    @Test void overdueActiveRemainsGatedAndLateRecoveryRemainsDeloadAfterSafeAutoClose() throws Exception {
+        begin(7,3,4);
+        var period=current();
+        var plan=todayPlan();
+        move(plan,period.maximumEndDate(),null);
+        clock("2026-11-17T14:55:00Z");
+        var workout=session(current().plans().stream().filter(p->p.id().equals(plan.id())).findFirst().orElseThrow());
+        var facts=withSets(workout,1);
+        clock("2026-11-19T16:00:00Z");
+        var review=app.getBean(com.overload.overload_server.statistics.DailyTrainingReviewService.class);
+        lifecycle().completeDuePeriods();
+        review.reviewBatch();
+        assertThat(current().status()).isEqualTo("ACTIVE");
+        var expired=detail(workout);
+        assertThat(expired.get("status").asString()).isEqualTo("AUTO_CLOSED");
+        lifecycle().completeDuePeriods();
+        var done=service().detail(owner,period.id()).period();
+        assertThat(done.closedDate()).isEqualTo(LocalDate.of(2026,11,17));
+        assertThat(done.processedAt()).isEqualTo(Instant.parse("2026-11-19T16:00:00Z"));
+        var payload=Map.of("dataGeneration","0","expectedVersion",expired.get("version").asString(),"confirm",true,
+            "origin",Map.of("editorDeviceId",workout.get("editorDeviceId").asString(),"writerEpoch","0","localRevision","1"),
+            "performedSets",facts.performedSets(),"cardioResults",List.of());
+        var path="/api/v1/workout-sessions/"+workout.get("id").asString()+"/recoveries";
+        ok(browser.send("POST",path,JSON.writeValueAsString(payload),browser.csrf()));
+        assertThat(service().detail(owner,period.id()).period().hasActivity()).isTrue();
+        assertThat(detail(workout).get("deloadPeriodId").asString()).isEqualTo(period.id().toString());
+        review.reviewBatch();
+        assertThat(jdbc.queryForObject("""
+            SELECT count(*) FROM daily_training_assessments WHERE user_id=? AND workout_date BETWEEN '2026-11-08' AND '2026-11-19'
+              AND first_missed_at IS NOT NULL
+            """,Integer.class,owner)).isZero();
+    }
+
     static class Browser implements AutoCloseable {
         final HttpClient client=HttpClient.newBuilder().cookieHandler(new CookieManager(null,CookiePolicy.ACCEPT_ALL)).build();
         void login()throws Exception {

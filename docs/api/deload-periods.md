@@ -1,10 +1,10 @@
-# 디로딩 기간·임시 계획 API — G5-1/2
+# 디로딩 기간·임시 계획 API — G5
 
-2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md), [G5-1 기록](../tasks/deload-g5-1-report.md), [G5-2 기록](../tasks/deload-g5-2-report.md)을 따른다. 디로딩 운동은 [공통 세션 계약](workout-sessions.md#g5-2-디로딩-세션)을 사용한다. 기간 완료·취소·10일차 종료와 최종 재개는 G5-3 책임이며 기존 사용 환경에 부분 배포하지 않는다.
+2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md), [G5-1 기록](../tasks/deload-g5-1-report.md), [G5-2 기록](../tasks/deload-g5-2-report.md), [G5-3 기록](../tasks/deload-g5-3-report.md)을 따른다. 디로딩 운동은 [공통 세션 계약](workout-sessions.md#g5-2-디로딩-세션)을 사용한다.
 
 ## 인증·읽기·쓰기
 
-모든 API는 principal의 사용자와 현재 dataGeneration만 처리한다. GET은 query/body 없이 read-only REPEATABLE_READ이며 설정·기간·계획을 생성하지 않는다. POST·PUT·DELETE는 application/json·세션 쿠키·X-CSRF-TOKEN이 필요하고 query를 허용하지 않는다. 미지원/누락 필드·중복 JSON 키·비정규 Counter·조작된 userId/epoch/승인 중량/시작 시각은 거절한다. 성공200, 성공/오류 모두 no-store, 오류는 code-only다.
+모든 API는 principal의 사용자와 현재 dataGeneration만 처리한다. GET은 read-only REPEATABLE_READ이며 본문과 이력의 `offset` 외 쿼리를 허용하지 않는다. POST·PUT·DELETE는 application/json·세션 쿠키·X-CSRF-TOKEN이 필요하고 query를 허용하지 않는다. 미지원/누락 필드·중복 JSON 키·비정규 Counter·조작된 userId/epoch/승인 중량/시작 시각은 거절한다. 성공200, 성공/오류 모두 no-store, 오류는 code-only다.
 
 | Method/경로 | 결과 |
 |---|---|
@@ -12,7 +12,11 @@
 | GET /api/v1/deload-periods/options | 원본 계획일 수별 method/split/suggestedDates/available/issues |
 | POST /api/v1/deload-periods/preview | 자격·불변 출처·선택 날짜·편성 결과·previewToken |
 | POST /api/v1/deload-periods | 자격/출처 재검증 후 ACTIVE 기간과 최초 임시 계획 원자 생성 |
-| GET /api/v1/deload-periods/current | userId/dataGeneration/period. ACTIVE 기간 부재는 period=null |
+| GET /api/v1/deload-periods/current | userId/dataGeneration/period. ACTIVE 또는 고정 시간대 기준 완료 당일의 COMPLETED를 반환한다. 그 밖에는 period=null이다. |
+| GET /api/v1/deload-periods/{period} | 현재 세대의 기간 상세. 다른 사용자·세대의 기간이나 없는 ID는 404. |
+| GET /api/v1/deload-periods/history?offset=0 | 종료 이력 요약 최대 50개를 closedAt과 ID 내림차순으로 반환한다. 응답에 userId, dataGeneration, periods, nextOffset이 있다. |
+| POST /api/v1/deload-periods/{period}/complete | 직접 완료 또는 마감 경과 시 자동 완료와 같은 경계로 종료. |
+| POST /api/v1/deload-periods/{period}/cancel | 실제 수행 없는 기간을 취소. |
 
 분석 설정이나 시간대 부재를 성공한 기본값으로 채우지 않는다. 시간대 미확정이면 자격 조회에 AWAITING_TIME_ZONE을 반환하며 옵션/미리보기/시작은 거절한다. 분석 OFF와 누적0은 자격 차단 이유가 아니다.
 
@@ -69,7 +73,7 @@ period에는 id/userId/dataGeneration/version/status/startedAt/startDate/timeZon
 
 ACTIVE 기간 중 새 일반 START, 원본 루틴 생성/수정/삭제, 주간 일정 저장, 일반 기록 정정/복구/논리삭제/승인 해결 및 새 일반 snapshot/FINISH 쓰기는409 DELOAD_ACTIVE_PERIOD다. 이미 확정된 동일 요청 ACK와 일반 조회는 유지한다. 소속이 디로딩인 세션은 공통 운동 쓰기를 사용하며 일반 승인·성장 평가에서는 제외한다. 읽기와 분석 ON/OFF는 허용하고 OFF/새 epoch가 기간을 종료하지 않는다.
 
-G3는 기간 날짜에 새 MISS를 만들거나 기존 최초 MISS를 수정하지 않고 cursor만 전진할 수 있다. 정지된 과거 dirty는 그대로 보존하며 반복 검사 대상으로 재선택하지 않는다. G4는 ON 평가 구간과 기간이 겹치는 주를 DELOAD_PERIOD 사유로 PENDING 처리한다. N0 RESET/ADD를 생성하지 않고 후속 누적 공개를 막는다. GET은 가능한 마지막 확정 prefix와 PAUSED/blockedAt/추천false를 반환한다. 더 이른 보류가 있으면 그 기존 상태가 우선이다. OFF/시간대 부재도 기존 우선순위다. 최종 기간 재개·완료 새 epoch·취소 처리까지 구현한 것은 아니다.
+G3는 기간 날짜에 새 MISS를 만들거나 기존 최초 MISS를 수정하지 않고 cursor만 전진할 수 있다. 정지된 과거 dirty는 그대로 보존하며 반복 검사 대상으로 재선택하지 않는다. G4는 ON 평가 구간과 ACTIVE 기간이 겹치는 주를 DELOAD_PERIOD 사유로 PENDING 처리한다. N0 RESET/ADD를 생성하지 않고 후속 누적 공개를 막는다. GET은 가능한 마지막 확정 prefix와 PAUSED/blockedAt/추천false를 반환한다. 더 이른 보류가 있으면 그 기존 상태가 우선이다. OFF/시간대 부재도 기존 우선순위다.
 
 주요 오류:400 INVALID_REQUEST,409 DATA_GENERATION_MISMATCH/DELOAD_ACTIVE_PERIOD/DELOAD_REQUEST_CONFLICT/DELOAD_NOT_ELIGIBLE/DELOAD_PLAN_REQUIRES_POLICY/DELOAD_PREVIEW_STALE/DELOAD_SOURCE_CHANGED/DELOAD_TIME_ZONE_CONFLICT/AWAITING_TIME_ZONE, DB 경합409 WRITE_CONFLICT, 장애503 DELOAD_DATA_UNAVAILABLE 또는500 DELOAD_DATA_FAILED. 기존 설정 누락 오류는 분석 API와 같다.
 
@@ -104,4 +108,20 @@ G3는 기간 날짜에 새 MISS를 만들거나 기존 최초 MISS를 수정하�
 
 V27 기간·임시 계획·소속 FK 위에 V28이 가변 `current_plan`, 논리 삭제, 맞교환 가능한 살아 있는 날짜 유일성, 현재 방식과 마지막 변경 키를 추가한다. 최초 `source_snapshot`/`initial_plan`은 변경하지 않는다. 세션 출처는 일반의 기존 scoped routine FK 또는 디로딩의 scoped period/plan FK로 구분한다. 최초 실제 수행 표식은 세션에만 저장하며 기간별 존재 여부를 계산한다. G3/G4는 일반 사실만 사용하고 전체 운동량/근육 통계에는 유효한 디로딩 수행도 포함한다.
 
-기간 완료·취소·자동 종료·정지 최종 재개는 G5-3이다. 신규 migration은 격리 검증에서만 적용했다. 기존 V1~V27과 실제 검토 환경은 그대로 유지한다.
+## 완료·취소·자동 종료 — G5-3
+
+두 명령은 동일한 요청 구조를 쓴다.
+
+```json
+{"dataGeneration":"0","expectedVersion":"2","requestId":"00000000-0000-0000-0000-000000000001"}
+```
+
+- **직접 완료.** 시작 직후나 7일 전이라도 수행 유무와 무관하게 완료할 수 있다. 상태는 COMPLETED, `endReason=MANUAL_COMPLETION`이다. 완료 당일은 고정 시간대 기준 디로딩 날짜로 유지한다. 다음 로컬 날짜부터 일반 루틴·일정·기록 쓰기와 START가 열린다. 새 START는 서버 현재 시각과 요청의 실제 시작 시각을 기간의 고정 시간대로 검사한다. 여행 중의 저장 수행일은 세션 계약을 따른다.
+- **무수행 취소.** 어떤 연결 세션에도 영속 활동 표식이 없어야 한다. 논리 삭제는 표식을 없애지 않는다. START만 한 세션은 실제 활동이 없지만, 세션이 남아 있다면 [명시적 abandon](workout-sessions.md#g5-2-디로딩-세션)으로 원본과 ACK를 확인해야 한다. 취소는 CANCELLED, `endReason=USER_CANCELLED`이며 성공 즉시 일반 기능을 연다. 취소 전에 시작한 요청으로 보호 날짜를 새 일반 기록으로 등록할 수 없다.
+- **자동 완료.** 7일은 권장 기간이다. 10일차 종료는 저장된 IANA 시간대의 11일차 첫 순간으로 계산한다. 기존 일별 검사 tick이 기간 종료 → G3 → G4 순으로 처리한다. `closedDate`는 10일차이고 `closedAt`은 그 날짜의 마지막 마이크로초다. `processedAt`은 실제 처리 시각이다. 마감 이후에도 ACTIVE 세션이 있으면 일반 START를 잠근 채 재시도한다. 기존 FINISH 또는 공통 24시간 AUTO_CLOSED 이후에 종료할 수 있다. 지연으로 일반 접근이 잠겼던 11일차 이후의 온전한 날짜에도 소급 MISS를 만들지 않는다. 마감 이후 취소는 `DELOAD_AUTO_COMPLETION_DUE`다.
+
+성공은 current와 같은 형식으로 해당 기간을 반환한다. 상세의 `closedAt`, `closedDate`, `endReason`, `processedAt`은 ACTIVE에서 null이다. 이전 스키마에서 이미 종료된 기간은 근거 없는 종료 사유를 채우지 않는다. 종료된 상세는 삭제한 임시 계획의 `deletedAt`과 원본도 제공한다. 종료 상태에서는 임시 계획의 편집 및 새 디로딩 START가 차단된다. 기존 세션의 고정 FINISH ACK와 명시적 기록 복구는 기존 세션 계약으로 처리된다.
+
+사용자 잠금 아래에서 세대, 기간 버전, 세션 상태, 영속 수행을 검증한다. 성공한 `requestId`와 동일한 명령 및 버전은 재실행 없이 같은 기간을 반환한다. 동일 ID의 다른 종료 명령·버전·기간은 `DELOAD_REQUEST_CONFLICT`다. 자동 작업이 먼저 완료했으면 직전 버전의 직접 완료 요청은 해당 자동 완료를 확인할 수 있다. 직접 완료와 작업의 경쟁에서도 종료 및 분석 경계는 각각 최대 한 번 기록된다.
+
+추가 오류는 `ACTIVE_SESSION_EXISTS`, `DELOAD_ACTIVITY_RECORDED`, `DELOAD_SESSION_ABANDON_REQUIRED`, `DELOAD_PERIOD_VERSION_CONFLICT`, `DELOAD_PERIOD_NOT_ACTIVE`다. 종료, 영향 주간 재검사 표시, 필요한 새 epoch 생성은 원자적이다. [분석 재개 계약](deload-analysis.md#g5-3-완료와-취소-후-분석-재개)이 누적과 날짜 범위를 정의한다.

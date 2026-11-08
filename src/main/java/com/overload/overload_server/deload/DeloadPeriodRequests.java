@@ -11,6 +11,12 @@ final class DeloadPeriodRequests {
     private static final JsonMapper JSON=JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
     record Preview(long generation,Choice choice){}
     record Start(long generation,UUID requestId,String previewToken,Choice choice){}
+    record End(long generation, long expectedVersion, UUID requestId) {}
+    static End end(String raw) {
+        var body=parse(raw);
+        fields(body,"dataGeneration","expectedVersion","requestId");
+        return new End(counter(body.get("dataGeneration")),counter(body.get("expectedVersion")),id(text(body,"requestId")));
+    }
     static DeloadTemporaryPlans.Edit edit(String raw,UUID plan) {
         var b=parse(raw);fields(b,"dataGeneration","expectedVersion","requestId","name","weightPlacements","cardioPlacements");
         var values=new LinkedHashMap<String,Object>();values.put("id",plan);for(String field:List.of("dataGeneration","name","weightPlacements","cardioPlacements"))values.put(field,b.get(field));

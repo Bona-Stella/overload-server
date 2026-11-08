@@ -76,7 +76,7 @@ public class WorkoutSessionService {
                 previous.expireIfDue(clock.instant()); sessions.flush();
                 return new WorkoutSessionResponses.Started(false, response(previous));
             }
-            sessions.requireGeneralWrite(owner,input.dataGeneration());
+            sessions.requireGeneralStart(owner,input);
             if (sessions.occupied(input.id())) throw new WorkoutSessionFailure(SESSION_ID_CONFLICT);
             var active=sessions.activeId(owner,input.dataGeneration());
             if (active.isPresent()&&sessions.activeNotDue(owner,input.dataGeneration(),clock.instant().minus(java.time.Duration.ofHours(24))))

@@ -12,7 +12,7 @@ import java.util.*;
 public final class DeloadCandidateCalculator {
     private static final JsonMapper JSON=JsonMapper.builder().build();
     private DeloadCandidateCalculator() { }
-    public enum Pending { DELOAD_PERIOD, AWAITING_TIME_ZONE, OUTSIDE_ON_INTERVAL, OPEN_DATE, ACTIVE, INVALID_PLAN,
+    public enum Pending { DELOAD_PERIOD, PROTECTED_RESET, AWAITING_TIME_ZONE, OUTSIDE_ON_INTERVAL, OPEN_DATE, ACTIVE, INVALID_PLAN,
         UNKNOWN_COMPLETION, REVIEW_INCOMPLETE, REVIEW_UNKNOWN, REVIEW_DIRTY, CALENDAR_ZONE_CONFLICT }
     public record Epoch(long id,long settingsVersion,Instant from,Instant until,String zone) { }
     public record DailyEvidence(String state,long revision,boolean dirty,Instant reviewedAt,Instant firstMissedAt,
@@ -37,6 +37,11 @@ public final class DeloadCandidateCalculator {
     static Week calculate(UUID owner,long generation,Epoch epoch,LocalDate monday,Instant observedAt,
             List<CompletionSession> sessions,Map<LocalDate,DailyEvidence> daily,
             WorkoutCalendarRepository.Control calendar,LocalDate firstScheduleDate) {
+        return calculate(owner,generation,epoch,monday,observedAt,sessions,daily,calendar,firstScheduleDate,Map.of());
+    }
+    static Week calculate(UUID owner,long generation,Epoch epoch,LocalDate monday,Instant observedAt,
+            List<CompletionSession> sessions,Map<LocalDate,DailyEvidence> daily,
+            WorkoutCalendarRepository.Control calendar,LocalDate firstScheduleDate,Map<LocalDate,DeloadPeriods.Protection> protection) {
         if(monday==null||monday.getDayOfWeek()!=DayOfWeek.MONDAY)throw new IllegalArgumentException("Monday required");
         var end=monday.plusDays(7);var reasons=EnumSet.noneOf(Pending.class);
         var revisions=new TreeMap<LocalDate,Long>();
@@ -53,10 +58,17 @@ public final class DeloadCandidateCalculator {
             &&!s.startedAt().isBefore(epoch.from())&&(epoch.until()==null||s.startedAt().isBefore(epoch.until())))
             .forEach(s->byDay.computeIfAbsent(s.date(),ignored->new ArrayList<>()).add(s));
         var days=new ArrayList<Day>();var lowerE=ExactFraction.ZERO;var upperE=ExactFraction.ZERO;int n=0;boolean reviewsComplete=true;
+        boolean protectedWeek=false;
         for(var date=monday;date.isBefore(end);date=date.plusDays(1)) {
             var start=date.atStartOfDay(zone).toInstant();var stop=date.plusDays(1).atStartOfDay(zone).toInstant();
             boolean onDate=stop.isAfter(epoch.from())&&(epoch.until()==null||epoch.until().isAfter(epoch.from())&&start.isBefore(epoch.until()));
             var scoped=byDay.getOrDefault(date,List.of());
+            var stopped=protection.get(date);
+            if(stopped!=null) {
+                protectedWeek|=onDate;
+                onDate=false;
+                scoped=scoped.stream().filter(s->stopped.allows(s.startedAt())).toList();
+            }
             if(!onDate&&scoped.isEmpty())continue;
             var pending=EnumSet.noneOf(Pending.class);var candidates=new ArrayList<Candidate>();boolean active=false,damaged=false;
             for(var session:scoped) {
@@ -103,7 +115,8 @@ public final class DeloadCandidateCalculator {
             reviewsComplete&=checked;reasons.addAll(pending);
             days.add(new Day(date,List.copyOf(candidates),best==null?null:best.session(),counted,lower,upper,active,g3,reviewRequired,checked,Set.copyOf(pending)));
         }
-        if(days.isEmpty()){reasons.add(Pending.OUTSIDE_ON_INTERVAL);reviewsComplete=false;}
+        if(protectedWeek&&reasons.isEmpty()&&lowerE.compareTo(ExactFraction.of(1,1))<=0)reasons.add(Pending.PROTECTED_RESET);
+        if(days.isEmpty()&&reasons.isEmpty()){reasons.add(Pending.OUTSIDE_ON_INTERVAL);reviewsComplete=false;}
         return new Week(owner,generation,epoch,monday,end,days.isEmpty()?null:days.getFirst().date(),days.isEmpty()?null:days.getLast().date().plusDays(1),observedAt,firstScheduleDate,calendar,sourceRevisions,
             List.copyOf(days),lowerE,upperE,reasons.isEmpty()?lowerE:null,n,reviewsComplete,Set.copyOf(reasons));
     }

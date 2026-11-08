@@ -17,7 +17,7 @@ final class DeloadWeeklyPolicy {
     record Fold(ExactFraction weeks,LocalDate confirmedThrough,LocalDate blockedAt) { }
     static LocalDate monday(LocalDate date) {return date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));}
     static LocalDate firstWeek(DeloadAnalysisState state,Collection<DeloadWeeklyRepository.Row> rows,LocalDate earlier) {
-        var first=monday(state.epochStartedAt().atZone(ZoneId.of(state.timeZone())).toLocalDate());
+        var first=monday(state.analysisDate());
         if(earlier!=null&&earlier.isBefore(first))first=earlier;
         for(var row:rows)if(row.week().isBefore(first))first=row.week();
         return first;
@@ -34,7 +34,8 @@ final class DeloadWeeklyPolicy {
         return new Decision("ADD",ratio.compareTo(ExactFraction.of(1,1))>0?ExactFraction.of(1,1):ratio);
     }
     static boolean excluded(DeloadCandidateCalculator.Week week) {
-        return week.days().isEmpty()&&week.pending().equals(Set.of(DeloadCandidateCalculator.Pending.OUTSIDE_ON_INTERVAL));
+        return week.pending().equals(Set.of(DeloadCandidateCalculator.Pending.PROTECTED_RESET))
+            ||week.days().isEmpty()&&week.pending().equals(Set.of(DeloadCandidateCalculator.Pending.OUTSIDE_ON_INTERVAL));
     }
     static boolean resolvable(DeloadCandidateCalculator.Week week) {
         return week.calculable()&&week.requiredReviewsComplete()||excluded(week);
@@ -64,7 +65,8 @@ final class DeloadWeeklyPolicy {
         Object calendar=!needsCalendar||c==null?null:Arrays.asList(c.timeZone(),c.baselineVersion(),c.boundary(),c.reviewFrom(),c.reviewedThrough().isAfter(week.weekEndExclusive().minusDays(1))?week.weekEndExclusive().minusDays(1):c.reviewedThrough());
         var first=week.firstScheduleDate();
         String raw=JSON.writeValueAsString(Arrays.asList(RULE_VERSION,week.owner(),week.generation(),week.epoch(),week.weekStart(),
-            first!=null&&first.isBefore(week.weekEndExclusive())?first:null,calendar,revisions,days,week.lowerE(),week.upperE(),week.n(),week.requiredReviewsComplete()));
+            first!=null&&first.isBefore(week.weekEndExclusive())?first:null,calendar,revisions,days,week.lowerE(),week.upperE(),week.n(),week.requiredReviewsComplete(),
+            week.pending().stream().map(Enum::name).sorted().toList()));
         try {
             var root=new LinkedHashMap<String,Object>();root.put("hash",HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(raw.getBytes(StandardCharsets.UTF_8))));root.put("revisions",revisions);
             return JSON.writeValueAsString(root);

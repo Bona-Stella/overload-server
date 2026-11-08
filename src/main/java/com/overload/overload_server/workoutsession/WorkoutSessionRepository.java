@@ -12,8 +12,14 @@ public class WorkoutSessionRepository {
     private final JdbcTemplate jdbc;
     private final com.overload.overload_server.deload.DeloadPeriods periods;
     WorkoutSessionRepository(JdbcTemplate jdbc,com.overload.overload_server.deload.DeloadPeriods periods) { this.jdbc = jdbc;this.periods=periods; }
-    void requireGeneralWrite(UUID owner,long generation){if(periods.active(owner,generation))throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.DELOAD_ACTIVE_PERIOD);}
-    void requireSessionWrite(WorkoutSession session){if(!session.deload())requireGeneralWrite(session.userId,session.dataGeneration);}
+    void requireGeneralStart(UUID owner,WorkoutSessionRequests.Start input) {
+        if(periods.generalStartBlocked(owner,input.dataGeneration(),input.startedAt()))
+            throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.DELOAD_ACTIVE_PERIOD);
+    }
+    void requireSessionWrite(WorkoutSession session) {
+        if(!session.deload()&&periods.generalWriteBlocked(session.userId,session.dataGeneration))
+            throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.DELOAD_ACTIVE_PERIOD);
+    }
     boolean hadActivity(UUID session){return Boolean.TRUE.equals(jdbc.queryForObject("SELECT first_deload_activity_at IS NOT NULL FROM workout_sessions WHERE id=?",Boolean.class,session));}
     List<WorkoutSession> period(UUID owner,long generation,UUID period) {
         if(!Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM deload_periods WHERE user_id=? AND data_generation=? AND id=?)",Boolean.class,owner,generation,period)))throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.SESSION_NOT_FOUND);

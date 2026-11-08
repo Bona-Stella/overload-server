@@ -18,13 +18,16 @@ public class DeloadWeeklyRepository {
             String operation,ExactFraction contribution,String input) {
         boolean resolved() {return status.equals("CONFIRMED")||status.equals("EXCLUDED");}
     }
-    record EpochState(DeloadAnalysisState settings,Instant attempted) { }
+    record EpochState(DeloadAnalysisState settings,Instant attempted,boolean endedByCompletion) { }
     List<EpochState> epochs(UUID owner,long generation) {
         return jdbc.query("""
-            WITH c AS (SELECT DISTINCT ON(epoch) * FROM deload_analysis_versions WHERE user_id=? AND data_generation=? ORDER BY epoch,version DESC),
+            WITH c AS (SELECT DISTINCT ON(epoch) * FROM deload_analysis_contexts WHERE user_id=? AND data_generation=? ORDER BY epoch,version DESC),
             attempts AS (SELECT epoch,max(updated_at) attempted FROM deload_weekly_assessments WHERE user_id=? AND data_generation=? GROUP BY epoch)
-            SELECT c.*,coalesce(a.attempted,c.epoch_started_at) attempted FROM c LEFT JOIN attempts a ON a.epoch=c.epoch
-            """,(r,i)->new EpochState(new DeloadAnalysisState(r.getLong("version"),r.getBoolean("enabled"),r.getLong("epoch"),r.getTimestamp("recorded_at").toInstant(),r.getTimestamp("epoch_started_at").toInstant(),r.getString("time_zone"),r.getString("reason")),r.getTimestamp("attempted").toInstant()),owner,generation,owner,generation);
+            SELECT c.*,coalesce(a.attempted,c.epoch_started_at) attempted,(reset.version IS NOT NULL) ended_by_completion
+            FROM c LEFT JOIN attempts a ON a.epoch=c.epoch
+            LEFT JOIN deload_analysis_versions reset ON reset.user_id=c.user_id AND reset.data_generation=c.data_generation
+              AND reset.version-1=c.version AND reset.reason='DELOAD_COMPLETED'
+            """,(r,i)->new EpochState(DeloadAnalysisRepository.state(r),r.getTimestamp("attempted").toInstant(),r.getBoolean("ended_by_completion")),owner,generation,owner,generation);
     }
     private static final String ACTIVITY="""
         (EXISTS(SELECT 1 FROM performed_sets p WHERE p.session_id=ws.id AND p.kind='WEIGHT' AND p.deleted_at IS NULL)
@@ -33,9 +36,7 @@ public class DeloadWeeklyRepository {
     // An earlier travel-date ACTIVE can still change the first published week. It blocks; it never counts as performance.
     private static final String EARLY_CANDIDATE="(ws.status='ACTIVE' OR ws.status IN('FINISHED','AUTO_CLOSED') AND "+ACTIVITY+")";
     private static final String CHANGED="""
-        (w.rule_version<>1 OR w.status<>'EXCLUDED' AND EXISTS(SELECT 1 FROM deload_periods p JOIN deload_analysis_versions v ON v.user_id=w.user_id AND v.data_generation=w.data_generation AND v.version=w.epoch
-          WHERE p.user_id=w.user_id AND p.data_generation=w.data_generation AND p.start_date<w.week_start+7
-            AND (p.closed_date IS NULL OR p.closed_date>=greatest(w.week_start,(v.epoch_started_at AT TIME ZONE v.time_zone)::date))) OR CASE WHEN w.input_revision IS JSON OBJECT THEN
+        (w.rule_version<>1 OR CASE WHEN w.input_revision IS JSON OBJECT THEN
           coalesce(w.input_revision::jsonb->>'hash','') !~ '^[0-9a-f]{64}$'
           OR coalesce(jsonb_typeof(w.input_revision::jsonb->'revisions'),'')<>'object'
           OR EXISTS(SELECT 1 FROM daily_training_assessments d WHERE d.user_id=w.user_id AND d.data_generation=w.data_generation
@@ -47,26 +48,32 @@ public class DeloadWeeklyRepository {
         String sql="""
             WITH latest AS (SELECT DISTINCT ON(v.user_id,v.data_generation) v.* FROM deload_analysis_versions v
               JOIN users u ON u.id=v.user_id AND u.data_generation=v.data_generation ORDER BY v.user_id,v.data_generation,v.version DESC),
-            contexts AS (SELECT DISTINCT ON(v.user_id,v.data_generation,v.epoch) v.* FROM deload_analysis_versions v
+            contexts AS (SELECT DISTINCT ON(v.user_id,v.data_generation,v.epoch) v.* FROM deload_analysis_contexts v
               JOIN latest l ON l.user_id=v.user_id AND l.data_generation=v.data_generation
               WHERE l.enabled AND l.time_zone IS NOT NULL ORDER BY v.user_id,v.data_generation,v.epoch,v.version DESC),
             eligible AS (SELECT c.*,
-              least(date_trunc('week',c.epoch_started_at AT TIME ZONE c.time_zone)::date,
+              least(date_trunc('week',coalesce(c.resume_date,(c.epoch_started_at AT TIME ZONE c.time_zone)::date))::date,
                 (SELECT min(date_trunc('week',ws.workout_date)::date) FROM workout_sessions ws
                   WHERE ws.user_id=c.user_id AND ws.data_generation=c.data_generation AND ws.started_at>=c.epoch_started_at
+                  AND (c.resume_date IS NULL OR (ws.started_at AT TIME ZONE c.time_zone)::date>=c.resume_date)
                   AND(c.enabled OR ws.started_at<c.recorded_at)
-                  AND ws.workout_date<date_trunc('week',c.epoch_started_at AT TIME ZONE c.time_zone)::date
+                  AND NOT EXISTS(SELECT 1 FROM deload_analysis_versions later WHERE later.user_id=c.user_id AND later.data_generation=c.data_generation
+                    AND later.version>c.version AND later.reason='DELOAD_COMPLETED' AND ws.started_at>=later.epoch_started_at)
+                  AND ws.workout_date<date_trunc('week',coalesce(c.resume_date,(c.epoch_started_at AT TIME ZONE c.time_zone)::date))::date
                   AND ws.deleted_at IS NULL AND ws.deload_period_id IS NULL AND
             """+EARLY_CANDIDATE+"""
                 ),summary.first_week) first_week,
               CASE WHEN c.epoch=l.epoch THEN
                 (date_trunc('week',(?::timestamptz AT TIME ZONE c.time_zone)-interval '4 hours')-interval '7 days')::date
-                WHEN summary.published IS NOT NULL THEN least(summary.published,
+                WHEN summary.last_reviewable IS NOT NULL THEN least(summary.last_reviewable,
                   (date_trunc('week',(?::timestamptz AT TIME ZONE c.time_zone)-interval '4 hours')-interval '7 days')::date) END last_week,
               coalesce(summary.attempt,c.epoch_started_at) attempt
               FROM contexts c JOIN latest l ON l.user_id=c.user_id AND l.data_generation=c.data_generation
+              LEFT JOIN deload_analysis_versions reset ON reset.user_id=c.user_id AND reset.data_generation=c.data_generation
+                AND reset.version-1=c.version AND reset.reason='DELOAD_COMPLETED'
               LEFT JOIN LATERAL (SELECT min(w.week_start) first_week,
-                max(w.week_start) FILTER(WHERE w.status IN('CONFIRMED','EXCLUDED')) published,max(w.updated_at) attempt
+                max(w.week_start) FILTER(WHERE reset.version IS NOT NULL OR w.status IN('CONFIRMED','EXCLUDED')) last_reviewable,
+                max(w.updated_at) attempt
                 FROM deload_weekly_assessments w WHERE w.user_id=c.user_id AND w.data_generation=c.data_generation AND w.epoch=c.epoch) summary ON true
               WHERE c.time_zone IS NOT NULL)
             SELECT e.user_id,e.data_generation FROM eligible e WHERE e.first_week<=e.last_week
@@ -108,11 +115,14 @@ public class DeloadWeeklyRepository {
     Map<Long,LocalDate> earlierWeeks(UUID owner,long generation,Long epoch) {
         var result=new HashMap<Long,LocalDate>();
         jdbc.query("""
-            WITH c AS (SELECT DISTINCT ON(epoch) * FROM deload_analysis_versions WHERE user_id=? AND data_generation=? ORDER BY epoch,version DESC)
+            WITH c AS (SELECT DISTINCT ON(epoch) * FROM deload_analysis_contexts WHERE user_id=? AND data_generation=? ORDER BY epoch,version DESC)
             SELECT c.epoch,min(ws.workout_date) AS observed_date FROM c JOIN workout_sessions ws ON ws.user_id=c.user_id AND ws.data_generation=c.data_generation
               AND ws.started_at>=c.epoch_started_at AND(c.enabled OR ws.started_at<c.recorded_at)
-              AND ws.workout_date<date_trunc('week',c.epoch_started_at AT TIME ZONE c.time_zone)::date
-            WHERE c.time_zone IS NOT NULL AND (?::bigint IS NULL OR c.epoch=?) AND ws.deleted_at IS NULL AND ws.deload_period_id IS NULL AND
+              AND (c.resume_date IS NULL OR (ws.started_at AT TIME ZONE c.time_zone)::date>=c.resume_date)
+              AND ws.workout_date<date_trunc('week',coalesce(c.resume_date,(c.epoch_started_at AT TIME ZONE c.time_zone)::date))::date
+            WHERE c.time_zone IS NOT NULL AND (?::bigint IS NULL OR c.epoch=?) AND ws.deleted_at IS NULL AND ws.deload_period_id IS NULL
+              AND NOT EXISTS(SELECT 1 FROM deload_analysis_versions later WHERE later.user_id=c.user_id AND later.data_generation=c.data_generation
+                AND later.version>c.version AND later.reason='DELOAD_COMPLETED' AND ws.started_at>=later.epoch_started_at) AND
             """+EARLY_CANDIDATE+" GROUP BY c.epoch",r->{result.put(r.getLong("epoch"),DeloadWeeklyPolicy.monday(r.getObject("observed_date",LocalDate.class)));},owner,generation,epoch,epoch);
         return result;
     }
@@ -165,6 +175,13 @@ public class DeloadWeeklyRepository {
     }
     void invalidateSources(UUID owner,long generation,Long epoch,Instant now) {
         jdbc.update("UPDATE deload_weekly_assessments w SET needs_recheck=true,revision=revision+1,updated_at=greatest(updated_at,?) WHERE user_id=? AND data_generation=? AND (?::bigint IS NULL OR epoch=?) AND status IN('CONFIRMED','EXCLUDED') AND NOT needs_recheck AND "+CHANGED,Timestamp.from(now),owner,generation,epoch,epoch);
+    }
+    void invalidateProtection(UUID owner,long generation,LocalDate from,LocalDate through,Instant now) {
+        jdbc.update("""
+            UPDATE deload_weekly_assessments SET needs_recheck=true,revision=revision+1,updated_at=greatest(updated_at,?)
+            WHERE user_id=? AND data_generation=? AND week_start<=? AND week_start+7>?
+              AND status IN('CONFIRMED','EXCLUDED') AND NOT needs_recheck
+            """,Timestamp.from(now),owner,generation,through,from);
     }
     /** Must run before G3 clears source dirty in the SAME owner-locked transaction. No derived score is recalculated. */
     @Transactional(transactionManager="workoutTransactionManager",propagation=Propagation.MANDATORY)

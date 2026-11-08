@@ -14,7 +14,7 @@ import java.util.*;
 @Service
 public class DailyTrainingReviewService {
     private final com.overload.overload_server.deload.DeloadPeriods periods;
-    private static final String UNSTOPPED=" NOT EXISTS(SELECT 1 FROM deload_periods p WHERE p.user_id=d.user_id AND p.data_generation=d.data_generation AND p.start_date<=d.workout_date AND (p.closed_date IS NULL OR p.closed_date>=d.workout_date)) ";
+    private static final String UNSTOPPED=" NOT EXISTS(SELECT 1 FROM deload_periods p WHERE p.user_id=d.user_id AND p.data_generation=d.data_generation AND p.start_date<=d.workout_date AND (p.closed_date IS NULL OR deload_stopped_through(p)>=d.workout_date)) ";
     private final JdbcTemplate jdbc;private final WorkoutCalendarRepository calendars;
     private final StatisticsRepository facts;private final PlanningRepository planning;private final Clock clock;
     private final TransactionTemplate writes;
