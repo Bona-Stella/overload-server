@@ -18,12 +18,13 @@ import static com.overload.overload_server.routine.RoutineFailure.Reason.*;
 public class RoutineService {
 	private final RoutineRepository repository;
 	private final RoutinePlanHistory history;
+	private final WeeklyScheduleService schedules;
 	private final Clock clock;
 	private final TransactionTemplate writes;
 	private final TransactionTemplate reads;
-	RoutineService(RoutineRepository repository, RoutinePlanHistory history, ObjectProvider<Clock> clocks,
+	RoutineService(RoutineRepository repository, RoutinePlanHistory history, WeeklyScheduleService schedules, ObjectProvider<Clock> clocks,
 			@Qualifier("workoutTransactionManager") PlatformTransactionManager manager) {
-		this.repository = repository; this.history = history; this.clock = clocks.getIfAvailable(Clock::systemUTC);
+		this.repository = repository; this.history = history; this.schedules = schedules; this.clock = clocks.getIfAvailable(Clock::systemUTC);
 		writes = new TransactionTemplate(manager);
 		writes.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
 		reads = new TransactionTemplate(manager); reads.setReadOnly(true);
@@ -81,7 +82,7 @@ public class RoutineService {
 				Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS); routine.deletedAt = now; routine.changed(now);
 				repository.flush();
 				history.record(response(routine, false), now, true);
-				history.removeFromSchedule(user,request.dataGeneration(),id,now);
+				schedules.removeRoutine(user,request.dataGeneration(),id,now);
 			}
 			return null;
 		});

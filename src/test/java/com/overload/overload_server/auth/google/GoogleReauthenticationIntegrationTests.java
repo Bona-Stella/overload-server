@@ -75,7 +75,7 @@ class GoogleReauthenticationIntegrationTests {
 		jdbc.execute("DROP TRIGGER IF EXISTS google_reauth_fail ON spring_session_attributes");
 		jdbc.update("DELETE FROM spring_session"); jdbc.update("DELETE FROM email_otp_login_claims"); jdbc.update("UPDATE email_otp_limits SET active_challenge_id=NULL");
 		// Exclusively this class's disposable Testcontainer. Never the developer Compose DB.
-		for (var table : List.of("email_otp_challenges", "email_otp_limits", "email_otp_rate_limits", "reauth_email_candidates", "user_reauthentication_emails", "deload_weekly_assessments", "deload_analysis_versions", "exercise_definitions", "user_workout_settings", "auth_identities", "users")) { jdbc.update("DELETE FROM " + table); }
+		for (var table : List.of("email_otp_challenges", "email_otp_limits", "email_otp_rate_limits", "reauth_email_candidates", "user_reauthentication_emails", "deload_weekly_assessments", "deload_analysis_versions", "exercise_definitions", "user_workout_settings", "weekly_schedule_state", "weekly_schedule_presets", "auth_identities", "users")) { jdbc.update("DELETE FROM " + table); }
 		app.getBean(EmailOtpFixtures.FakeSender.class).reset(); browser = new Browser();
 	}
 	@AfterEach void close() { GoogleReauthenticationFixtures.reset(); browser.close(); }

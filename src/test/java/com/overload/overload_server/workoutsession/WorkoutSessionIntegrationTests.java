@@ -295,19 +295,70 @@ class WorkoutSessionIntegrationTests {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM routine_plan_history WHERE routine_id=?",Integer.class,routine)).isEqualTo(1);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void startAndManualActivationSerializeWithOneScheduleOrigin(boolean startFirst) throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");
+        node(browser.send("PUT", schedulePath(), json(scheduleBody("0", List.of())), csrf));
+        var current = node(browser.get("/api/v1/weekly-schedule"));
+        var created = node(browser.send("POST", "/api/v1/weekly-schedule/presets", json(Map.of(
+                "dataGeneration", "0", "expectedStateVersion", current.get("stateVersion").asString())), csrf));
+        String target = created.get("presets").get(1).get("id").asString();
+        var edited = node(browser.send("PUT", "/api/v1/weekly-schedule/presets/" + target + "/assignments",
+                json(scheduleBody("0", List.of(Map.of("dayOfWeek", 1, "routineId", routine)))), csrf));
+        String activate = json(Map.of("dataGeneration", "0", "expectedStateVersion", edited.get("stateVersion").asString(), "presetId", target));
+
+        calendarAt("2026-11-09T03:00:00Z");
+        var start = startBody();
+        start.put("startedAt", "2026-11-09T03:00:00Z");
+        start.put("workoutDate", "2026-11-09");
+        Callable<HttpResponse<String>> starting = () -> start(start);
+        Callable<HttpResponse<String>> activating = () -> browser.send("PUT", "/api/v1/weekly-schedule/active", activate, csrf);
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var observed = new AtomicBoolean();
+        WorkoutReadFixtures.observer = event -> {
+            String sql = event.sql().toLowerCase(Locale.ROOT);
+            if (!event.before() && sql.contains("from users ") && sql.contains("for update") && observed.compareAndSet(false, true)) {
+                locked.countDown();
+                await(release);
+            }
+        };
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var first = pool.submit(startFirst ? starting : activating);
+            try {
+                assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+                var second = pool.submit(startFirst ? activating : starting);
+                assertLockWait("users");
+                release.countDown();
+                var started = (startFirst ? first : second).get(15, TimeUnit.SECONDS);
+                var applied = (startFirst ? second : first).get(15, TimeUnit.SECONDS);
+                assertThat(started.statusCode()).as(started.body()).isEqualTo(201);
+                assertThat(node(started).get("initialPlan").get("routineVersion").asString()).isEqualTo("0");
+                if (startFirst) error(applied, 409, "ACTIVE_SESSION_EXISTS");
+                else assertThat(node(applied).get("activePresetId").asString()).isEqualTo(target);
+                assertThat(row().get("schedule_version_at_start")).isEqualTo(startFirst ? 1L : 2L);
+            } finally {
+                release.countDown();
+            }
+        } finally {
+            WorkoutReadFixtures.observer = null;
+        }
+    }
+
     @Test void activeSourceAndScheduleNoopsKeepVersionsAndStaleVersionsStillFail() throws Exception {
         var assigned=List.of(Map.of("dayOfWeek",1,"routineId",routine));
-        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",assigned)),csrf));
+        node(browser.send("PUT",schedulePath(),json(scheduleBody("0",assigned)),csrf));
         initialState();var original=row();var input=updateRoutine();input.put("name","session source");
         node(browser.send("PUT",routinePath(),json(input),csrf));assertThat(routineVersion()).isZero();
         input.put("expectedVersion","1");error(browser.send("PUT",routinePath(),json(input),csrf),409,"ROUTINE_VERSION_CONFLICT");
-        assertThat(node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",assigned)),csrf)).get("version").asString()).isEqualTo("1");
-        error(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",assigned)),csrf),409,"SCHEDULE_VERSION_CONFLICT");
-        error(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf),409,"ACTIVE_SESSION_EXISTS");
+        assertThat(node(browser.send("PUT",schedulePath(),json(scheduleBody("1",assigned)),csrf)).get("appliedScheduleVersion").asString()).isEqualTo("1");
+        error(browser.send("PUT",schedulePath(),json(scheduleBody("0",assigned)),csrf),409,"PRESET_VERSION_CONFLICT");
+        error(browser.send("PUT",schedulePath(),json(scheduleBody("1",List.of())),csrf),409,"ACTIVE_SESSION_EXISTS");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Integer.class,owner.id())).isEqualTo(1);
         assertThat(row()).isEqualTo(original);
         node(finish(1,initialState()));
-        assertThat(node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf)).get("assignments").isEmpty()).isTrue();
+        assertThat(node(browser.send("PUT",schedulePath(),json(scheduleBody("1",List.of())),csrf)).get("presets").get(0).get("assignments").isEmpty()).isTrue();
     }
 
     @Test void activeSourceDoesNotBlockManagingAnUnrelatedRoutine() throws Exception {
@@ -323,7 +374,7 @@ class WorkoutSessionIntegrationTests {
     @Test void activeSessionBlocksDeletingAnotherAssignedRoutineWithoutPartialHistoryOrScheduleChanges() throws Exception {
         UUID other=UUID.randomUUID(),activity=UUID.randomUUID();
         node(browser.send("POST","/api/v1/routines",json(Map.of("id",other,"dataGeneration","0","name","assigned other","weightPlacements",List.of(),"cardioPlacements",List.of(Map.of("id",activity,"plan",cardioPlan())))),csrf));
-        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",2,"routineId",other)))),csrf));
+        node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",2,"routineId",other)))),csrf));
         initialState();var original=row();var source=jdbc.queryForMap("SELECT * FROM routines WHERE id=?",other);
         var delete=json(Map.of("dataGeneration","0","expectedVersion","0"));
         error(browser.send("DELETE","/api/v1/routines/"+other,delete,csrf),409,"ACTIVE_SESSION_EXISTS");
@@ -342,7 +393,7 @@ class WorkoutSessionIntegrationTests {
         var original=EmailOtpFixtures.CLOCK.instant();var once=new AtomicBoolean();
         // Move the domain clock after normal authentication, without weakening session/OTP policy.
         WorkoutReadFixtures.observer=e->{if(e.before()&&e.sql().contains("FROM users")&&e.sql().contains("FOR UPDATE")&&once.compareAndSet(false,true))EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),Instant.parse(at)));};
-        try{return browser.send("PUT","/api/v1/weekly-schedule",json(body),csrf);}
+        try{return browser.send("PUT",schedulePath(),json(body),csrf);}
         finally{WorkoutReadFixtures.observer=null;EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),original));}
     }
     Map<String,Object> daily(String day){return jdbc.queryForMap("SELECT * FROM daily_training_assessments WHERE user_id=? AND workout_date=?::date",owner.id(),day);}
@@ -355,8 +406,8 @@ class WorkoutSessionIntegrationTests {
         var body=finishBody(1,state(base,sets,List.of(),List.of(),List.of(),List.of()));body.put("endedAt",day+"T03:30:00Z");node(sendFinish(body));return body;
     }
     @Test void nextDayTwoAmEditCannotErasePriorDayMissAndReviewIsIdempotent() throws Exception {
-        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
-        calendarAt("2026-11-09T17:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf));reviewDates();
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T17:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("1",List.of())),csrf));reviewDates();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM daily_training_assessments WHERE user_id=?",Integer.class,owner.id())).isZero();
         calendarAt("2026-11-09T19:00:00Z");reviewDates();var original=daily("2026-11-09");assertThat(original.get("state")).isEqualTo("MISSED");assertThat(original.get("missed_schedule_version")).isEqualTo(1L);
         reviewDates();assertThat(daily("2026-11-09")).isEqualTo(original);
@@ -365,7 +416,7 @@ class WorkoutSessionIntegrationTests {
         calendarAt("2026-11-09T00:00:00Z");
         var settings=Map.of("dataGeneration","0","expectedVersion","0","enabled",false,"timeZone","Asia/Seoul");
         assertThat(browser.send("PUT","/api/v1/deload-analysis/settings",json(settings),csrf).statusCode()).isEqualTo(200);
-        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine),Map.of("dayOfWeek",2,"routineId",routine)))),csrf));
+        node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine),Map.of("dayOfWeek",2,"routineId",routine)))),csrf));
         var base=startOn("2026-11-09");var initial=row().get("initial_plan_snapshot");
         finishOn(base,"2026-11-09",List.of(calendarSet(base,"2026-11-09",1)));
         calendarAt("2026-11-10T19:00:00Z");reviewDates();
@@ -395,8 +446,8 @@ class WorkoutSessionIntegrationTests {
         } finally {go.countDown();}
     }
     @Test void sameDayRestCreatesNoMissOrPermanentRestRowsAndRollbackCanCatchUp() throws Exception {
-        calendarAt("2026-11-12T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",4,"routineId",routine)))),csrf));
-        calendarAt("2026-11-12T06:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf));calendarAt("2026-11-12T19:00:00Z");
+        calendarAt("2026-11-12T00:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",4,"routineId",routine)))),csrf));
+        calendarAt("2026-11-12T06:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("1",List.of())),csrf));calendarAt("2026-11-12T19:00:00Z");
         WorkoutReadFixtures.observer=e->{if(e.before()&&e.sql().startsWith("UPDATE workout_calendar_control"))throw new org.springframework.dao.DataAccessResourceFailureException("isolated cursor failure");};
         try{reviewDates();}finally{WorkoutReadFixtures.observer=null;}
         assertThat(jdbc.queryForObject("SELECT reviewed_through FROM workout_calendar_control WHERE user_id=?",java.time.LocalDate.class,owner.id())).isEqualTo(java.time.LocalDate.parse("2026-11-11"));
@@ -404,9 +455,9 @@ class WorkoutSessionIntegrationTests {
         assertThat(jdbc.queryForObject("SELECT reviewed_through FROM workout_calendar_control WHERE user_id=?",java.time.LocalDate.class,owner.id())).isEqualTo(java.time.LocalDate.parse("2026-11-12"));
     }
     @Test void firstScheduledStartKeepsOriginalPlanAfterFinishAndImmediateReassignment() throws Exception {
-        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
         var base=startOn("2026-11-09");var frozen=row().get("initial_plan_snapshot");var finished=finishOn(base,"2026-11-09",List.of(calendarSet(base,"2026-11-09",1)));
-        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf));
+        node(browser.send("PUT",schedulePath(),json(scheduleBody("1",List.of())),csrf));
         var monday=node(browser.get("/api/v1/statistics/overview?fromDate=2026-11-09&toDateExclusive=2026-11-16")).get("plannedDays").get(0);
         assertThat(monday.get("plan").get("id").asString()).isEqualTo(routine.toString());assertThat(monday.get("plan").get("weightPlacements").get(0).get("setCount").asInt()).isEqualTo(3);
         assertThat(row().get("initial_plan_snapshot")).isEqualTo(frozen);assertThat(daily("2026-11-09").get("first_session_id")).isEqualTo(session);
@@ -414,13 +465,13 @@ class WorkoutSessionIntegrationTests {
         var revision=daily("2026-11-09").get("revision");node(sendFinish(finished));assertThat(daily("2026-11-09").get("revision")).isEqualTo(revision);assertThat(daily("2026-11-09").get("needs_recheck")).isEqualTo(false);
     }
     @Test void activeDateIsDeferredAndExistingExpiryWakesTheSameDateWithoutRewritingItsOrigin() throws Exception {
-        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
         startOn("2026-11-09");var frozen=row().get("initial_plan_snapshot");calendarAt("2026-11-09T19:00:00Z");reviewDates();
         assertThat(daily("2026-11-09").get("state")).isEqualTo("PENDING_ACTIVE");assertThat(daily("2026-11-09").get("first_missed_at")).isNull();
         calendarAt("2026-11-10T00:00:00Z");app.getBean(WorkoutSessionService.class).expireBatch();reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("MISSED");assertThat(row().get("initial_plan_snapshot")).isEqualTo(frozen);
     }
     @Test void concurrentExpiryWaitsForTheReviewOwnerLockAndWakesTheDateAfterCommit() throws Exception {
-        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
         var base=startOn("2026-11-09");node(save(1,state(base,List.of(calendarSet(base,"2026-11-09",1)),List.of(),List.of(),List.of(),List.of())));
         calendarAt("2026-11-10T00:00:00Z");
         // Restrict this barrier to its own account in the disposable shared fixture DB.
@@ -449,7 +500,7 @@ class WorkoutSessionIntegrationTests {
         reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("PERFORMED");assertThat(daily("2026-11-09").get("first_missed_at")).isNull();
     }
     @Test void latePartialFactsThenDeletionAndExplicitRecoveryReevaluateOneDateAndKeepFirstMiss() throws Exception {
-        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
         calendarAt("2026-11-09T19:00:00Z");reviewDates();var missed=daily("2026-11-09").get("first_missed_at");
         var base=startOn("2026-11-09");reviewDates();
         assertThat(daily("2026-11-09").get("state")).isEqualTo("PENDING_ACTIVE");
@@ -466,7 +517,7 @@ class WorkoutSessionIntegrationTests {
     void actualOffScheduleOrRestDayPartialFactsArePreservedWithoutFillingThePlannedRoutine(boolean planned) throws Exception {
         calendarAt("2026-11-09T00:00:00Z");UUID other=UUID.randomUUID();
         node(browser.send("POST","/api/v1/routines",json(Map.of("id",other,"dataGeneration","0","name","other plan","weightPlacements",List.of(),"cardioPlacements",List.of(Map.of("id",UUID.randomUUID(),"plan",cardioPlan())))),csrf));
-        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",planned?List.of(Map.of("dayOfWeek",1,"routineId",other)):List.of())),csrf));
+        node(browser.send("PUT",schedulePath(),json(scheduleBody("0",planned?List.of(Map.of("dayOfWeek",1,"routineId",other)):List.of())),csrf));
         var base=startOn("2026-11-09");finishOn(base,"2026-11-09",List.of(calendarSet(base,"2026-11-09",1)));calendarAt("2026-11-09T19:00:00Z");
         try(var pool=Executors.newFixedThreadPool(2)){var one=pool.submit(()->app.getBean(com.overload.overload_server.statistics.DailyTrainingReviewService.class).reviewBatch());var two=pool.submit(()->app.getBean(com.overload.overload_server.statistics.DailyTrainingReviewService.class).reviewBatch());one.get(15,TimeUnit.SECONDS);two.get(15,TimeUnit.SECONDS);}
         reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("PERFORMED");assertThat(daily("2026-11-09").get("first_missed_at")).isNull();
@@ -474,13 +525,13 @@ class WorkoutSessionIntegrationTests {
         assertThat(data.get("plannedDays").get(0).get("effectiveDay").asString()).isEqualTo("0");assertThat(data.get("plannedDays").get(0).get("status").asString()).isEqualTo(planned?"PLANNED":"REST");
     }
     @Test void missingPlanEvidenceDefersInsteadOfInventingZero() throws Exception {
-        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
         // Missing historical evidence fixture, only in this disposable DB.
         jdbc.update("DELETE FROM routine_plan_history WHERE routine_id=?",routine);calendarAt("2026-11-09T19:00:00Z");reviewDates();
         assertThat(daily("2026-11-09").get("state")).isEqualTo("UNKNOWN");assertThat(daily("2026-11-09").get("first_missed_at")).isNull();
     }
     @Test void actualCardioBelowItsGoalStillCountsAsPerformanceInsteadOfAnEmptyWorkout() throws Exception {
-        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
         var base=startOn("2026-11-09");UUID activity=base.appliedPlan().cardioActivities().getFirst().sessionActivityId();
         var cardioFact=new Cardio(UUID.randomUUID(),activity,"COMPLETED",Instant.parse("2026-11-09T03:01:00Z"),Instant.parse("2026-11-09T03:02:00Z"),new CardioValue(60000L,60000L,false,null,null));
         var body=finishBody(1,state(base,List.of(),List.of(cardioFact),List.of(),List.of(),List.of()));body.put("endedAt","2026-11-09T03:30:00Z");node(sendFinish(body));
@@ -490,7 +541,7 @@ class WorkoutSessionIntegrationTests {
     @org.junit.jupiter.params.provider.CsvSource({"2026-11-10T07:59:00Z,2026-11-09","2026-11-10T08:01:00Z,2026-11-10","2026-11-10T11:30:00Z,2026-11-10"})
     void storedCalendarAndDeviceZoneKeepTheOriginalStartDateAcrossMidnight(String started,String day) throws Exception {
         calendarAt("2026-11-09T00:00:00Z");
-        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine),Map.of("dayOfWeek",2,"routineId",routine)))),csrf));
+        node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine),Map.of("dayOfWeek",2,"routineId",routine)))),csrf));
         calendarAt("2026-11-10T12:00:00Z");var body=startBody();body.put("startedAt",started);body.put("startedTimeZone","America/Los_Angeles");body.put("workoutDate",day);
         var startedNode=node(start(body));var base=JSON.treeToValue(startedNode.get("snapshot").get("state"),State.class);
         var frozen=row().get("initial_plan_snapshot");var finish=finishBody(1,state(base,List.of(),List.of(),List.of(),List.of(),List.of()));finish.put("endedAt",Instant.parse(started).plusSeconds(120).toString());node(sendFinish(finish));
@@ -499,7 +550,7 @@ class WorkoutSessionIntegrationTests {
         assertThatThrownBy(()->jdbc.update("UPDATE workout_sessions SET schedule_version_at_start=NULL WHERE id=?",session)).isInstanceOf(DataIntegrityViolationException.class);
     }
     @Test void ownerLockCrossingMidnightUsesPostLockDateAndDoesNotMoveThePreviousDay() throws Exception {
-        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
         calendarAt("2026-11-09T14:59:59Z");
         // A transaction begins before midnight and obtains its owner lock after midnight.
         node(scheduleWithClock("2026-11-09T15:00:01Z",scheduleBody("1",List.of())));
@@ -507,7 +558,7 @@ class WorkoutSessionIntegrationTests {
         calendarAt("2026-11-09T19:00:00Z");reviewDates();assertThat(daily("2026-11-09").get("state")).isEqualTo("MISSED");assertThat(daily("2026-11-09").get("missed_schedule_version")).isEqualTo(1L);
     }
     @Test void realReviewJobCatchesUpPersistedDatesWhenAnApplicationStarts() throws Exception {
-        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));calendarAt("2026-11-09T19:00:00Z");
+        calendarAt("2026-11-09T00:00:00Z");node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));calendarAt("2026-11-09T19:00:00Z");
         var key=new byte[32];new java.security.SecureRandom().nextBytes(key);
         try(var restarted=new SpringApplicationBuilder(OverloadServerApplication.class,EmailOtpFixtures.class,WorkoutReadFixtures.class).web(WebApplicationType.NONE)
             .run("--spring.profiles.active=local,integration","--spring.datasource.url="+POSTGRES.getJdbcUrl(),"--spring.datasource.username="+POSTGRES.getUsername(),"--spring.datasource.password="+POSTGRES.getPassword(),
@@ -517,13 +568,13 @@ class WorkoutSessionIntegrationTests {
         }
     }
     @Test void savedClockPrecisionAndVersionOrderAreExactAndBackwardWritesFailClosed() throws Exception {
-        calendarAt("2026-11-09T00:00:00.999999999Z");var first=node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
+        calendarAt("2026-11-09T00:00:00.999999999Z");var first=node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf));
         assertThat(first.get("appliedAt").asString()).isEqualTo("2026-11-09T00:00:00.999999Z");
-        node(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("1",List.of())),csrf));
+        node(browser.send("PUT",schedulePath(),json(scheduleBody("1",List.of())),csrf));
         assertThat(jdbc.queryForList("SELECT recorded_at FROM weekly_schedule_versions WHERE user_id=?",Object.class,owner.id()).stream().distinct().count()).isEqualTo(1);
         error(scheduleWithClock("2026-11-08T23:59:59Z",scheduleBody("2",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),409,"WRITE_CONFLICT");
         assertThat(jdbc.queryForObject("SELECT max(version) FROM weekly_schedule_versions WHERE user_id=?",Long.class,owner.id())).isEqualTo(2L);
-        var old=new LinkedHashMap<>(scheduleBody("2",List.of()));old.remove("contractVersion");error(browser.send("PUT","/api/v1/weekly-schedule",json(old),csrf),409,"SCHEDULE_CONTRACT_MISMATCH");
+        assertThat(browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("2",List.of())),csrf).statusCode()).isEqualTo(405);
         calendarAt("2026-11-09T19:00:00Z");reviewDates();
         error(scheduleWithClock("2026-11-09T14:59:59Z",scheduleBody("2",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),409,"WRITE_CONFLICT");
     }
@@ -1725,12 +1776,16 @@ class WorkoutSessionIntegrationTests {
     int eventCount() { return jdbc.queryForObject("SELECT count(*) FROM progress_change_events WHERE routine_id=?",Integer.class,routine); }
 
     HttpResponse<String> editRoutine(String method) throws Exception {
-        if(method.equals("SCHEDULE"))return browser.send("PUT","/api/v1/weekly-schedule",json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf);
+        if(method.equals("SCHEDULE"))return browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",1,"routineId",routine)))),csrf);
         var update=updateRoutine();update.put("weightPlacements",List.of(equipment(Map.of("mode","EXISTING","id",placement,"setCount",4,"minReps",6,"maxReps",10))));
         return browser.send(method, routinePath(), json(method.equals("PUT") ? update : Map.of("dataGeneration", "0", "expectedVersion", "0")), csrf);
     }
     HttpResponse<String> renameRoutine() throws Exception {return browser.send("PUT",routinePath(),json(updateRoutine()),csrf);}
-    Map<String,Object> scheduleBody(String version,List<?> assignments){return Map.of("contractVersion","immediate-v1","dataGeneration","0","expectedVersion",version,"timeZone","Asia/Seoul","assignments",assignments);}
+    String schedulePath(){return "/api/v1/weekly-schedule/presets/"+jdbc.queryForObject("SELECT active_preset_id FROM weekly_schedule_state WHERE user_id=?",UUID.class,owner.id())+"/assignments";}
+    Map<String,Object> scheduleBody(String version,List<?> assignments){
+        String state=jdbc.queryForObject("SELECT state_version FROM weekly_schedule_state WHERE user_id=?",String.class,owner.id());
+        return Map.of("dataGeneration","0","expectedStateVersion",state,"expectedPresetVersion",version,"timeZone","Asia/Seoul","assignments",assignments);
+    }
     Map<String, Object> routineBody() {
         return new LinkedHashMap<>(Map.of("id", routine, "dataGeneration", "0", "name", "session source", "weightPlacements",
                 List.of(equipment(Map.of("id", placement, "standardExerciseId", exercise, "setCount", 3, "minReps", 6, "maxReps", 10, "initialWeightKg", "60"))),

@@ -1,14 +1,22 @@
 package com.overload.overload_server.routine;
 
-import java.time.*;
-import java.util.*;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
 
 public final class WeeklySchedule {
     private WeeklySchedule() { }
+
     public record Assignment(int dayOfWeek, UUID routineId) { }
     public record Version(String version, LocalDate effectiveFrom, String timeZone, Instant recordedAt, List<Assignment> assignments) { }
-    public record View(UUID userId,String dataGeneration,String version,String timeZone,Instant appliedAt,List<Assignment> assignments) { }
-    public record HistoryVersion(String version,LocalDate effectiveFrom,String timeZone,Instant recordedAt,Instant appliedAt,List<Assignment> assignments) { }
-    public record Page(UUID userId,String dataGeneration,List<HistoryVersion> history,String nextBeforeVersion) { }
-    record Save(long generation, long expectedVersion, String timeZone, List<Assignment> assignments) { }
+
+    public record Preset(UUID id, int displayOrder, String presetVersion, boolean rotationIncluded, List<Assignment> assignments) { }
+    public record View(String dataGeneration, String stateVersion, UUID activePresetId, boolean autoEnabled, String timeZone,
+                       Instant nextRotationAt, String appliedScheduleVersion, Instant appliedAt, List<Preset> presets) { }
+
+    record Configuration(long generation, long expectedStateVersion) { }
+    record Edit(Configuration configuration, long expectedPresetVersion, String timeZone, List<Assignment> assignments) { }
+    record Activate(Configuration configuration, UUID presetId, String timeZone) { }
+    record Delete(Configuration configuration, long expectedPresetVersion) { }
 }

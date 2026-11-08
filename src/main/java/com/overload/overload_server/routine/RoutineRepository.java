@@ -39,6 +39,12 @@ public class RoutineRepository {
 		public void complete(java.time.Instant now){if(changed){routine.changed(now);entityManager.flush();history.record(planForHistory(routine),now,false);}}
 	}
 
+	RoutineResponses.Detail schedulePlan(UUID owner, long generation, UUID id) {
+		var routine = find(owner, generation, id, false);
+		if (routine.deletedAt != null) throw new RoutineFailure(RoutineFailure.Reason.ROUTINE_NOT_FOUND);
+		return planForHistory(routine);
+	}
+
 	private RoutineResponses.Detail planForHistory(Routine routine) {
 		var weights = weights(routine).stream().filter(p -> p.deletedAt == null).toList();
 		var definitions = exercises(routine.userId, routine.dataGeneration, weights.stream().map(p -> p.standardExerciseId).collect(java.util.stream.Collectors.toSet()), false);

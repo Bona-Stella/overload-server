@@ -20,11 +20,13 @@ import java.net.*;
 import java.net.http.*;
 import java.time.*;
 import java.util.*;
+import java.util.concurrent.*;
 import static org.assertj.core.api.Assertions.*;
 
 @Tag("postgres") @Testcontainers
 class StatisticsIntegrationTests {
     static final JsonMapper JSON=JsonMapper.builder().build();
+    static final String SCHEDULE = "/api/v1/weekly-schedule";
     static final String PATH="/api/v1/statistics/overview?fromDate=2026-10-26&toDateExclusive=2026-11-02";
     @Container static final PostgreSQLContainer POSTGRES=new PostgreSQLContainer("postgres:18.6-alpine")
             .withDatabaseName("overload_statistics_test").withUsername("overload_test").withPassword(UUID.randomUUID().toString());
@@ -181,9 +183,50 @@ class StatisticsIntegrationTests {
         var body=Map.of("id",id,"dataGeneration","0","name","scheduled routine","weightPlacements",weights,"cardioPlacements",List.of());
         var response=browser.send("POST","/api/v1/routines",JSON.writeValueAsString(body),csrf());assertThat(response.statusCode()).isEqualTo(201);return JSON.readTree(response.body());
     }
+    JsonNode schedule() throws Exception { return success(browser.get(SCHEDULE)); }
+    String activeId(JsonNode view) { return view.get("activePresetId").asString(); }
+    String assignmentsPath(String preset) { return SCHEDULE + "/presets/" + preset + "/assignments"; }
+    Map<String, Object> config(JsonNode view) {
+        return new LinkedHashMap<>(Map.of("dataGeneration", view.get("dataGeneration").asString(),
+                "expectedStateVersion", view.get("stateVersion").asString()));
+    }
+    Map<String, Object> editBody(JsonNode view, String expected, Object assignments) {
+        var body = config(view);
+        body.put("expectedPresetVersion", expected);
+        body.put("assignments", assignments);
+        return body;
+    }
+    JsonNode edit(JsonNode view, String id, String expected, Object assignments) throws Exception {
+        return success(browser.send("PUT", assignmentsPath(id), JSON.writeValueAsString(editBody(view, expected, assignments)), csrf()));
+    }
+    List<Map<String, Object>> assignments(JsonNode routine, Integer... days) {
+        return Arrays.stream(days).map(day -> Map.<String,Object>of("dayOfWeek", day, "routineId", routine.get("id").asString())).toList();
+    }
     JsonNode schedule(JsonNode routine,String expected,List<Integer> days) throws Exception {
-        var body=Map.of("contractVersion","immediate-v1","dataGeneration","0","expectedVersion",expected,"timeZone","Asia/Seoul","assignments",days.stream().map(d->Map.of("dayOfWeek",d,"routineId",routine.get("id").asString())).toList());
-        return success(browser.send("PUT","/api/v1/weekly-schedule",JSON.writeValueAsString(body),csrf()));
+        var view = schedule();
+        var body = editBody(view, expected, assignments(routine, days.toArray(Integer[]::new)));
+        body.put("timeZone", "Asia/Seoul");
+        return success(browser.send("PUT", assignmentsPath(activeId(view)), JSON.writeValueAsString(body), csrf()));
+    }
+    JsonNode createPreset(JsonNode view) throws Exception {
+        var response = browser.send("POST", SCHEDULE + "/presets", JSON.writeValueAsString(config(view)), csrf());
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+        return JSON.readTree(response.body());
+    }
+    HttpResponse<String> deletePreset(JsonNode view, String id, String expected) throws Exception {
+        var body = config(view);
+        body.put("expectedPresetVersion", expected);
+        return browser.send("DELETE", SCHEDULE + "/presets/" + id, JSON.writeValueAsString(body), csrf());
+    }
+    JsonNode activate(JsonNode view, String id, String zone) throws Exception {
+        var body = config(view);
+        body.put("presetId", id);
+        if (zone != null) body.put("timeZone", zone);
+        return success(browser.send("PUT", SCHEDULE + "/active", JSON.writeValueAsString(body), csrf()));
+    }
+    void expectError(HttpResponse<String> response, int status, String code) {
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(status);
+        assertThat(JSON.readTree(response.body()).get("code").asString()).isEqualTo(code);
     }
     JsonNode overview(LocalDate from) throws Exception{return success(browser.get("/api/v1/statistics/overview?fromDate="+from+"&toDateExclusive="+from.plusDays(7)));}
     void perform(JsonNode routine,LocalDate day,int completed) throws Exception {
@@ -206,7 +249,7 @@ class StatisticsIntegrationTests {
     }
     @Test void weeklyScheduleCountsMissedDaysAndBestSingleInitialPlanSession() throws Exception {
         var routine=routine(1);var saved=schedule(routine,"0",List.of(1,2,4,5));var monday=LocalDate.parse(saved.get("appliedAt").asString().substring(0,10));
-        assertThat(saved.get("version").asString()).isEqualTo("1");assertThat(saved.has("pending")).isFalse();
+        assertThat(saved.get("appliedScheduleVersion").asString()).isEqualTo("1");
         perform(routine,monday,4);perform(routine,monday.plusDays(1),2);perform(routine,monday.plusDays(3),3);
         perform(routine,monday.plusDays(1),1);perform(routine,monday.plusDays(2),4);
         var result=overview(monday);var stats=result.get("statistics");
@@ -262,7 +305,7 @@ class StatisticsIntegrationTests {
     @Test void firstThursdayRegistrationStartsTodayAndEditsApplyImmediatelyWithoutChangingStartedPlans() throws Exception {
         var thursday=LocalDate.of(2026,11,12);var monday=thursday.minusDays(3);
         EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),thursday.atTime(5,0).toInstant(ZoneOffset.UTC)));
-        assertThat(success(browser.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul")).get("version").asString()).isEqualTo("0");
+        assertThat(schedule().get("appliedScheduleVersion").isNull()).isTrue();
         var r=routine(1);var saved=schedule(r,"0",List.of(1,4,5,6));
         assertThat(saved.get("appliedAt").asString().substring(0,10)).isEqualTo(thursday.toString());assertThat(saved.has("pending")).isFalse();
         var original=jdbc.queryForMap("SELECT * FROM weekly_schedule_versions WHERE user_id=? AND version=1",owner);
@@ -288,14 +331,166 @@ class StatisticsIntegrationTests {
         assertThat(first.get("statistics").get("routineAchievementPercent").isNull()).isTrue();assertThat(first.get("unknownPlanDays").asInt()).isZero();
         assertThat(overview(sunday.plusDays(1)).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(4);
     }
+    @Test void readDoesNotProvisionOrApplyAndExplicitEmptyActivationAppliesExactlyOnce() throws Exception {
+        var before = schedule();
+        assertThat(before.get("appliedScheduleVersion").isNull()).isTrue();
+        assertThat(before.get("appliedAt").isNull()).isTrue();
+        assertThat(before.get("timeZone").isNull()).isTrue();
+        assertThat(before.get("autoEnabled").asBoolean()).isFalse();
+        assertThat(before.get("nextRotationAt").isNull()).isTrue();
+        assertThat(before.get("presets").size()).isEqualTo(1);
+        assertThat(before.get("presets").get(0).get("assignments").isEmpty()).isTrue();
+
+        var read = browser.get(SCHEDULE);
+        assertThat(read.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(success(read)).isEqualTo(before);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM workout_calendar_control WHERE user_id=?", Integer.class, owner)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?", Integer.class, owner)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM daily_training_assessments WHERE user_id=?", Integer.class, owner)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions WHERE user_id=?", Integer.class, owner)).isEqualTo(1);
+
+        var config = config(before);
+        config.put("presetId", activeId(before));
+        expectError(browser.send("PUT", SCHEDULE + "/active", JSON.writeValueAsString(config), csrf()), 400, "SCHEDULE_TIME_ZONE_REQUIRED");
+        var applied = activate(before, activeId(before), "Asia/Seoul");
+        assertThat(applied.get("appliedScheduleVersion").asString()).isEqualTo("1");
+        assertThat(applied.get("appliedAt").isNull()).isFalse();
+        assertThat(applied.get("presets")).isEqualTo(before.get("presets"));
+        assertThat(activate(applied, activeId(applied), null)).isEqualTo(applied);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM daily_training_assessments WHERE user_id=?", Integer.class, owner)).isZero();
+        var day = LocalDate.parse(applied.get("appliedAt").asString().substring(0,10));
+        assertThat(overview(day.minusDays(1)).get("plannedDays").get(0).get("status").asString()).isEqualTo("UNKNOWN");
+    }
+
+    @Test void concurrentPresetCreationCapsAtFourAndDeletingCompactsWithoutChangingIds() throws Exception {
+        var initial = schedule();
+        expectError(deletePreset(initial, activeId(initial), "0"), 409, "LAST_PRESET");
+        var three = createPreset(createPreset(initial));
+        var gate = new CountDownLatch(1);
+        String payload = JSON.writeValueAsString(config(three)), token = csrf();
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Callable<HttpResponse<String>> create = () -> {
+                gate.await();
+                return browser.send("POST", SCHEDULE + "/presets", payload, token);
+            };
+            var first = pool.submit(create);
+            var second = pool.submit(create);
+            gate.countDown();
+            var results = List.of(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS));
+            assertThat(results).extracting(HttpResponse::statusCode).containsExactlyInAnyOrder(201, 409);
+            expectError(results.stream().filter(r -> r.statusCode() == 409).findFirst().orElseThrow(),
+                    409, "SCHEDULE_STATE_VERSION_CONFLICT");
+        }
+        var four = schedule();
+        assertThat(four.get("presets").size()).isEqualTo(4);
+        assertThat(activeId(four)).isEqualTo(activeId(initial));
+        assertThat(four.get("appliedScheduleVersion").isNull()).isTrue();
+        for (var preset : four.get("presets")) {
+            assertThat(preset.get("rotationIncluded").asBoolean()).isFalse();
+            assertThat(preset.get("presetVersion").asString()).isEqualTo("0");
+            assertThat(preset.get("assignments").isEmpty()).isTrue();
+        }
+        expectError(browser.send("POST", SCHEDULE + "/presets", JSON.writeValueAsString(config(four)), token), 409, "PRESET_LIMIT_REACHED");
+        expectError(deletePreset(four, activeId(four), "0"), 409, "ACTIVE_PRESET");
+        var presets = four.get("presets");
+        String second = presets.get(1).get("id").asString();
+        expectError(deletePreset(four, second, "1"), 409, "PRESET_VERSION_CONFLICT");
+        var compact = success(deletePreset(four, second, "0")).get("presets");
+        assertThat(compact).extracting(p -> p.get("id")).containsExactly(presets.get(0).get("id"), presets.get(2).get("id"), presets.get(3).get("id"));
+        assertThat(compact).extracting(p -> p.get("displayOrder").asInt()).containsExactly(1, 2, 3);
+        assertThat(schedule().get("appliedScheduleVersion").isNull()).isTrue();
+    }
+
+    @Test void inactiveEditsAndIdenticalActivationOnlyChangeTheirOwnVersions() throws Exception {
+        var r = routine(1);
+        var initial = schedule(r, "0", List.of(1, 5));
+        var two = createPreset(initial);
+        String second = two.get("presets").get(1).get("id").asString();
+        var edited = edit(two, second, "0", assignments(r, 5, 1));
+        assertThat(edited.get("appliedScheduleVersion")).isEqualTo(two.get("appliedScheduleVersion"));
+        assertThat(edited.get("stateVersion")).isEqualTo(two.get("stateVersion"));
+        assertThat(edited.get("presets").get(1).get("presetVersion").asString()).isEqualTo("1");
+        assertThat(edited.get("presets").get(1).get("assignments")).isEqualTo(edited.get("presets").get(0).get("assignments"));
+        assertThat(edit(edited, second, "1", assignments(r, 1, 5))).isEqualTo(edited);
+        var switched = activate(edited, second, null);
+        assertThat(activeId(switched)).isEqualTo(second);
+        assertThat(switched.get("stateVersion").asInt()).isEqualTo(edited.get("stateVersion").asInt() + 1);
+        assertThat(switched.get("appliedScheduleVersion")).isEqualTo(initial.get("appliedScheduleVersion"));
+        assertThat(switched.get("appliedAt")).isEqualTo(initial.get("appliedAt"));
+        assertThat(activate(switched, second, null)).isEqualTo(switched);
+        expectError(browser.send("PUT", assignmentsPath(activeId(two)), JSON.writeValueAsString(editBody(two, "1", List.of())), csrf()),
+                409, "SCHEDULE_STATE_VERSION_CONFLICT");
+    }
+
+    @Test void wednesdayActivationPreservesMondayAndTuesdayMissAndPlanEvidence() throws Exception {
+        var r = routine(1);
+        var applied = schedule(r, "0", List.of(1, 2, 3));
+        var two = createPreset(applied);
+        String second = two.get("presets").get(1).get("id").asString();
+        var monday = LocalDate.parse(applied.get("appliedAt").asString().substring(0, 10));
+        EmailOtpFixtures.CLOCK.advance(Duration.ofDays(2).plusHours(3));
+        app.getBean(DailyTrainingReviewService.class).reviewBatch();
+        String query = """
+                SELECT workout_date, state, missed_schedule_version, missed_plan_version
+                FROM daily_training_assessments WHERE user_id=? AND workout_date<? ORDER BY workout_date
+                """;
+        var before = jdbc.queryForList(query, owner, monday.plusDays(2));
+        assertThat(before).hasSize(2).allSatisfy(row -> {
+            assertThat(row.get("state")).isEqualTo("MISSED");
+            assertThat(row.get("missed_schedule_version")).isEqualTo(1L);
+        });
+
+        var switched = activate(two, second, null);
+        assertThat(switched.get("appliedScheduleVersion").asString()).isEqualTo("2");
+        assertThat(jdbc.queryForList(query, owner, monday.plusDays(2))).isEqualTo(before);
+        var days = overview(monday).get("plannedDays");
+        assertThat(days.get(0).get("scheduleVersion").asString()).isEqualTo("1");
+        assertThat(days.get(1).get("scheduleVersion").asString()).isEqualTo("1");
+        assertThat(days.get(2).get("status").asString()).isEqualTo("REST");
+        assertThat(days.get(2).get("scheduleVersion").asString()).isEqualTo("2");
+    }
+
+    @Test void rejectsCrossOwnerPresetsAndMissingDeletedOrForeignRoutines() throws Exception {
+        var r = routine(1);
+        var initial = schedule();
+        try (var other = new Browser()) {
+            other.login();
+            var theirView = success(other.get(SCHEDULE));
+            String token = JSON.readTree(other.get("/api/v1/auth/csrf").body()).get("token").asString();
+            expectError(other.send("PUT", assignmentsPath(activeId(initial)), JSON.writeValueAsString(editBody(theirView, "0", List.of())), token),
+                    404, "PRESET_NOT_FOUND");
+            var activation = config(theirView);
+            activation.put("presetId", activeId(initial));
+            expectError(other.send("PUT", SCHEDULE + "/active", JSON.writeValueAsString(activation), token), 404, "PRESET_NOT_FOUND");
+            var foreign = editBody(theirView, "0", assignments(r, 1));
+            foreign.put("timeZone", "Asia/Seoul");
+            expectError(other.send("PUT", assignmentsPath(activeId(theirView)), JSON.writeValueAsString(foreign), token),
+                    404, "ROUTINE_NOT_FOUND");
+        }
+
+        String path = assignmentsPath(activeId(initial));
+        var duplicate = editBody(initial, "0", assignments(r, 1, 1));
+        expectError(browser.send("PUT", path, JSON.writeValueAsString(duplicate), csrf()), 400, "INVALID_REQUEST");
+        assertThat(browser.send("DELETE", "/api/v1/routines/" + r.get("id").asString(),
+                "{\"dataGeneration\":\"0\",\"expectedVersion\":\"0\"}", csrf()).statusCode()).isEqualTo(204);
+        for (String id : List.of(r.get("id").asString(), UUID.randomUUID().toString())) {
+            var invalid = editBody(initial, "0", List.of(Map.of("dayOfWeek", 1, "routineId", id)));
+            invalid.put("timeZone", "Asia/Seoul");
+            expectError(browser.send("PUT", path, JSON.writeValueAsString(invalid), csrf()), 404, "ROUTINE_NOT_FOUND");
+        }
+        assertThat(schedule()).isEqualTo(initial);
+    }
+
     @Test void scheduleWritesRequireCsrfOwnerGenerationAndExpectedVersionAndKeepImmutableHistory() throws Exception {
         var routine=routine(1);var first=schedule(routine,"0",List.of(1,3));schedule(routine,"1",List.of(2,4));
-        assertThat(success(browser.get("/api/v1/weekly-schedule/history?beforeVersion=3")).get("history").size()).isEqualTo(2);
-        var stale=Map.of("contractVersion","immediate-v1","dataGeneration","0","expectedVersion","0","timeZone","Asia/Seoul","assignments",List.of());
-        assertThat(browser.send("PUT","/api/v1/weekly-schedule",JSON.writeValueAsString(stale),csrf()).statusCode()).isEqualTo(409);
-        assertThat(browser.send("PUT","/api/v1/weekly-schedule",JSON.writeValueAsString(stale),null).statusCode()).isEqualTo(403);
+        assertThat(browser.get(SCHEDULE + "/history?beforeVersion=3").statusCode()).isEqualTo(404);
+        var view=schedule();var stale=editBody(view,"0",List.of());String path=assignmentsPath(activeId(view));
+        expectError(browser.send("PUT",path,JSON.writeValueAsString(stale),csrf()),409,"PRESET_VERSION_CONFLICT");
+        assertThat(browser.send("PUT",path,JSON.writeValueAsString(stale),null).statusCode()).isEqualTo(403);
+        stale.put("dataGeneration","1");
+        expectError(browser.send("PUT",path,JSON.writeValueAsString(stale),csrf()),409,"DATA_GENERATION_MISMATCH");
         assertThat(overview(LocalDate.parse(first.get("appliedAt").asString().substring(0,10))).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(2);
-        try(var other=new Browser()) {other.login();assertThat(success(other.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul")).get("assignments").isEmpty()).isTrue();}
+        try(var other=new Browser()) {other.login();assertThat(success(other.get(SCHEDULE)).get("presets").get(0).get("assignments").isEmpty()).isTrue();}
         var unchanged=jdbc.queryForMap("SELECT assignments::text,effective_from FROM weekly_schedule_versions WHERE user_id=? AND version=1",owner);
         assertThat(unchanged.get("assignments").toString()).contains("\"dayOfWeek\": 1");
         assertThatThrownBy(()->jdbc.update("UPDATE weekly_schedule_versions SET assignments='[]' WHERE user_id=?",owner)).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
@@ -320,45 +515,57 @@ class StatisticsIntegrationTests {
     }
     @Test void concurrentScheduleSavesSerializeAndNoopDoesNotCreateAnotherVersion() throws Exception {
         var r=routine(1);schedule(r,"0",List.of(1));String token=csrf();
-        var bodies=List.of(2,3).stream().map(day->JSON.writeValueAsString(Map.of("contractVersion","immediate-v1","dataGeneration","0","expectedVersion","1","timeZone","Asia/Seoul","assignments",List.of(Map.of("dayOfWeek",day,"routineId",r.get("id").asString()))))).toList();
+        var before=schedule();String path=assignmentsPath(activeId(before));
+        var bodies=List.of(2,3).stream().map(day->JSON.writeValueAsString(editBody(before,"1",assignments(r,day)))).toList();
         try(var pool=java.util.concurrent.Executors.newFixedThreadPool(2)){
-            var tasks=bodies.stream().<java.util.concurrent.Callable<Integer>>map(body->()->browser.send("PUT","/api/v1/weekly-schedule",body,token).statusCode()).toList();
+            var tasks=bodies.stream().<java.util.concurrent.Callable<Integer>>map(body->()->browser.send("PUT",path,body,token).statusCode()).toList();
             var statuses=new ArrayList<Integer>();for(var future:pool.invokeAll(tasks))statuses.add(future.get());assertThat(statuses).containsExactlyInAnyOrder(200,409);
         }
-        var current=success(browser.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul"));
-        var body=Map.of("contractVersion","immediate-v1","dataGeneration","0","expectedVersion","2","timeZone","Asia/Seoul","assignments",current.get("assignments"));
-        assertThat(success(browser.send("PUT","/api/v1/weekly-schedule",JSON.writeValueAsString(body),token)).get("version").asString()).isEqualTo("2");
+        var current=schedule();
+        var body=editBody(current,"2",current.get("presets").get(0).get("assignments"));
+        assertThat(success(browser.send("PUT",path,JSON.writeValueAsString(body),token))).isEqualTo(current);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Integer.class,owner)).isEqualTo(2);
     }
     @Test void routineDeletionImmediatelyRemovesAssignmentsWithoutErasingPastPlannedDays() throws Exception {
-        var r=routine(1);var saved=schedule(r,"0",List.of(1,3,5));var monday=LocalDate.parse(saved.get("appliedAt").asString().substring(0,10));
+        var r=routine(1);var other=routine(1);var saved=schedule(r,"0",List.of(1,3,5));
+        var two=createPreset(saved);String second=two.get("presets").get(1).get("id").asString();
+        var view=edit(two,second,"0",List.of(assignments(r,5).getFirst(),assignments(other,6).getFirst()));
+        var monday=LocalDate.parse(saved.get("appliedAt").asString().substring(0,10));
         var wednesday=monday.plusDays(2).atTime(6,0).toInstant(ZoneOffset.UTC);EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),wednesday));
         assertThat(browser.send("DELETE","/api/v1/routines/"+r.get("id").asString(),"{\"dataGeneration\":\"0\",\"expectedVersion\":\"0\"}",csrf()).statusCode()).isEqualTo(204);
         assertThat(overview(monday).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(1);
         assertThat(overview(monday.plusDays(7)).get("statistics").get("plannedWorkoutDays").asInt()).isZero();
-        var after=success(browser.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul"));assertThat(after.get("assignments").isEmpty()).isTrue();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM routine_plan_history WHERE user_id=?",Integer.class,owner)).isEqualTo(2);
+        var after=schedule();
+        assertThat(after.get("presets").get(0).get("assignments").isEmpty()).isTrue();
+        assertThat(after.get("presets").get(1).get("assignments").get(0).get("routineId")).isEqualTo(other.get("id"));
+        assertThat(after.get("presets").get(1).get("assignments").size()).isEqualTo(1);
+        assertThat(after.get("presets")).extracting(p -> p.get("presetVersion").asString()).containsExactly("2", "2");
+        assertThat(after.get("stateVersion")).isEqualTo(view.get("stateVersion"));
+        assertThat(after.get("nextRotationAt")).isEqualTo(view.get("nextRotationAt"));
+        assertThat(after.get("appliedScheduleVersion").asString()).isEqualTo("2");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM routine_plan_history WHERE routine_id=?",Integer.class,
+                UUID.fromString(r.get("id").asString()))).isEqualTo(2);
     }
-    @Test void scheduleHistoryIsPagedAndLatestImmediateVersionRemainsVisibleAfterManyEdits() throws Exception {
+    @Test void latestImmediateVersionRemainsVisibleAndHistorySurvivesManyEdits() throws Exception {
         var r=routine(1);var saved=schedule(r,"0",List.of(1));var monday=LocalDate.parse(saved.get("appliedAt").asString().substring(0,10));
         EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),monday.atTime(6,0).toInstant(ZoneOffset.UTC)));
         for(int version=1;version<=21;version++)schedule(r,Integer.toString(version),List.of(version%2==1?2:1));
-        var current=success(browser.get("/api/v1/weekly-schedule?timeZone=Asia/Seoul"));
-        assertThat(success(browser.get("/api/v1/weekly-schedule/history?beforeVersion=23")).get("history").size()).isEqualTo(20);assertThat(current.get("version").asString()).isEqualTo("22");
-        assertThat(current.has("pending")).isFalse();
-        var page=success(browser.get("/api/v1/weekly-schedule/history?beforeVersion=3"));assertThat(page.get("history").size()).isEqualTo(2);
-        assertThat(page.get("nextBeforeVersion").isNull()).isTrue();
+        assertThat(schedule().get("appliedScheduleVersion").asString()).isEqualTo("22");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?", Integer.class, owner)).isEqualTo(22);
         assertThat(overview(monday).get("statistics").get("plannedWorkoutDays").asInt()).isEqualTo(1);
     }
-    @Test void failedHistoryWriteRollsBackRoutineDeletionAndScheduleReservationTogether() throws Exception {
-        var r=routine(1);schedule(r,"0",List.of(1));UUID id=UUID.fromString(r.get("id").asString());
+    @Test void failedApplicationRollsBackRoutineDeletionAndEveryPresetEdit() throws Exception {
+        var r=routine(1);var two=createPreset(schedule(r,"0",List.of(1)));
+        var prior=edit(two,two.get("presets").get(1).get("id").asString(),"0",assignments(r,5));
+        UUID id=UUID.fromString(r.get("id").asString());
         var before=jdbc.queryForMap("SELECT * FROM routines WHERE id=?",id);var hit=new java.util.concurrent.atomic.AtomicBoolean();
-        WorkoutReadFixtures.observer=event->{if(event.before()&&event.sql().stripLeading().toLowerCase(Locale.ROOT).startsWith("insert into routine_plan_history")){
-            hit.set(true);throw new org.springframework.dao.DataAccessResourceFailureException("isolated planning history failure");
+        WorkoutReadFixtures.observer=event->{if(event.before()&&event.sql().stripLeading().toLowerCase(Locale.ROOT).startsWith("insert into weekly_schedule_versions")){
+            hit.set(true);throw new org.springframework.dao.DataAccessResourceFailureException("isolated schedule history failure");
         }};
         try{assertThat(browser.send("DELETE","/api/v1/routines/"+id,"{\"dataGeneration\":\"0\",\"expectedVersion\":\"0\"}",csrf()).statusCode()).isEqualTo(503);}
         finally{WorkoutReadFixtures.observer=null;}
         assertThat(hit).isTrue();assertThat(jdbc.queryForMap("SELECT * FROM routines WHERE id=?",id)).isEqualTo(before);
+        assertThat(schedule()).isEqualTo(prior);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM routine_plan_history WHERE user_id=?",Integer.class,owner)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Integer.class,owner)).isEqualTo(1);
     }

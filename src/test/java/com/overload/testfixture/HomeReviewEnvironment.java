@@ -109,15 +109,17 @@ public final class HomeReviewEnvironment {
         for(int day : new int[]{1,2,4,6}) assignments.add(Map.of("dayOfWeek",day,"routineId",(day==1?push:day==2?pull:mixed).toString()));
         int todayDay=today.getDayOfWeek().getValue();
         if(assignments.stream().noneMatch(a->a.get("dayOfWeek").equals(todayDay))) assignments.add(Map.of("dayOfWeek",todayDay,"routineId",mixed.toString()));
-        request(client,origin,"/api/v1/weekly-schedule","PUT",Map.of("dataGeneration",generation,"expectedVersion","0","timeZone",ZONE.getId(),"assignments",assignments),200);
+        var initial=request(client,origin,"/api/v1/weekly-schedule","GET",null,200);
+        String schedulePath="/api/v1/weekly-schedule/presets/"+initial.get("activePresetId").asString()+"/assignments";
+        var applied=request(client,origin,schedulePath,"PUT",Map.of("dataGeneration",generation,"expectedStateVersion",initial.get("stateVersion").asString(),"expectedPresetVersion","0","timeZone",ZONE.getId(),"assignments",assignments),200);
         var dates=today.equals(monday)?List.of(monday.minusWeeks(2),monday.minusWeeks(1),monday.minusDays(4)):List.of(monday.minusWeeks(1),monday.minusDays(4),monday);
         for(var date : dates) {
             clock.at(date,18); finishRoutine(client,origin,generation,date.equals(monday.minusDays(4))?pull:push,date,clock);
         }
-        // A real versioned future reservation, preserving the current week's assignments.
+        // Apply a later revision while preserving evidence from the earlier dates.
         clock.at(today,7);
         var pending=new ArrayList<>(assignments);pending.removeIf(a->a.get("dayOfWeek").equals(7));pending.add(Map.of("dayOfWeek",7,"routineId",pull.toString()));
-        request(client,origin,"/api/v1/weekly-schedule","PUT",Map.of("dataGeneration",generation,"expectedVersion","1","timeZone",ZONE.getId(),"assignments",pending),200);
+        request(client,origin,schedulePath,"PUT",Map.of("dataGeneration",generation,"expectedStateVersion",applied.get("stateVersion").asString(),"expectedPresetVersion","1","assignments",pending),200);
         var active=request(client,origin,"/api/v1/workout-sessions/active","GET",null,200);
         if(!active.get("session").isNull())throw new IllegalStateException("Review must start without an active workout");
         var routines=request(client,origin,"/api/v1/routines","GET",null,200);

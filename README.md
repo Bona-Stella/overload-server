@@ -237,8 +237,11 @@ Base URL:
 | GET | `/api/v1/statistics/growth/exercises` | 성장 종목 검색 |
 | GET | `/api/v1/statistics/growth/exercises/{standardId}` | 루틴 배치 선택 |
 | GET | `/api/v1/statistics/growth/exercises/{standardId}/placements/{placementId}` | 승인 중량 이력 |
-| GET / PUT | `/api/v1/weekly-schedule` | 주간 일정 조회·저장 |
-| GET | `/api/v1/weekly-schedule/history` | 일정 이력 |
+| GET | `/api/v1/weekly-schedule` | 주간 프리셋·활성 상태 전체 조회 |
+| POST | `/api/v1/weekly-schedule/presets` | 빈 프리셋 생성 |
+| PUT | `/api/v1/weekly-schedule/presets/{id}/assignments` | 프리셋 요일 배정 수정 |
+| PUT | `/api/v1/weekly-schedule/active` | 프리셋 수동 활성화 |
+| DELETE | `/api/v1/weekly-schedule/presets/{id}` | 비활성 프리셋 삭제 |
 
 요청·응답과 query·인증·CSRF·오류 조건은 [표준 카탈로그](docs/api/standard-exercise-catalog.md), [휴식 설정](docs/api/workout-online-write.md), [루틴](docs/api/routine-management.md), [세션·기록·평가](docs/api/workout-sessions.md), [통계](docs/api/statistics.md), [주간 일정](docs/api/weekly-schedule.md)을 따릅니다. 개인 운동 GET과 구 `/api/v1/statistics`는 제거됐고 개인 운동 POST/PATCH는 보안 차단만 유지합니다. 초기 `/workouts`·통계 volume/frequency/progress/records 예시는 현재 endpoint가 아닙니다.
 

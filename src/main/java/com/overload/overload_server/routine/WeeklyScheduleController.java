@@ -3,31 +3,61 @@ package com.overload.overload_server.routine;
 import com.overload.overload_server.security.SessionPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
-import org.springframework.http.*;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.*;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/api/v1/weekly-schedule")
-@ConditionalOnWebApplication(type=ConditionalOnWebApplication.Type.SERVLET)
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class WeeklyScheduleController {
     private final WeeklyScheduleService service;
-    WeeklyScheduleController(WeeklyScheduleService service){this.service=service;}
-    @GetMapping ResponseEntity<WeeklySchedule.View> read(@AuthenticationPrincipal SessionPrincipal principal,@RequestParam MultiValueMap<String,String> query,HttpServletRequest request) {
-        if(!query.keySet().equals(Set.of("timeZone"))||query.get("timeZone").size()!=1||request.getContentLengthLong()>0||request.getHeader("Transfer-Encoding")!=null)throw RoutineRequests.invalid();
-        return ok(service.read(principal.userId(),WeeklyScheduleRequests.zone(query.getFirst("timeZone"))));
+
+    WeeklyScheduleController(WeeklyScheduleService service) {
+        this.service = service;
     }
-    @PutMapping(consumes="application/json") ResponseEntity<WeeklySchedule.View> save(@AuthenticationPrincipal SessionPrincipal principal,@RequestBody String raw,HttpServletRequest request) {
-        if(request.getQueryString()!=null&&!request.getQueryString().isEmpty())throw RoutineRequests.invalid();
-        return ok(service.save(principal.userId(),WeeklyScheduleRequests.parse(raw)));
+
+    @GetMapping
+    ResponseEntity<WeeklySchedule.View> read(@AuthenticationPrincipal SessionPrincipal principal, HttpServletRequest request) {
+        noQuery(request);
+        if (request.getContentLengthLong() > 0 || request.getHeader("Transfer-Encoding") != null) throw RoutineRequests.invalid();
+        return response(200, service.read(principal.userId()));
     }
-    @GetMapping("/history") ResponseEntity<WeeklySchedule.Page> history(@AuthenticationPrincipal SessionPrincipal principal,@RequestParam MultiValueMap<String,String> query,HttpServletRequest request) {
-        if(!query.keySet().equals(Set.of("beforeVersion"))||query.get("beforeVersion").size()!=1||request.getContentLengthLong()>0||request.getHeader("Transfer-Encoding")!=null)throw RoutineRequests.invalid();
-        String raw=query.getFirst("beforeVersion");if(raw==null||!raw.matches("[1-9][0-9]{0,18}"))throw RoutineRequests.invalid();
-        long before;try{before=Long.parseLong(raw);}catch(NumberFormatException failure){throw RoutineRequests.invalid();}
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.history(principal.userId(),before));
+
+    @PostMapping(path = "/presets", consumes = "application/json")
+    ResponseEntity<WeeklySchedule.View> create(@AuthenticationPrincipal SessionPrincipal principal, @RequestBody String raw,
+                                               HttpServletRequest request) {
+        noQuery(request);
+        return response(201, service.create(principal.userId(), WeeklyScheduleRequests.create(raw)));
     }
-    private static ResponseEntity<WeeklySchedule.View> ok(WeeklySchedule.View body){return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body);}
+
+    @PutMapping(path = "/presets/{id}/assignments", consumes = "application/json")
+    ResponseEntity<WeeklySchedule.View> edit(@AuthenticationPrincipal SessionPrincipal principal, @PathVariable String id,
+                                             @RequestBody String raw, HttpServletRequest request) {
+        noQuery(request);
+        return response(200, service.edit(principal.userId(), RoutineRequests.uuid(id), WeeklyScheduleRequests.edit(raw)));
+    }
+
+    @PutMapping(path = "/active", consumes = "application/json")
+    ResponseEntity<WeeklySchedule.View> activate(@AuthenticationPrincipal SessionPrincipal principal, @RequestBody String raw,
+                                                 HttpServletRequest request) {
+        noQuery(request);
+        return response(200, service.activate(principal.userId(), WeeklyScheduleRequests.activate(raw)));
+    }
+
+    @DeleteMapping(path = "/presets/{id}", consumes = "application/json")
+    ResponseEntity<WeeklySchedule.View> delete(@AuthenticationPrincipal SessionPrincipal principal, @PathVariable String id,
+                                               @RequestBody String raw, HttpServletRequest request) {
+        noQuery(request);
+        return response(200, service.delete(principal.userId(), RoutineRequests.uuid(id), WeeklyScheduleRequests.delete(raw)));
+    }
+
+    private static void noQuery(HttpServletRequest request) {
+        if (request.getQueryString() != null) throw RoutineRequests.invalid();
+    }
+
+    private static ResponseEntity<WeeklySchedule.View> response(int status, WeeklySchedule.View body) {
+        return ResponseEntity.status(status).cacheControl(CacheControl.noStore()).body(body);
+    }
 }

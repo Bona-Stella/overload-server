@@ -122,7 +122,7 @@ class DeloadAnalysisIntegrationTests {
         assertThatThrownBy(()->service.adoptExisting(legacy(),0,Instant.parse("9999-01-01T00:00:00Z"))).hasMessage("INVALID_REQUEST");
     }
     @Test void adoptedScheduleTimeZoneIsReusedWithoutChangingSchedule()throws Exception {
-        node(browser.send("PUT","/api/v1/weekly-schedule","{\"contractVersion\":\"immediate-v1\",\"dataGeneration\":\"0\",\"expectedVersion\":\"0\",\"timeZone\":\"Asia/Seoul\",\"assignments\":[]}",browser.csrf()));
+        node(browser.send("PUT",schedulePath(),"{\"dataGeneration\":\"0\",\"expectedStateVersion\":\"0\",\"expectedPresetVersion\":\"0\",\"timeZone\":\"Asia/Seoul\",\"assignments\":[]}",browser.csrf()));
         var before=jdbc.queryForList("SELECT * FROM weekly_schedule_versions WHERE user_id=?",owner);
         jdbc.update("DELETE FROM deload_analysis_versions WHERE user_id=?",owner);
         assertThat(service.adoptExisting(owner,0,jdbc.queryForObject("SELECT clock_timestamp()",java.sql.Timestamp.class).toInstant())).isTrue();
@@ -136,8 +136,11 @@ class DeloadAnalysisIntegrationTests {
         } finally {go.countDown();}
         assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions WHERE user_id=?",Long.class,id)).isEqualTo(1);
     }
+    String schedulePath() {
+        return "/api/v1/weekly-schedule/presets/"+jdbc.queryForObject("SELECT active_preset_id FROM weekly_schedule_state WHERE user_id=?",UUID.class,owner)+"/assignments";
+    }
     @Test void scheduleFailureRollsBackTimeZoneBinding()throws Exception {
-        var failed=browser.send("PUT","/api/v1/weekly-schedule",JSON.writeValueAsString(Map.of("contractVersion","immediate-v1","dataGeneration","0","expectedVersion","0","timeZone","Asia/Seoul","assignments",List.of(Map.of("dayOfWeek",1,"routineId",UUID.randomUUID())))),browser.csrf());
+        var failed=browser.send("PUT",schedulePath(),JSON.writeValueAsString(Map.of("dataGeneration","0","expectedStateVersion","0","expectedPresetVersion","0","timeZone","Asia/Seoul","assignments",List.of(Map.of("dayOfWeek",1,"routineId",UUID.randomUUID())))),browser.csrf());
         assertThat(failed.statusCode()).isEqualTo(404);assertThat(count()).isEqualTo(1);assertThat(repository().current(owner,0).timeZone()).isNull();
     }
     @Test void databaseConstraintsRejectInvalidEpochsHistoryAndWeeklyValues()throws Exception {

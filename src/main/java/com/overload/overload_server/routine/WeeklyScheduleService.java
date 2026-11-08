@@ -1,66 +1,183 @@
 package com.overload.overload_server.routine;
 
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import com.overload.overload_server.deload.DeloadAnalysisService;
-import org.springframework.transaction.annotation.*;
-import tools.jackson.databind.json.JsonMapper;
-import java.time.*;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.*;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+
 import static com.overload.overload_server.routine.RoutineFailure.Reason.*;
+import static com.overload.overload_server.routine.WeeklyScheduleStore.*;
 
 @Service
-@Transactional(transactionManager="workoutTransactionManager")
+@Transactional(transactionManager = "workoutTransactionManager", isolation = Isolation.READ_COMMITTED)
 public class WeeklyScheduleService {
-    private final com.overload.overload_server.deload.DeloadPeriods periods;
-    private static final JsonMapper JSON=JsonMapper.builder().build();
-    private final JdbcTemplate jdbc;private final RoutineService routines;private final RoutinePlanHistory plans;
-    private final WorkoutCalendarRepository calendars;private final Clock clock;private final DeloadAnalysisService analysis;
-    WeeklyScheduleService(JdbcTemplate jdbc,RoutineService routines,RoutinePlanHistory plans,WorkoutCalendarRepository calendars,ObjectProvider<Clock> clocks,DeloadAnalysisService analysis,com.overload.overload_server.deload.DeloadPeriods periods) {
-        this.periods=periods;this.jdbc=jdbc;this.routines=routines;this.plans=plans;this.calendars=calendars;this.analysis=analysis;clock=clocks.getIfAvailable(Clock::systemUTC);
+    private static final int MAX_PRESETS = 4;
+    private final WeeklyScheduleStore store;
+    private final RoutineRepository routines;
+    private final RoutinePlanHistory plans;
+    private final AppliedWeeklySchedule applied;
+    private final Clock clock;
+
+    WeeklyScheduleService(WeeklyScheduleStore store, RoutineRepository routines, RoutinePlanHistory plans,
+                          AppliedWeeklySchedule applied, ObjectProvider<Clock> clocks) {
+        this.store = store;
+        this.routines = routines;
+        this.plans = plans;
+        this.applied = applied;
+        this.clock = clocks.getIfAvailable(Clock::systemUTC);
     }
-    @Transactional(transactionManager="workoutTransactionManager",readOnly=true,isolation=Isolation.REPEATABLE_READ)
-    WeeklySchedule.View read(UUID owner,String zone) {return view(owner,generation(owner,false),zone);}
-    @Transactional(transactionManager="workoutTransactionManager",isolation=Isolation.READ_COMMITTED)
-    WeeklySchedule.View save(UUID owner,WeeklySchedule.Save request) {
-        long generation=generation(owner,true);if(generation!=request.generation())throw new RoutineFailure(DATA_GENERATION_MISMATCH);
-        if(periods.generalWriteBlocked(owner,generation))throw new RoutineFailure(DELOAD_ACTIVE_PERIOD);
-        var current=view(owner,generation,request.timeZone());long version=Long.parseLong(current.version());
-        if(version!=request.expectedVersion())throw new RoutineFailure(SCHEDULE_VERSION_CONFLICT);
-        if(version!=0&&!current.timeZone().equals(request.timeZone()))throw new RoutineFailure(SCHEDULE_TIME_ZONE_CONFLICT);
-        if(version!=0&&current.assignments().equals(request.assignments()))return current;
-        plans.requireEditableSchedule(owner,generation);
-        if(version==Long.MAX_VALUE)throw new RoutineFailure(WRITE_CONFLICT);
-        var now=clock.instant().truncatedTo(ChronoUnit.MICROS);
-        calendars.requireOpenTime(owner,generation,now);
-        if(current.appliedAt()!=null&&now.isBefore(current.appliedAt()))throw new RoutineFailure(WRITE_CONFLICT);
-        analysis.bindForSchedule(owner,generation,request.timeZone());
-        for(UUID id:request.assignments().stream().map(WeeklySchedule.Assignment::routineId).distinct().sorted().toList())
-            plans.record(routines.detail(owner,id,false),now,false);
-        jdbc.update("INSERT INTO weekly_schedule_versions(user_id,data_generation,version,recorded_at,effective_from,time_zone,assignments) VALUES (?,?,?,?,?,?,?::jsonb)",
-                owner,generation,version+1,java.sql.Timestamp.from(now),now.atZone(ZoneId.of(request.timeZone())).toLocalDate(),request.timeZone(),JSON.writeValueAsString(request.assignments()));
-        if(version==0)calendars.register(owner,generation,request.timeZone(),1,now);
-        return view(owner,generation,request.timeZone());
+
+    @Transactional(transactionManager = "workoutTransactionManager", readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    WeeklySchedule.View read(UUID owner) {
+        return view(new Scope(owner, routines.generation(owner, false)));
     }
-    private long generation(UUID owner,boolean lock) {
-        var rows=jdbc.query("SELECT data_generation FROM users WHERE id=?"+(lock?" FOR UPDATE":""),(r,i)->r.getLong(1),owner);
-        if(rows.isEmpty())throw new RoutineFailure(AUTHENTICATION_REQUIRED);return rows.getFirst();
+
+    WeeklySchedule.View create(UUID owner, WeeklySchedule.Configuration request) {
+        var scope = lock(owner, request);
+        var state = checkedState(scope, request);
+        if (state.autoEnabled()) throw new RoutineFailure(AUTO_ROTATION_ENABLED);
+        int count = store.presets(scope).size();
+        if (count >= MAX_PRESETS) throw new RoutineFailure(PRESET_LIMIT_REACHED);
+        store.create(scope, count + 1);
+        store.changeState(scope, state.activePresetId());
+        return view(scope);
     }
-    @Transactional(transactionManager="workoutTransactionManager",readOnly=true,isolation=Isolation.REPEATABLE_READ)
-    WeeklySchedule.Page history(UUID owner,long before) {
-        long generation=generation(owner,false);var c=calendars.control(owner,generation);
-        var rows=jdbc.query("SELECT version,effective_from,time_zone,recorded_at,assignments::text FROM weekly_schedule_versions WHERE user_id=? AND data_generation=? AND version<? ORDER BY version DESC LIMIT 21",
-                (r,i)->new WeeklySchedule.HistoryVersion(r.getString(1),r.getObject(2,LocalDate.class),r.getString(3),r.getTimestamp(4).toInstant(),
-                    c.isPresent()&&r.getLong(1)>=c.get().baselineVersion()?r.getTimestamp(4).toInstant():null,List.of(JSON.readValue(r.getString(5),WeeklySchedule.Assignment[].class))),owner,generation,before);
-        var page=rows.stream().limit(20).toList();return new WeeklySchedule.Page(owner,Long.toString(generation),page,rows.size()>20?page.getLast().version():null);
+
+    WeeklySchedule.View edit(UUID owner, UUID id, WeeklySchedule.Edit request) {
+        var scope = lock(owner, request.configuration());
+        var state = checkedState(scope, request.configuration());
+        var preset = preset(store.presets(scope), id);
+        checkVersion(preset, request.expectedPresetVersion());
+        boolean changed = !preset.assignments().equals(request.assignments());
+
+        if (id.equals(state.activePresetId())) {
+            var current = applied.current(scope);
+            String zone = timeZone(scope, current, request.timeZone());
+            if (changed) store.edit(scope, id, request.assignments());
+            if (current.isEmpty() || !current.get().assignments().equals(request.assignments())) {
+                applied.apply(scope, current, zone, request.assignments(), now());
+                if (current.isEmpty()) store.changeState(scope, id);
+            }
+        } else if (changed) {
+            for (UUID routineId : request.assignments().stream().map(WeeklySchedule.Assignment::routineId).distinct().toList()) {
+                if (routines.find(owner, scope.generation(), routineId, false).deletedAt != null)
+                    throw new RoutineFailure(ROUTINE_NOT_FOUND);
+            }
+            store.edit(scope, id, request.assignments());
+        }
+        return view(scope);
     }
-    private WeeklySchedule.View view(UUID owner,long generation,String zone) {
-        var c=calendars.control(owner,generation);
-        if(c.isEmpty())return new WeeklySchedule.View(owner,Long.toString(generation),"0",zone,null,List.of());
-        var rows=jdbc.query("SELECT version,recorded_at,assignments::text FROM weekly_schedule_versions WHERE user_id=? AND data_generation=? AND version>=? ORDER BY version DESC LIMIT 1",
-                (r,i)->new WeeklySchedule.View(owner,Long.toString(generation),r.getString(1),c.get().timeZone(),r.getTimestamp(2).toInstant(),List.of(JSON.readValue(r.getString(3),WeeklySchedule.Assignment[].class))),owner,generation,c.get().baselineVersion());
-        return rows.getFirst();
+
+    WeeklySchedule.View activate(UUID owner, WeeklySchedule.Activate request) {
+        var scope = lock(owner, request.configuration());
+        var state = checkedState(scope, request.configuration());
+        if (state.autoEnabled()) throw new RoutineFailure(AUTO_ROTATION_ENABLED);
+        var target = preset(store.presets(scope), request.presetId());
+        var current = applied.current(scope);
+        String zone = timeZone(scope, current, request.timeZone());
+        boolean switching = !target.id().equals(state.activePresetId());
+        if (current.isEmpty() || !current.get().assignments().equals(target.assignments())) {
+            applied.apply(scope, current, zone, target.assignments(), now());
+        } else if (switching) {
+            plans.requireEditableSchedule(owner, scope.generation());
+        }
+        if (switching || current.isEmpty()) store.changeState(scope, target.id());
+        return view(scope);
+    }
+
+    WeeklySchedule.View delete(UUID owner, UUID id, WeeklySchedule.Delete request) {
+        var scope = lock(owner, request.configuration());
+        var state = checkedState(scope, request.configuration());
+        var presets = store.presets(scope);
+        var target = preset(presets, id);
+        checkVersion(target, request.expectedPresetVersion());
+        if (presets.size() == 1) throw new RoutineFailure(LAST_PRESET);
+        if (id.equals(state.activePresetId())) throw new RoutineFailure(ACTIVE_PRESET);
+        // ON deletions require stage 3's atomic restart of the rotation configuration.
+        if (state.autoEnabled()) {
+            long remaining = presets.stream().filter(p -> !p.id().equals(id) && p.rotationIncluded()).count();
+            if (remaining < 2) throw new RoutineFailure(ROTATION_REQUIRES_TWO_PRESETS);
+            throw new RoutineFailure(AUTO_ROTATION_ENABLED);
+        }
+        store.delete(scope, target);
+        store.changeState(scope, state.activePresetId());
+        return view(scope);
+    }
+
+    /** Called after logical routine deletion under the same owner lock and workout transaction. */
+    void removeRoutine(UUID owner, long generation, UUID routineId, Instant at) {
+        var scope = new Scope(owner, generation);
+        var state = store.state(scope);
+        if (state.isEmpty()) {
+            if (applied.current(scope).stream().flatMap(version -> version.assignments().stream())
+                    .anyMatch(assignment -> assignment.routineId().equals(routineId)))
+                throw new RoutineFailure(PRESET_STATE_MISSING);
+            return;
+        }
+        List<WeeklySchedule.Assignment> activeAssignments = null;
+        for (var preset : store.presets(scope)) {
+            var assignments = preset.assignments().stream().filter(a -> !a.routineId().equals(routineId)).toList();
+            if (assignments.size() == preset.assignments().size()) continue;
+            store.edit(scope, preset.id(), assignments);
+            if (preset.id().equals(state.get().activePresetId())) activeAssignments = assignments;
+        }
+        if (activeAssignments != null) {
+            var current = applied.current(scope);
+            applied.apply(scope, current, applied.timeZone(scope, current), activeAssignments, at);
+        }
+    }
+
+    private Scope lock(UUID owner, WeeklySchedule.Configuration request) {
+        long generation = routines.lockOwnerForScheduleChange(owner);
+        if (generation != request.generation()) throw new RoutineFailure(DATA_GENERATION_MISMATCH);
+        routines.requireGeneralWrite(owner, generation);
+        return new Scope(owner, generation);
+    }
+
+    private State state(Scope scope) {
+        return store.state(scope).orElseThrow(() -> new RoutineFailure(PRESET_STATE_MISSING));
+    }
+
+    private State checkedState(Scope scope, WeeklySchedule.Configuration request) {
+        var state = state(scope);
+        if (state.version() != request.expectedStateVersion()) throw new RoutineFailure(SCHEDULE_STATE_VERSION_CONFLICT);
+        return state;
+    }
+
+    private static WeeklySchedule.Preset preset(List<WeeklySchedule.Preset> presets, UUID id) {
+        return presets.stream().filter(value -> value.id().equals(id)).findFirst()
+                .orElseThrow(() -> new RoutineFailure(PRESET_NOT_FOUND));
+    }
+
+    private static void checkVersion(WeeklySchedule.Preset preset, long expected) {
+        if (Long.parseLong(preset.presetVersion()) != expected) throw new RoutineFailure(PRESET_VERSION_CONFLICT);
+    }
+
+    private String timeZone(Scope scope, Optional<WeeklySchedule.Version> current, String requested) {
+        String bound = applied.timeZone(scope, current);
+        if (bound != null && requested != null && !Objects.equals(bound, requested))
+            throw new RoutineFailure(SCHEDULE_TIME_ZONE_CONFLICT);
+        return bound == null ? requested : bound;
+    }
+
+    private WeeklySchedule.View view(Scope scope) {
+        var state = state(scope);
+        var current = applied.current(scope);
+        return new WeeklySchedule.View(Long.toString(scope.generation()), Long.toString(state.version()), state.activePresetId(),
+                state.autoEnabled(), applied.timeZone(scope, current), state.nextRotationAt(),
+                current.map(WeeklySchedule.Version::version).orElse(null),
+                current.map(WeeklySchedule.Version::recordedAt).orElse(null), store.presets(scope));
+    }
+
+    private Instant now() {
+        return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
 }

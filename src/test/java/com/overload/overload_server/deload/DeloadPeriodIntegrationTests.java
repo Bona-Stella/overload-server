@@ -121,8 +121,17 @@ class DeloadPeriodIntegrationTests {
         UUID id=UUID.randomUUID();var w=new RoutineRequests.Weight(RoutineRequests.Mode.NEW,UUID.randomUUID(),standard,null,"PLATE",3,6,10,new BigDecimal("60"));
         app.getBean(RoutineService.class).create(owner,new RoutineRequests.Create(id,0,"immutable source",List.of(w),List.of()));return id;
     }
+    void assertScheduleProtected(java.net.http.HttpResponse<String> response) {
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(409);
+        assertThat(JSON.readTree(response.body()).get("code").asString()).isEqualTo("DELOAD_ACTIVE_PERIOD");
+    }
+
+    String schedulePath() {
+        return "/api/v1/weekly-schedule/presets/"+jdbc.queryForObject("SELECT active_preset_id FROM weekly_schedule_state WHERE user_id=?",UUID.class,owner)+"/assignments";
+    }
     void schedule(UUID id,int... days) {
         var assignments=new ArrayList<WeeklySchedule.Assignment>();for(int d:days)assignments.add(new WeeklySchedule.Assignment(d,id));
+        jdbc.update("UPDATE weekly_schedule_presets SET assignments=?::jsonb, preset_version=1 WHERE user_id=? AND data_generation=0",JSON.writeValueAsString(assignments),owner);
         jdbc.update("INSERT INTO weekly_schedule_versions(user_id,data_generation,version,recorded_at,effective_from,time_zone,assignments) VALUES (?,0,1,?,?,'Asia/Seoul',?::jsonb)",owner,Timestamp.from(EmailOtpFixtures.CLOCK.instant()),monday,JSON.writeValueAsString(assignments));
         jdbc.update("INSERT INTO workout_calendar_control(user_id,data_generation,time_zone,baseline_version,review_from_date,reviewed_through) VALUES (?,0,'Asia/Seoul',1,?,?)",owner,monday,monday.minusDays(1));
     }
@@ -203,7 +212,18 @@ class DeloadPeriodIntegrationTests {
         weight(2,1,1);UUID id=planRoutine();schedule(id,1);start(rest());var before=originals();
         var update=Map.of("dataGeneration","0","expectedVersion","0");
         var rejected=browser.send("DELETE","/api/v1/routines/"+id,JSON.writeValueAsString(update),browser.csrf());assertThat(rejected.statusCode()).as(rejected.body()).isEqualTo(409);assertThat(JSON.readTree(rejected.body()).get("code").asString()).isEqualTo("DELOAD_ACTIVE_PERIOD");
-        var schedule=browser.send("PUT","/api/v1/weekly-schedule",JSON.writeValueAsString(Map.of("dataGeneration","0","expectedVersion","1","timeZone","Asia/Seoul","assignments",List.of())),browser.csrf());assertThat(schedule.statusCode()).as(schedule.body()).isEqualTo(409);
+        String token=browser.csrf();
+        var schedule=browser.send("PUT",schedulePath(),JSON.writeValueAsString(Map.of("dataGeneration","0","expectedStateVersion","0","expectedPresetVersion","1","timeZone","Asia/Seoul","assignments",List.of())),token);
+        assertScheduleProtected(schedule);
+        var view=JSON.readTree(browser.get("/api/v1/weekly-schedule").body());
+        String activeId=view.get("activePresetId").asString();
+        var config=Map.of("dataGeneration","0","expectedStateVersion","0");
+        assertScheduleProtected(browser.send("POST","/api/v1/weekly-schedule/presets",JSON.writeValueAsString(config),token));
+        assertScheduleProtected(browser.send("PUT","/api/v1/weekly-schedule/active",
+                JSON.writeValueAsString(Map.of("dataGeneration","0","expectedStateVersion","0","presetId",activeId)),token));
+        assertScheduleProtected(browser.send("DELETE","/api/v1/weekly-schedule/presets/"+activeId,
+                JSON.writeValueAsString(Map.of("dataGeneration","0","expectedStateVersion","0","expectedPresetVersion","1")),token));
+        assertThat(JSON.readTree(browser.get("/api/v1/weekly-schedule").body())).isEqualTo(view);
         var start=browser.send("POST","/api/v1/workout-sessions",JSON.writeValueAsString(Map.of("id",UUID.randomUUID(),"dataGeneration","0","routineId",id,"editorDeviceId",UUID.randomUUID(),"startedAt","2026-11-08T03:00:00Z","workoutDate","2026-11-08","startedTimeZone","Asia/Seoul")),browser.csrf());assertThat(start.statusCode()).as(start.body()).isEqualTo(409);
         assertThat(browser.get("/api/v1/routines/"+id).statusCode()).isEqualTo(200);assertThat(originals()).isEqualTo(before);
         var state=app.getBean(DeloadAnalysisRepository.class).current(owner,0);app.getBean(DeloadAnalysisRepository.class).append(owner,0,state.change(false,"Asia/Seoul",EmailOtpFixtures.CLOCK.instant()));assertThat(service().current(owner).period().status()).isEqualTo("ACTIVE");
@@ -258,9 +278,9 @@ class DeloadPeriodIntegrationTests {
     }
     @Test void scheduleWriteAndPeriodStartCannotCommitInconsistentSources()throws Exception {
         weight(2,1,1);schedule(planRoutine(),1);var p=request(preview(rest()));String token=browser.csrf();var gate=new CountDownLatch(1);
-        var body=JSON.writeValueAsString(Map.of("dataGeneration","0","expectedVersion","1","timeZone","Asia/Seoul","assignments",List.of()));
+        var body=JSON.writeValueAsString(Map.of("dataGeneration","0","expectedStateVersion","0","expectedPresetVersion","1","timeZone","Asia/Seoul","assignments",List.of()));
         try(var pool=Executors.newFixedThreadPool(2)) {
-            var change=pool.submit(()->{gate.await();return browser.send("PUT","/api/v1/weekly-schedule",body,token);});var period=pool.submit(()->{gate.await();try{service().start(owner,p);return true;}catch(DeloadPeriodFailure failure){assertThat(failure.code).isEqualTo("DELOAD_PREVIEW_STALE");return false;}});gate.countDown();
+            var change=pool.submit(()->{gate.await();return browser.send("PUT",schedulePath(),body,token);});var period=pool.submit(()->{gate.await();try{service().start(owner,p);return true;}catch(DeloadPeriodFailure failure){assertThat(failure.code).isEqualTo("DELOAD_PREVIEW_STALE");return false;}});gate.countDown();
             var c=change.get(15,TimeUnit.SECONDS);boolean created=period.get(15,TimeUnit.SECONDS);assertThat(c.statusCode()).as(c.body()).isIn(200,409);assertThat(c.statusCode()==200).isNotEqualTo(created);
         }
     }

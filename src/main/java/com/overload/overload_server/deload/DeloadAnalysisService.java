@@ -43,6 +43,10 @@ public class DeloadAnalysisService {
         var current=repository.current(owner,generation);
         bind(owner,generation,current,zone);
     }
+    public String boundTimeZone(UUID owner, long generation) {
+        return repository.find(owner, generation).map(DeloadAnalysisState::timeZone).orElse(null);
+    }
+
     private void bind(UUID owner,long generation,DeloadAnalysisState current,String zone) {
         DeloadAnalysisRequests.zone(zone);
         var next=current.change(current.enabled(),zone,repository.now());
