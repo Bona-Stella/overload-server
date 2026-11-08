@@ -74,7 +74,7 @@ DailyTrainingReviewJob 하나가 기본60초 간격으로 저장 시간대의 du
 
 실제 사실이 없는 휴식일은 새 일별 행 없이 cursor만 전진한다. 보류 날짜는 dirty/재시도 시각을 남겨 cursor가 넘어가도 잃지 않는다. 미확정 retry는10분 후, 원본이 변경되면 즉시 다시 대상이 된다.
 
-신규 START는 같은 트랜잭션에서 해당 날짜를 재검사 대상으로 깨우며 실제 수행으로 집계하지 않는다. 이미 검사한 날짜의 늦은 START도 ACTIVE 판정으로 보류한다. 종료/AUTO_CLOSED/논리 삭제 및 수행 INSERT·실질 UPDATE의 전용 DB trigger가 같은 트랜잭션에서 날짜를 dirty로 만든다. GET·동일 START/snapshot/FINISH ACK·변화 없는 쓰기는 dirty를 늘리지 않는다. 실패하면 원본과 dirty/cursor도 함께 롤백한다. 실제 수행이 있어도 일반 계획 A를 다른 루틴 B로 달성한 것으로 계산하지 않는다. 디로딩 날짜 E/N·누적·설정/기간은 G4~G5 미구현이다.
+신규 일반 START는 같은 트랜잭션에서 해당 날짜를 재검사 대상으로 깨우며 실제 수행으로 집계하지 않는다. 이미 검사한 날짜의 늦은 START도 ACTIVE 판정으로 보류한다. 종료/AUTO_CLOSED/논리 삭제 및 수행 INSERT·실질 UPDATE의 전용 DB trigger가 같은 트랜잭션에서 날짜를 dirty로 만든다. GET·동일 START/snapshot/FINISH ACK·변화 없는 쓰기는 dirty를 늘리지 않는다. 실패하면 원본과 dirty/cursor도 함께 롤백한다. 실제 수행이 있어도 일반 계획 A를 다른 루틴 B로 달성한 것으로 계산하지 않는다. G4 분석과 G5 기간은 별도 계약을 사용하고, 디로딩 소속 사실과 기간의 보호 날짜를 일반 미수행 판정에 사용하지 않는다. [분석 API](deload-analysis.md) · [기간 API](deload-periods.md)
 
 ## 적용 전 제한
 

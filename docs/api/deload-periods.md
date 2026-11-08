@@ -53,7 +53,7 @@ token은 서버 원본·자격 revision·오늘·정규화 선택·편성 규칙
 
 시작은 사용자 FOR UPDATE로 일반 START·일정/원본 쓰기와 직렬화한다. 배정 원본/표준 분류는 공유 잠금으로 검증한다. requestId는 사용자/세대 내 유일하고 같은 ID+같은 요청은 기존 기간을 반환하며 새 기간을 만들지 않는다. G5-2 계획 변경이 적용된 뒤라면 같은 기간의 현재 표현을 반환한다. 다른 요청 내용의 재사용은 충돌이다. ACTIVE 유일 인덱스가 최종 중복을 차단한다. 자격·출처를 재확인한 뒤 기간과 모든 자식 계획을 한 트랜잭션에서 저장하며 일부 생성 실패는 전체 rollback한다.
 
-period에는 id/userId/dataGeneration/version/status/startedAt/startDate/timeZone/recommendedEndDate/maximumEndDate/method/split/sourceHash/source/plans가 있다. version은 십진 문자열이며 최초0이다. plans는 id/position/plan을 제공한다. 권장 종료일=start+6, 최대 종료일=start+9이지만 이 단계에서 자동 종료하지 않는다. 원본 routine/assignments/승인 중량을 수정하지 않으며, 원본 JSON·소속·요청·시작 경계는 DB UPDATE trigger로 보존한다.
+period에는 id/userId/dataGeneration/version/status/startedAt/startDate/timeZone/recommendedEndDate/maximumEndDate/method/split/sourceHash/source/plans가 있다. version은 십진 문자열이며 최초0이다. 권장 종료일=start+6, 최대 종료일=start+9다. 자동 종료는 아래 G5-3 전이를 따른다. 원본 routine/assignments/승인 중량을 수정하지 않으며, 원본 JSON·소속·요청·시작 경계는 DB UPDATE trigger로 보존한다.
 
 ## 자동 편성 경계
 
@@ -79,7 +79,7 @@ G3는 기간 날짜에 새 MISS를 만들거나 기존 최초 MISS를 수정하�
 
 ## 임시 계획 관리 — G5-2
 
-`GET /current`와 변경 성공 응답의 `period`에는 `currentMethod`, `currentSplit`, `hasActivity`가 추가된다. `method`/`split`과 `source`는 최초 출처다. `plans`는 살아 있는 계획이며 각 원소는 `id`, `position`, `plan`(해당 계획이 생성될 때의 불변 편성), `version`, `plannedDate`, `current`(현재 label/weights/cardio)를 담는다. 삭제된 계획은 응답에서 제외하지만 출처와 기존 세션 참조는 보존한다. `hasActivity`는 기간에 소속된 세션의 첫 수행 표식이 하나라도 있음을 뜻한다. 논리 삭제된 세션도 이 증거를 유지한다.
+`period`의 `currentMethod`와 `currentSplit`은 현재 방식이며 `method`/`split`과 `source`는 최초 출처다. ACTIVE의 `plans`는 살아 있는 계획만 담는다. 각 원소는 `id`, `position`, `plan`(생성 당시 불변 편성), `version`, `plannedDate`, `current`(현재 label/weights/cardio), `deletedAt`을 제공한다. 종료된 기간의 응답에는 논리 삭제된 계획도 포함한다. `hasActivity`는 소속 세션에 첫 수행 표식이 하나라도 있음을 뜻하며 논리 삭제 후에도 유지된다.
 
 | Method/상대 경로 (`/api/v1/deload-periods`) | 추가 입력 및 결과 |
 |---|---|
@@ -122,6 +122,6 @@ V27 기간·임시 계획·소속 FK 위에 V28이 가변 `current_plan`, 논리
 
 성공은 current와 같은 형식으로 해당 기간을 반환한다. 상세의 `closedAt`, `closedDate`, `endReason`, `processedAt`은 ACTIVE에서 null이다. 이전 스키마에서 이미 종료된 기간은 근거 없는 종료 사유를 채우지 않는다. 종료된 상세는 삭제한 임시 계획의 `deletedAt`과 원본도 제공한다. 종료 상태에서는 임시 계획의 편집 및 새 디로딩 START가 차단된다. 기존 세션의 고정 FINISH ACK와 명시적 기록 복구는 기존 세션 계약으로 처리된다.
 
-사용자 잠금 아래에서 세대, 기간 버전, 세션 상태, 영속 수행을 검증한다. 성공한 `requestId`와 동일한 명령 및 버전은 재실행 없이 같은 기간을 반환한다. 동일 ID의 다른 종료 명령·버전·기간은 `DELOAD_REQUEST_CONFLICT`다. 자동 작업이 먼저 완료했으면 직전 버전의 직접 완료 요청은 해당 자동 완료를 확인할 수 있다. 직접 완료와 작업의 경쟁에서도 종료 및 분석 경계는 각각 최대 한 번 기록된다.
+사용자 잠금 아래에서 세대, 기간 버전, 세션 상태, 영속 수행을 검증한다. 성공한 `requestId`와 동일한 명령 및 버전은 재실행 없이 같은 기간의 현재 표현을 반환한다. 동일 ID의 다른 종료 명령·버전·기간은 `DELOAD_REQUEST_CONFLICT`다. 자동 작업이 먼저 완료했으면 직전 버전의 직접 완료 요청은 해당 자동 완료를 확인할 수 있다. 직접 완료와 작업의 경쟁에서도 종료 및 분석 경계는 각각 최대 한 번 기록된다.
 
 추가 오류는 `ACTIVE_SESSION_EXISTS`, `DELOAD_ACTIVITY_RECORDED`, `DELOAD_SESSION_ABANDON_REQUIRED`, `DELOAD_PERIOD_VERSION_CONFLICT`, `DELOAD_PERIOD_NOT_ACTIVE`다. 종료, 영향 주간 재검사 표시, 필요한 새 epoch 생성은 원자적이다. [분석 재개 계약](deload-analysis.md#g5-3-완료와-취소-후-분석-재개)이 누적과 날짜 범위를 정의한다.

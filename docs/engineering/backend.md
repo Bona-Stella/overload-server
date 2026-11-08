@@ -892,11 +892,13 @@ Authorized Data Access
 - IndexedDB는 이미 시작한 운동의 로컬 복원용입니다. 새 운동의 오프라인 시작·자동 병합·Redis·주기적 heartbeat는 도입하지 않습니다.
 - V1~V9 이력은 수정하지 않습니다. 정식 V10은 폐기 컬럼·테이블만 제거합니다. 2026-10-31 사용자 승인으로 개인 로컬 `127.0.0.1:5433/overload_dev`의 V8→V9→V10 적용·기존 데이터 보존 검증을 완료했습니다. [실제 적용 보고서](../tasks/task-009-v10-local-application-report.md)를 확인하고, 다른 DB·후속 파괴적 migration에는 별도 승인을 받습니다.
 
-### 12.4 UI v0.9와 디로딩 v1.7 연동 · 구현 예정
+### 12.4 UI v0.9와 디로딩 v1.7 연동
 
 제품 정책은 [디로딩 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md), 화면 전환과 데이터 요구는 [UI 결정 로그 v0.9](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md)의 현행 규칙 및 [PWA 백엔드 연동 설계](../../../overload-pwa/docs/engineering/backend-ui-v0.9.md)를 따릅니다. v1.7의 최신 본문·15절·2026-11-07 정정 이력을 적용하고 v1.6은 역사 자료로 보존합니다.
 
 **구현 상태.** [루틴](../api/routine-management.md)·[주간 일정과 이력](../api/weekly-schedule.md), [세션과 종료 후 정정·삭제·복구](../api/workout-sessions.md), [통계 overview](../api/statistics.md)·[승인 중량 성장](../api/approved-weight-growth.md), [휴식 설정](../api/workout-online-write.md)은 현행 계약입니다. V18 카탈로그 분류 구조, V21 유산소 실제 측정, V22 맨몸 추가 부하를 재사용할 수 있습니다. [G4-1 분석 설정/epoch API](../api/deload-analysis.md)·신규 가입 초기ON·V25 스키마는 구현했습니다. [G4-2 공통 InitialPlan 판정/정확분수](../tasks/deload-g4-2-report.md)는 구현했습니다. [G4-3 독립 후보/E/N](../tasks/deload-g4-3-report.md)은 내부 계산으로 구현했습니다. [G4-4 주간 확정/RESET·ADD·내부 누적](../tasks/deload-g4-4-report.md)을 구현했고 기존 G3 tick 뒤에 실행합니다. [G4-5 과거 정정 재계산](../tasks/deload-g4-5-report.md)과 승인된 V26 EXCLUDED 저장/fold를 구현했습니다. 기존 owner/CAS·4주 단위 순차 처리와 G3 invalidation을 재사용하며 원본·hard epoch를 보존합니다. [G4-6 읽기 전용 조회](../tasks/deload-g4-6-report.md)를 연결했고 정확분수 confirmedWeeks·해결 범위·blockedAt·8주 추천을 제공합니다. 첫 해결 결과 부재/OFF/시간대 부재는 null이며 가짜0을 반환하지 않습니다. GET은 REPEATABLE_READ에서 입력 revision을 읽기 전용으로 감사하고 설정/주간 결과/dirty를 쓰지 않습니다. [G5-1 기간 시작/최초 임시 계획](../api/deload-periods.md)·V27을 구현했습니다. owner 잠금/멱등성/불변 출처와 일반 쓰기 차단, G3 정지/G4 보류를 연결하며 [G5-2 운동 실행/임시 계획 관리](../tasks/deload-g5-2-report.md)·V28은 기존 snapshot/ACK·기록 경로를 공유하고 영구 수행 사실·일반 승인 제외·기간 내 계획 관리를 연결합니다. [G5-3 기간 종료/분석 재개](../tasks/deload-g5-3-report.md)·V29는 직접/자동 완료와 무수행 취소를 구현합니다. 기존 G3/G4 tick의 시작에서 마감된 기간을 처리합니다. 완료로 인한 새 ON epoch와 취소의 누적 보존을 구분합니다. 실제 DB 적용과 G6는 후속입니다. 기존 검토·개인 DB에는 V25나 T_adopt 이행을 실행하지 않았으며 보존 서버를 새 빌드로 재시작하지 않습니다. 운영 카탈로그 검증과 개인 DB 적용은 코드 구현과 별도입니다.
+
+**기존 DB 적용 경계.** V24에서 V29까지의 순차 적용은 기존 InitialPlan·snapshot hash·봉인 평가·승인 사건·수행·정정·G3 원본을 보존하는 격리 테스트로 확인합니다. V25는 기존 계정을 자동 등록하지 않으며, 미설정 계정의 신규 일반 START와 일정 저장은 `DELOAD_SETTINGS_MISSING`으로 롤백됩니다. 적용 전 대상과 비소급 `T_adopt` 경계, 승인된 실행 방법, 쓰기 중단과 영구 백업의 격리 복원, 재개 전 검증을 확정합니다. G6 이전 PWA는 디로딩 세션의 null `InitialPlan.routineId`를 받아들이지 않으므로 혼재 실적을 노출하는 배포는 별도로 검증합니다. [기존 계정 이행 계약](../api/deload-analysis.md#v25v26와-명시적-기존-계정-이행)
 
 **확정 제품 정책의 서버 적용 범위**
 

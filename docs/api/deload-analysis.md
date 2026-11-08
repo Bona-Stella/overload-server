@@ -104,11 +104,13 @@ owner FOR UPDATE·READ_COMMITTED에서 현재 세대→설정 존재→expectedV
 |500|DELOAD_SETTINGS_MISSING / DELOAD_DATA_FAILED|
 |503|DELOAD_DATA_UNAVAILABLE|
 
-누락 설정은 무결성/이행 부재 오류이며 GET·PUT·START에서 조용히 신규 계정으로 취급하지 않는다. DB 세부 오류/자격 정보는 응답이나 로그에 노출하지 않는다.
+누락 설정은 무결성 또는 이행 부재를 뜻한다. 분석 GET·PUT과 기간 자격 조회, 시간대를 바인딩하는 새 일반 START·일정 저장은 `DELOAD_SETTINGS_MISSING`을 반환한다. 신규 START·일정 저장과 시간대 바인딩은 함께 롤백된다. DB 세부 오류와 자격 정보는 응답이나 로그에 노출하지 않는다.
 
 ## V25/V26와 명시적 기존 계정 이행
 
-V25는 `deload_analysis_versions`와 `deload_weekly_assessments` 및 scope/FK/CHECK/전이 제약만 추가한다. 기존 V1~V24·운동/계획/수행/승인 JSON·hash는 변경하지 않는다. versions는 현재값과 설정 이력의 단일 저장소이고 epoch는 그 시작 version을 참조한다. 별도 current 설정·누적 캐시·일별 점수·이벤트 표는 없다. 주간 표는 G4-4에서 정확 E/N·RESET/ADD·기여·상태/ruleVersion/revision·시각을 저장한다. input_revision은 canonical 계산 SHA-256과 날짜별 source revision 전체 벡터를 담은 JSON TEXT다. 기존 G3 Job의 tick 뒤에 독립 분석 배치를 연결했고 별도 scheduler는 없다. G3 dirty 해제와 같은 트랜잭션에서 주간 needs_recheck를 보존하며, 확정 dirty 주는 G4-5에서 기존 숫자를 보존하고 가장 이른 영향 주부터 같은 epoch의 후속 주를 재평가한다. ON 구간 밖 여행 주가 마지막 실제 수행 삭제로 분석 제외되는 경우 승인된 V26 EXCLUDED 상태를 저장한다. E/N·operation·contribution은 NULL이고 판정 확정 시각·입력 식별·revision을 보존한다. 정확히 OUTSIDE_ON_INTERVAL만 있고 날짜/후보가 없는 결과를 두 번 확인한 뒤 CAS로 확정한다. 이는 N0 RESET과 다르며 fold에서 가산/RESET 없이 진행한다. EXCLUDED도 입력이 바뀌면 dirty로 차단하고 정상 후보가 다시 생기면 CONFIRMED로 재평가한다. [G4-5 근거](../tasks/deload-g4-5-report.md)를 따른다. current-total 캐시나 중복 일별 저장소는 없다.
+V25는 `deload_analysis_versions`와 `deload_weekly_assessments` 및 scope/FK/CHECK/전이 제약만 추가한다. 기존 V1~V24·운동/계획/수행/승인 JSON·hash는 변경하지 않는다. versions는 현재값과 설정 이력의 단일 저장소이고 epoch는 그 시작 version을 참조한다. 별도 current 설정·누적 캐시·일별 점수·이벤트 표는 없다. 주간 표는 정확 E/N·RESET/ADD·기여·상태/ruleVersion/revision·시각을 저장한다. input_revision은 canonical 계산 SHA-256과 날짜별 source revision 전체 벡터를 담은 JSON TEXT다. 기존 G3 tick 뒤에 분석 배치를 실행한다. G3 dirty 해제와 같은 트랜잭션에서 주간 needs_recheck를 보존하고, 가장 이른 영향 주부터 같은 epoch의 후속 주를 재평가한다.
+
+V26의 EXCLUDED는 E/N·operation·contribution을 NULL로 저장하며 판정 시각·입력 식별·revision을 유지한다. ON 구간 밖의 여행 주에 후보가 없어졌거나, G5-3의 보호 날짜로 인해 RESET을 억제해야 하고 나머지 근거가 해결됐을 때 사용한다. 같은 입력을 두 번 확인한 뒤 CAS로 확정한다. EXCLUDED도 입력이 바뀌면 다시 평가한다. V29는 완료 기간을 참조하는 `DELOAD_COMPLETED` epoch, 종료 메타데이터 및 재개 날짜 조회를 추가한다. [과거 정정 근거](../tasks/deload-g4-5-report.md) · [완료와 취소 후 재개](#g5-3-완료와-취소-후-분석-재개)
 
 **스키마 migration은 기존 계정을 채우지 않는다.** 내부 `DeloadAnalysisService.adoptExisting(owner,generation,T_adopt)`만 명시적 경계로 이행할 수 있도록 준비했다. HTTP·scheduler·startup hook·자동 T_adopt는 없다. owner 잠금·현재세대 확인 후 설정이 없을 때만 ADOPTED_INITIAL·ON·version0/epoch0을 삽입한다. T_adopt는 필수 마이크로초 시각이고 users.created_at 이전/서버 미래를 거부한다. 기존 일정 시간대는 재사용한다. 이미 설정이 있으면 선택을 보존하며 재실행/동시 호출은 한 번만 생성한다. 과거 users.created_at으로 소급하지 않는다. 실제 기록의 ON/epoch 구간 필터는 G4-3 내부 계산에서 사용하며 주간 확정/내부 fold는 G4-4, 과거 정정 재계산/최종 조회는 G4-5~6 범위다.
 

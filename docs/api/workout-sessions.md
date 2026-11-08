@@ -482,9 +482,9 @@ T02-B V23: 유산소 Plan의 optional activityId는 세션 최초/적용 계획�
 
 V24의 nullable schedule_version_at_start는 신규 START에서만 설정한다. 당시 시각의 구/신 버전 경계와 저장된 workoutDate의 요일로 예정 여부를 확인하며, 첫 예정 START의 세션 참조를 날짜별로 고정한다. 기존 null·InitialPlan/요청 JSON/날짜/시간대/hash는 backfill하지 않는다. 미수행이 먼저 확정된 날짜에 늦은 START가 와도 최초 미수행 근거를 교체하지 않는다.
 
-원본 세션 상태/삭제 및 실제 수행의 변경에 대한 전용 DB trigger가 동일 workoutTransactionManager 트랜잭션에서 날짜를 dirty로 만든다. 동일 FINISH/snapshot ACK·GET·단순 높은 revision no-op은 일별 재검사나 원본 시각을 늘리지 않는다. 기존24시간 만료와 종료 후 정정/삭제/명시 누락 복구도 같은 방식으로 재검사 대상이 되며 새로운 운동 쓰기/오프라인 시스템을 도입하지 않는다. 자동 검사는 [일정·일별 계약](weekly-schedule.md)을 따르고 디로딩 엔진은 포함하지 않는다. 실제 DB의 V24 적용은 이번 범위에 없다.
+원본 세션 상태/삭제 및 실제 수행의 변경에 대한 전용 DB trigger가 동일 workoutTransactionManager 트랜잭션에서 날짜를 dirty로 만든다. 동일 FINISH/snapshot ACK·GET·단순 높은 revision no-op은 일별 재검사나 원본 시각을 늘리지 않는다. 기존24시간 만료와 종료 후 정정/삭제/명시 누락 복구도 같은 방식으로 재검사 대상이 되며 새로운 운동 쓰기/오프라인 시스템을 도입하지 않는다. 자동 검사는 [일정·일별 계약](weekly-schedule.md)을 따르며 디로딩 소속 사실과 보호 날짜는 일반 G3 판정에서 제외한다.
 
-### 2026-11-07 현행 정책과 적용 범위
+### 현행 정책과 적용 범위
 
 디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 분석, G5-1 기간 시작, G5-2 운동 세션과 G5-3 종료·재개가 구현되었다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 기존 격리 검토DB는 이전 확인 기준 V24이며, 이번에는 중지 상태를 유지하고 개인/운영DB를 조회하거나 변경하지 않았다.
 
@@ -504,7 +504,7 @@ V24의 nullable schedule_version_at_start는 신규 START에서만 설정한다.
 
 V28에서 일반 세션의 `source_routine_id`는 기존 owner/generation 루틴 FK와 필수 조건을 유지한다. 디로딩만 이 필드와 일반 일정 version이 NULL이며 V27의 `deload_period_id`/`deload_plan_id` 소속 FK를 사용한다. 상세·ACTIVE·종료 목록에서 디로딩이면 두 소속 ID를 반환한다. 일반 응답에 이 필드를 추가하지 않는다.
 
-디로딩 `InitialPlan`은 schemaVersion2, `routineId=null`, `routineName`=임시 이름, `routineVersion`=계획 version이다. `deloadOrigin`에 기간/계획/버전·날짜·시간대·현재 목표와 최초 편성 출처를 봉인한다. 압축형의 각 최초 항목은 해당 원본 루틴/배치/버전을 유지한다. 사용자 편집으로 추가한 항목은 현재 계획에만 있고 원본에서 가져온 것으로 꾸미지 않는다. 일반 루틴을 복제하지 않으며 기존 일반 InitialPlan JSON 및 고정 요청 hash 형식은 보존한다.
+디로딩 `InitialPlan`은 schemaVersion2, `routineId=null`, `routineName`=임시 이름, `routineVersion`=계획 version이다. `deloadOrigin`에 기간/계획/버전·날짜·시간대·현재 목표와 최초 편성 출처를 봉인한다. 압축형의 각 최초 항목은 해당 원본 루틴/배치/버전을 유지한다. 사용자 편집으로 추가한 항목은 현재 계획에만 있고 원본에서 가져온 것으로 꾸미지 않는다. 일반 루틴을 복제하지 않으며 기존 일반 InitialPlan JSON 및 고정 요청 hash 형식은 보존한다. G6 이전 PWA는 이 null을 거절하므로 디로딩 세션의 일반 상세·ACTIVE 소비는 G6 통합 검증 범위다.
 
 ### 공통 진행, 평가와 이력
 
