@@ -488,6 +488,10 @@ V24의 nullable schedule_version_at_start는 신규 START에서만 설정한다.
 
 디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 분석, G5-1 기간 시작, G5-2 운동 세션과 G5-3 종료·재개가 구현되었다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 기존 격리 검토DB는 이전 확인 기준 V24이며, 이번에는 중지 상태를 유지하고 개인/운영DB를 조회하거나 변경하지 않았다.
 
+### 다중 프리셋 자동 순환 연동 · 미구현
+
+자동 전환 시 서버에 ACTIVE 세션이 있으면 기다린다. 최초 START·InitialPlan·일정 출처를 보존하며 정상 FINISH 또는 기존 마지막 실제 운동 동기화 기준 24시간 AUTO_CLOSED 뒤에 전환을 재시도한다. 전환 전 실제 START와 뒤늦게 도착한 동기화는 원래 세션의 근거로 처리한다. AUTO_CLOSED 뒤 기록은 위 만료·정정·복구 계약을 사용한다. 새 오프라인 START를 추가하지 않는다. [자동 순환 적용과 세션 보호](weekly-schedule.md#자동-순환-적용과-세션-보호)
+
 ## G5-1 ACTIVE 기간 보호
 
 [디로딩 기간 계약](deload-periods.md)의 ACTIVE 기간과 COMPLETED 당일에는 새 일반 START와 원본 기록 정정·복구·논리 삭제·승인 해결/새 snapshot·FINISH를409 DELOAD_ACTIVE_PERIOD로 차단한다. 읽기와 기존 확정 요청의 무변경 ACK는 유지한다. 기간 시작과 일반 쓰기는 기존 사용자 잠금으로 직렬화한다. 디로딩 소속 세션은 아래의 공통 운동 경로를 사용한다. 다음 고정 로컬 날짜부터 일반 쓰기가 재개되며 무수행 취소는 즉시 재개된다. 기존 검토 DB와 서버에는 새 기능을 배포하지 않는다.
