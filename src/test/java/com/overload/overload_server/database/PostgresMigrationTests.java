@@ -225,19 +225,62 @@ class PostgresMigrationTests {
         assertThatThrownBy(()->jdbc.update("UPDATE deload_weekly_assessments SET contribution_numerator=1 WHERE user_id=? AND week_start='2026-11-09'",owner)).isInstanceOf(DataIntegrityViolationException.class);
         assertThat(jdbc.queryForObject("SELECT status FROM deload_weekly_assessments WHERE user_id=? AND week_start='2026-11-02'",String.class,owner)).isEqualTo("EXCLUDED");
     }
-    @Test void v25OnlyAddsSchemaWithoutAdoptingExistingAccountsOrChangingV24Facts() {
+    @Test void v24ThroughV29PreservesWorkoutOriginsAndLeavesExistingAccountsUnadopted() {
         var old=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).target("24").load();old.migrate();
         var jdbc=new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()));
         UUID user=UUID.randomUUID(),routine=UUID.randomUUID(),session=UUID.randomUUID(),device=UUID.randomUUID();
+        UUID item=UUID.randomUUID(),placement=UUID.randomUUID(),approval=UUID.randomUUID(),performed=UUID.randomUUID();
+        UUID exercise=com.overload.testfixture.CatalogFixtures.exercise(jdbc);
         jdbc.update("INSERT INTO users(id,nickname,created_at,updated_at) VALUES (?,'legacy','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z')",user);
-        jdbc.update("INSERT INTO routines(id,user_id,data_generation,name,created_at,updated_at) VALUES (?,?,0,'preserve',now(),now())",routine,user);
+        jdbc.update("INSERT INTO routines(id,user_id,data_generation,name,version,created_at,updated_at) VALUES (?,?,0,'preserve',1,now(),now())",routine,user);
+        jdbc.update("""
+            INSERT INTO routine_weight_placements(id,user_id,data_generation,routine_id,standard_exercise_id,position,set_count,
+                min_reps,max_reps,initial_weight,approved_weight,created_at,updated_at)
+            VALUES (?,?,0,?,?,0,3,6,10,60,62.5,now(),now())
+            """,placement,user,routine,exercise);
+        var initial="""
+            {"schemaVersion":2,"routineId":"%s","routineName":"preserve Ω","routineVersion":"0",
+             "weightExercises":[{"sessionExerciseId":"%s","sourcePlacementId":"%s","standardExerciseId":"%s",
+                 "exerciseName":"preserve Ω","setCount":3,"minReps":6,"maxReps":10,"initialWeightKg":"60","approvedWeightKg":"60"}],
+             "cardioActivities":[]}
+            """.formatted(routine,item,placement,exercise);
+        var applied="""
+            {"schemaVersion":2,"weightExercises":[{"sessionExerciseId":"%s","setCount":3,"minReps":6,"maxReps":10}],"cardioActivities":[]}
+            """.formatted(item);
         jdbc.update("""
             INSERT INTO workout_sessions(id,user_id,data_generation,source_routine_id,started_at,workout_date,started_time_zone,started_device_id,editor_device_id,
-                initial_plan_snapshot,applied_plan_snapshot,last_snapshot_hash,last_workout_synced_at,created_at,updated_at)
-            VALUES(?,?,0,?,'2026-02-01T00:00:00Z','2026-02-01','UTC',?,?,
-                '{"schemaVersion":2,"routineName":"preserve Ω","weightExercises":[],"cardioActivities":[]}',
-                '{"schemaVersion":2,"weightExercises":[],"cardioActivities":[]}',?,'2026-02-01T00:00:00Z',now(),now())
-            """,session,user,routine,device,device,"b".repeat(64));
+                initial_plan_snapshot,applied_plan_snapshot,last_snapshot_hash,last_snapshot_saved_at,last_workout_synced_at,
+                local_revision,writer_epoch,version,created_at,updated_at)
+            VALUES(?,?,0,?,'2026-02-01T00:00:00Z','2026-02-01','UTC',?,?,?::jsonb,?::jsonb,?,
+                '2026-02-01T00:05:00Z','2026-02-01T00:05:00Z',1,1,2,now(),now())
+            """,session,user,routine,device,device,initial,applied,"b".repeat(64));
+        jdbc.update("""
+            INSERT INTO session_exercises(id,session_id,user_id,data_generation,kind,standard_exercise_id)
+            VALUES (?,?,?,0,'WEIGHT',?)
+            """,item,session,user,exercise);
+        jdbc.update("""
+            INSERT INTO session_weight_approval_requests(id,session_id,session_exercise_id,sequence,expected_routine_version,
+                previous_weight,next_weight,occurred_at,status,routine_version_before,routine_version_after)
+            VALUES (?,?,?,1,0,60,62.5,'2026-02-01T00:01:00Z','APPLIED',0,1)
+            """,approval,session,item);
+        jdbc.update("""
+            INSERT INTO performed_sets(id,session_id,session_exercise_id,ordinal,weight,reps,completed_at,
+                context_kind,approval_request_id,approval_state_at_recording,approved_weight_at_recording)
+            VALUES (?,?,?,1,62.5,8,'2026-02-01T00:02:00Z','APPROVAL_REQUEST',?,'APPLIED',62.5)
+            """,performed,session,item,approval);
+        jdbc.update("""
+            INSERT INTO progress_change_events(id,user_id,data_generation,routine_id,placement_id,routine_name,exercise_name,
+                previous_weight,next_weight,occurred_at,recorded_at,source,session_id,session_exercise_id,approval_request_id)
+            VALUES (?,?,0,?,?,'preserve','preserve Ω',60,62.5,'2026-02-01T00:01:00Z',now(),'WORKOUT',?,?,?)
+            """,UUID.randomUUID(),user,routine,placement,session,item,approval);
+        jdbc.update("""
+            INSERT INTO record_change_events(id,session_id,record_kind,record_id,change_kind,before_value,after_value,recorded_at)
+            VALUES (?,?,'SET',?,'CORRECTED','{"reps":9}','{"reps":8}',now())
+            """,UUID.randomUUID(),session,performed);
+        jdbc.update("""
+            UPDATE workout_sessions SET status='FINISHED',ended_at='2026-02-01T00:05:00Z',closed_at='2026-02-01T00:05:00Z',
+                completion_assessment_snapshot='{"schemaVersion":2,"preserved":true}' WHERE id=?
+            """,session);
         var tables=jdbc.queryForList("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name<>'flyway_schema_history' ORDER BY table_name",String.class);
         var before=new java.util.HashMap<String,java.util.List<String>>();
         for(var table:tables)before.put(table,jdbc.queryForList("SELECT to_jsonb(t)::text FROM "+table+" t ORDER BY to_jsonb(t)::text",String.class));
@@ -248,6 +291,28 @@ class PostgresMigrationTests {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions",Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_weekly_assessments",Integer.class)).isZero();
         assertThat(latest.migrate().migrationsExecuted).isZero();latest.validate();
+        var finalSchema=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).load();
+        assertThat(finalSchema.migrate().migrationsExecuted).isEqualTo(4);
+        for(var table:tables) {
+            var projected=table.equals("workout_sessions")
+                ? "(to_jsonb(t)-'deload_period_id'-'deload_plan_id'-'first_deload_activity_at'-'abandoned_at')"
+                : "to_jsonb(t)";
+            assertThat(jdbc.queryForList("SELECT "+projected+"::text FROM "+table+" t ORDER BY "+projected+"::text",String.class))
+                .as(table).isEqualTo(before.get(table));
+        }
+        assertThat(jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history WHERE installed_rank<=24 ORDER BY installed_rank")).isEqualTo(history);
+        assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history WHERE installed_rank>24 ORDER BY installed_rank",String.class))
+            .containsExactly("25","26","27","28","29");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_weekly_assessments",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_periods",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_temporary_plans",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("""
+            SELECT deload_period_id IS NULL AND deload_plan_id IS NULL AND first_deload_activity_at IS NULL AND abandoned_at IS NULL
+            FROM workout_sessions WHERE id=?
+            """,Boolean.class,session)).isTrue();
+        finalSchema.validate();
+        assertThat(finalSchema.migrate().migrationsExecuted).isZero();
     }
     @Test void v24PromotesLatestIntentOnceAndNeverRewritesLegacyReservationRows() {
         var old=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).target("23").load();old.migrate();
