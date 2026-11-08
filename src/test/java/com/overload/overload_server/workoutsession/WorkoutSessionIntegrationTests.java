@@ -2,6 +2,7 @@ package com.overload.overload_server.workoutsession;
 
 import com.overload.overload_server.OverloadServerApplication;
 import com.overload.overload_server.account.*;
+import com.overload.overload_server.routine.WeeklyScheduleRotation;
 import com.overload.testfixture.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -48,7 +49,8 @@ class WorkoutSessionIntegrationTests {
                         "--spring.datasource.url=" + POSTGRES.getJdbcUrl(), "--spring.datasource.username=" + POSTGRES.getUsername(),
                         "--spring.datasource.password=" + POSTGRES.getPassword(), "--server.address=127.0.0.1", "--server.port=0",
                         "--OTP_HMAC_KEY=" + Base64.getEncoder().encodeToString(key), "--OTP_EMAIL_ENABLED=false", "--GOOGLE_OIDC_ENABLED=false",
-                        "--GOOGLE_REAUTH_ENABLED=false", "--spring.session.jdbc.cleanup-cron=-", "--logging.level.root=WARN", "--spring.main.banner-mode=off");
+                        "--GOOGLE_REAUTH_ENABLED=false", "--overload.workout.review.enabled=false",
+                        "--overload.workout.expiry.enabled=false", "--spring.session.jdbc.cleanup-cron=-", "--logging.level.root=WARN", "--spring.main.banner-mode=off");
         jdbc = app.getBean(JdbcTemplate.class); MixedPersistenceAssertions.verify(app);
     }
     @BeforeEach void prepare() throws Exception {
@@ -344,6 +346,52 @@ class WorkoutSessionIntegrationTests {
         } finally {
             WorkoutReadFixtures.observer = null;
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings={"FINISH","AUTO_CLOSED","MULTI_WEEK"})
+    void rotationDefersToExistingWorkoutLifecycleAndRecoversTheCurrentWeek(String exit) throws Exception {
+        String root="/api/v1/weekly-schedule";
+        calendarAt("2026-11-09T00:00:00Z");
+        var view=node(browser.send("PUT",schedulePath(),json(scheduleBody("0",List.of(Map.of("dayOfWeek",7,"routineId",routine)))),csrf));
+        for(int i=0;i<2;i++)view=node(browser.send("POST",root+"/presets",json(Map.of("dataGeneration","0",
+                "expectedStateVersion",view.get("stateVersion").asString())),csrf));
+        String a=view.get("presets").get(0).get("id").asString();
+        String b=view.get("presets").get(1).get("id").asString();
+        String c=view.get("presets").get(2).get("id").asString();
+        var on=node(browser.send("PUT",root+"/rotation",json(Map.of("dataGeneration","0",
+                "expectedStateVersion",view.get("stateVersion").asString(),"autoEnabled",true,
+                "presets",List.of(Map.of("id",a,"rotationIncluded",true),Map.of("id",b,"rotationIncluded",true),
+                        Map.of("id",c,"rotationIncluded",true)))),csrf));
+        calendarAt("2026-11-15T14:00:00Z");
+        var input=startBody();input.put("startedAt","2026-11-15T14:00:00Z");input.put("workoutDate","2026-11-15");
+        var started=node(start(input));
+        var snapshot=JSON.treeToValue(started.get("snapshot").get("state"),State.class);
+        var initial=row();
+        assertThat(initial.get("schedule_version_at_start")).isEqualTo(1L);
+
+        var rotation=app.getBean(WeeklyScheduleRotation.class);
+        calendarAt("2026-11-15T15:00:00Z");
+        rotation.runBatch();
+        assertThat(node(browser.get(root))).isEqualTo(on);
+        assertThat(row()).isEqualTo(initial);
+        if(exit.equals("FINISH")) {
+            var finish=finishBody(1,snapshot);finish.put("endedAt","2026-11-15T14:59:00Z");
+            node(sendFinish(finish));
+        } else {
+            calendarAt(exit.equals("MULTI_WEEK")?"2026-11-22T16:00:00Z":"2026-11-16T14:00:00Z");
+            rotation.runBatch();
+            assertThat(node(browser.get(root))).isEqualTo(on);
+            app.getBean(WorkoutSessionService.class).expireBatch();
+            assertThat(row().get("status")).isEqualTo("AUTO_CLOSED");
+        }
+
+        rotation.runBatch();
+        var after=node(browser.get(root));
+        assertThat(after.get("activePresetId").asString()).isEqualTo(exit.equals("MULTI_WEEK")?c:b);
+        assertThat(after.get("appliedScheduleVersion").asString()).isEqualTo("2");
+        assertThat(row().get("initial_plan_snapshot")).isEqualTo(initial.get("initial_plan_snapshot"));
+        assertThat(row().get("schedule_version_at_start")).isEqualTo(1L);
     }
 
     @Test void activeSourceAndScheduleNoopsKeepVersionsAndStaleVersionsStillFail() throws Exception {

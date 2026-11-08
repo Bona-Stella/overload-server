@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.UUID;
 
 final class WeeklyScheduleRequests {
     private static final JsonMapper JSON = JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
@@ -37,6 +38,25 @@ final class WeeklyScheduleRequests {
     static WeeklySchedule.Activate activate(String raw) {
         var body = body(raw, true, "dataGeneration", "expectedStateVersion", "presetId");
         return new WeeklySchedule.Activate(configuration(body), RoutineRequests.uuid(text(body.get("presetId"))), zone(body));
+    }
+
+    static WeeklySchedule.Rotation rotation(String raw) {
+        var body = body(raw, true, "dataGeneration", "expectedStateVersion", "autoEnabled", "presets");
+        var enabled = body.get("autoEnabled");
+        var values = body.get("presets");
+        if (!enabled.isBoolean() || !values.isArray() || values.isEmpty() || values.size() > 4) throw RoutineRequests.invalid();
+        var entries = new ArrayList<WeeklySchedule.RotationEntry>();
+        var ids = new HashSet<UUID>();
+        boolean excluded = false;
+        for (var value : values) {
+            fields(value, false, "id", "rotationIncluded");
+            var id = RoutineRequests.uuid(text(value.get("id")));
+            var included = value.get("rotationIncluded");
+            if (!ids.add(id) || !included.isBoolean() || (excluded && included.asBoolean())) throw RoutineRequests.invalid();
+            excluded = !included.asBoolean();
+            entries.add(new WeeklySchedule.RotationEntry(id, !excluded));
+        }
+        return new WeeklySchedule.Rotation(configuration(body), enabled.asBoolean(), zone(body), List.copyOf(entries));
     }
 
     static WeeklySchedule.Delete delete(String raw) {

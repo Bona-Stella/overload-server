@@ -18,5 +18,7 @@ public final class WeeklySchedule {
     record Configuration(long generation, long expectedStateVersion) { }
     record Edit(Configuration configuration, long expectedPresetVersion, String timeZone, List<Assignment> assignments) { }
     record Activate(Configuration configuration, UUID presetId, String timeZone) { }
+    record RotationEntry(UUID id, boolean rotationIncluded) { }
+    record Rotation(Configuration configuration, boolean autoEnabled, String timeZone, List<RotationEntry> presets) { }
     record Delete(Configuration configuration, long expectedPresetVersion) { }
 }

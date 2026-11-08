@@ -13,7 +13,11 @@ import static com.overload.overload_server.deload.DeloadPlan.*;
 class DeloadPeriodRepository {
     static final JsonMapper JSON=JsonMapper.builder().build();
     private final JdbcTemplate jdbc;private final RoutineService routines;private final RoutineRepository routineData;private final DeloadAnalysisRepository analysis;
-    DeloadPeriodRepository(JdbcTemplate jdbc,RoutineService routines,RoutineRepository routineData,DeloadAnalysisRepository analysis){this.jdbc=jdbc;this.routines=routines;this.routineData=routineData;this.analysis=analysis;}
+    private final WeeklyScheduleService schedules;
+    DeloadPeriodRepository(JdbcTemplate jdbc,RoutineService routines,RoutineRepository routineData,
+                           DeloadAnalysisRepository analysis,WeeklyScheduleService schedules){
+        this.jdbc=jdbc;this.routines=routines;this.routineData=routineData;this.analysis=analysis;this.schedules=schedules;
+    }
     record Eligibility(boolean eligible,String timeZone,LocalDate today,boolean recentActual,boolean afterPreviousCompletion,boolean todayClear,boolean activeSessionClear,List<String> reasons,String revision){}
     record Stored(UUID id,UUID userId,String dataGeneration,String version,String status,Instant startedAt,LocalDate startDate,String timeZone,LocalDate recommendedEndDate,LocalDate maximumEndDate,Method method,Split split,String sourceHash,Source source,List<SavedPlan> plans,Method currentMethod,Split currentSplit,boolean hasActivity,
                   Instant closedAt, LocalDate closedDate, String endReason, Instant processedAt){}
@@ -52,12 +56,10 @@ class DeloadPeriodRepository {
         return new Eligibility(reasons.isEmpty(),zone,today,recent,after,todayClear,active.isEmpty(),List.copyOf(reasons),revision);
     }
     private static Instant instant(ResultSet row,String column)throws SQLException {var at=row.getTimestamp(column);return at==null?null:at.toInstant();}
-    Source source(UUID owner,long generation,Eligibility eligibility,boolean lock) {
+    Source source(UUID owner,long generation,Eligibility eligibility,UUID selectedPreset,boolean lock) {
         String zone=eligibility.timeZone();if(zone==null)throw DeloadPeriodFailure.conflict("AWAITING_TIME_ZONE");
-        record Schedule(String version,List<WeeklySchedule.Assignment> assignments){}
-        var schedule=jdbc.query("SELECT v.version,v.assignments::text,c.time_zone FROM weekly_schedule_versions v JOIN workout_calendar_control c ON c.user_id=v.user_id AND c.data_generation=v.data_generation WHERE v.user_id=? AND v.data_generation=? AND v.version>=c.baseline_version ORDER BY v.version DESC LIMIT 1",(r,i)->{
-            if(!zone.equals(r.getString(3)))throw DeloadPeriodFailure.conflict("DELOAD_TIME_ZONE_CONFLICT");return new Schedule(r.getString(1),List.of(JSON.readValue(r.getString(2),WeeklySchedule.Assignment[].class)));
-        },owner,generation).stream().findFirst().orElse(new Schedule("0",List.of()));
+        var schedule=schedules.sourcePreset(owner,generation,selectedPreset)
+                .orElseThrow(()->new DeloadPeriodFailure(404,"DELOAD_SOURCE_PRESET_NOT_FOUND"));
         var plans=new HashMap<UUID,RoutineResponses.Detail>();
         for(var id:schedule.assignments().stream().map(WeeklySchedule.Assignment::routineId).distinct().sorted().toList()) {
             if(lock)routineData.planForWorkoutStart(owner,generation,id).orElseThrow(()->DeloadPeriodFailure.conflict("DELOAD_SOURCE_CHANGED"));
@@ -73,7 +75,8 @@ class DeloadPeriodRepository {
             jdbc.query("SELECT em.standard_exercise_id,m.id,m.group_code,m.name FROM exercise_muscle em JOIN muscle m ON m.id=em.muscle_id WHERE em.standard_exercise_id IN("+marks+") AND em.role='PRIMARY' ORDER BY em.standard_exercise_id,m.id"+(lock?" FOR SHARE OF em,m":""),(org.springframework.jdbc.core.RowCallbackHandler)r->muscles.computeIfAbsent(r.getObject(1,UUID.class),key->new ArrayList<>()).add(new Muscle(r.getObject(2,UUID.class),r.getString(3),r.getString(4))),parameters);
             rows.forEach(c->classes.add(new Classification(c.id(),c.name(),c.jointType(),List.copyOf(muscles.getOrDefault(c.id(),List.of())))));
         }
-        return new Source(owner,Long.toString(generation),zone,eligibility.today(),schedule.version(),days,List.copyOf(classes));
+        return new Source(owner,Long.toString(generation),zone,eligibility.today(),schedule.id(),schedule.presetVersion(),
+                days,List.copyOf(classes),null);
     }
     Optional<Stored> active(UUID owner,long generation){return jdbc.query("SELECT * FROM deload_periods WHERE user_id=? AND data_generation=? AND status='ACTIVE'",(r,i)->stored(r),owner,generation).stream().findFirst();}
     Optional<Stored> current(UUID owner, long generation, Instant now) {

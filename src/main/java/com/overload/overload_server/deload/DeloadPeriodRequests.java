@@ -9,8 +9,8 @@ import static com.overload.overload_server.deload.DeloadPlan.*;
 
 final class DeloadPeriodRequests {
     private static final JsonMapper JSON=JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
-    record Preview(long generation,Choice choice){}
-    record Start(long generation,UUID requestId,String previewToken,Choice choice){}
+    record Preview(long generation,UUID presetId,Choice choice){}
+    record Start(long generation,UUID requestId,String previewToken,UUID presetId,Choice choice){}
     record End(long generation, long expectedVersion, UUID requestId) {}
     static End end(String raw) {
         var body=parse(raw);
@@ -31,10 +31,27 @@ final class DeloadPeriodRequests {
     static DeloadTemporaryPlans.Change change(String raw) {var b=parse(raw);fields(b,"dataGeneration","expectedVersion","requestId","method","split","dates");return new DeloadTemporaryPlans.Change(counter(b.get("dataGeneration")),counter(b.get("expectedVersion")),id(text(b,"requestId")),choice(b));}
     static UUID id(String text){try{var id=UUID.fromString(text);if(!id.toString().equalsIgnoreCase(text))throw invalid();return id;}catch(IllegalArgumentException bad){throw invalid();}}
     private static DeloadPeriodFailure invalid(){return DeloadPeriodFailure.invalid();}
-    static Preview preview(String raw){var b=parse(raw);fields(b,"dataGeneration","method","split","dates");return new Preview(counter(b.get("dataGeneration")),choice(b));}
+    static Preview preview(String raw) {
+        var b=parse(raw);
+        UUID preset=selection(b,"dataGeneration","method","split","dates");
+        return new Preview(counter(b.get("dataGeneration")),preset,choice(b));
+    }
     static Start start(String raw) {
-        var b=parse(raw);fields(b,"dataGeneration","requestId","previewToken","method","split","dates");String token=text(b,"previewToken");if(!token.matches("[0-9a-f]{64}"))throw DeloadPeriodFailure.invalid();
-        try{String id=text(b,"requestId");var uuid=UUID.fromString(id);if(!uuid.toString().equalsIgnoreCase(id))throw DeloadPeriodFailure.invalid();return new Start(counter(b.get("dataGeneration")),uuid,token,choice(b));}catch(IllegalArgumentException bad){throw DeloadPeriodFailure.invalid();}
+        var b=parse(raw);
+        UUID preset=selection(b,"dataGeneration","requestId","previewToken","method","split","dates");
+        String token=text(b,"previewToken");
+        if(!token.matches("[0-9a-f]{64}"))throw invalid();
+        return new Start(counter(b.get("dataGeneration")),id(text(b,"requestId")),token,preset,choice(b));
+    }
+    private static UUID selection(JsonNode body, String... required) {
+        if (body == null || !body.has("presetId")) {
+            fields(body, required);
+            return null;
+        }
+        var names = Arrays.copyOf(required, required.length + 1);
+        names[required.length] = "presetId";
+        fields(body, names);
+        return id(text(body, "presetId"));
     }
     private static Choice choice(JsonNode b) {
         try{var dates=new ArrayList<LocalDate>();var list=b.get("dates");if(!list.isArray()||list.size()>7)throw DeloadPeriodFailure.invalid();for(var d:list){if(!d.isString())throw DeloadPeriodFailure.invalid();var date=LocalDate.parse(d.asString());if(!date.toString().equals(d.asString()))throw DeloadPeriodFailure.invalid();dates.add(date);}return new Choice(Method.valueOf(text(b,"method")),Split.valueOf(text(b,"split")),List.copyOf(dates));}catch(IllegalArgumentException|DateTimeException bad){throw DeloadPeriodFailure.invalid();}

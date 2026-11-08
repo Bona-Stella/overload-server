@@ -3,13 +3,13 @@ package com.overload.overload_server.routine;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,16 +22,16 @@ public class WeeklyScheduleService {
     private static final int MAX_PRESETS = 4;
     private final WeeklyScheduleStore store;
     private final RoutineRepository routines;
-    private final RoutinePlanHistory plans;
     private final AppliedWeeklySchedule applied;
+    private final WeeklyScheduleRotation rotation;
     private final Clock clock;
 
-    WeeklyScheduleService(WeeklyScheduleStore store, RoutineRepository routines, RoutinePlanHistory plans,
-                          AppliedWeeklySchedule applied, ObjectProvider<Clock> clocks) {
+    WeeklyScheduleService(WeeklyScheduleStore store, RoutineRepository routines, AppliedWeeklySchedule applied,
+                          WeeklyScheduleRotation rotation, ObjectProvider<Clock> clocks) {
         this.store = store;
         this.routines = routines;
-        this.plans = plans;
         this.applied = applied;
+        this.rotation = rotation;
         this.clock = clocks.getIfAvailable(Clock::systemUTC);
     }
 
@@ -43,11 +43,10 @@ public class WeeklyScheduleService {
     WeeklySchedule.View create(UUID owner, WeeklySchedule.Configuration request) {
         var scope = lock(owner, request);
         var state = checkedState(scope, request);
-        if (state.autoEnabled()) throw new RoutineFailure(AUTO_ROTATION_ENABLED);
         int count = store.presets(scope).size();
         if (count >= MAX_PRESETS) throw new RoutineFailure(PRESET_LIMIT_REACHED);
         store.create(scope, count + 1);
-        store.changeState(scope, state.activePresetId());
+        store.changeState(scope, state.activePresetId(), state.autoEnabled(), state.nextRotationAt());
         return view(scope);
     }
 
@@ -60,11 +59,11 @@ public class WeeklyScheduleService {
 
         if (id.equals(state.activePresetId())) {
             var current = applied.current(scope);
-            String zone = timeZone(scope, current, request.timeZone());
+            String zone = applied.resolveTimeZone(scope, current, request.timeZone());
             if (changed) store.edit(scope, id, request.assignments());
             if (current.isEmpty() || !current.get().assignments().equals(request.assignments())) {
                 applied.apply(scope, current, zone, request.assignments(), now());
-                if (current.isEmpty()) store.changeState(scope, id);
+                if (current.isEmpty()) store.changeState(scope, id, state.autoEnabled(), state.nextRotationAt());
             }
         } else if (changed) {
             for (UUID routineId : request.assignments().stream().map(WeeklySchedule.Assignment::routineId).distinct().toList()) {
@@ -82,14 +81,10 @@ public class WeeklyScheduleService {
         if (state.autoEnabled()) throw new RoutineFailure(AUTO_ROTATION_ENABLED);
         var target = preset(store.presets(scope), request.presetId());
         var current = applied.current(scope);
-        String zone = timeZone(scope, current, request.timeZone());
-        boolean switching = !target.id().equals(state.activePresetId());
-        if (current.isEmpty() || !current.get().assignments().equals(target.assignments())) {
-            applied.apply(scope, current, zone, target.assignments(), now());
-        } else if (switching) {
-            plans.requireEditableSchedule(owner, scope.generation());
-        }
-        if (switching || current.isEmpty()) store.changeState(scope, target.id());
+        String zone = applied.resolveTimeZone(scope, current, request.timeZone());
+        applied.applyPreset(scope, state, target, current, zone, now());
+        if (!target.id().equals(state.activePresetId()) || current.isEmpty())
+            store.changeState(scope, target.id(), false, null);
         return view(scope);
     }
 
@@ -101,15 +96,37 @@ public class WeeklyScheduleService {
         checkVersion(target, request.expectedPresetVersion());
         if (presets.size() == 1) throw new RoutineFailure(LAST_PRESET);
         if (id.equals(state.activePresetId())) throw new RoutineFailure(ACTIVE_PRESET);
-        // ON deletions require stage 3's atomic restart of the rotation configuration.
-        if (state.autoEnabled()) {
-            long remaining = presets.stream().filter(p -> !p.id().equals(id) && p.rotationIncluded()).count();
-            if (remaining < 2) throw new RoutineFailure(ROTATION_REQUIRES_TWO_PRESETS);
-            throw new RoutineFailure(AUTO_ROTATION_ENABLED);
-        }
         store.delete(scope, target);
-        store.changeState(scope, state.activePresetId());
+        if (state.autoEnabled()) rotation.restart(scope, state, store.presets(scope), null, now());
+        else store.changeState(scope, state.activePresetId(), false, null);
         return view(scope);
+    }
+
+    WeeklySchedule.View configureRotation(UUID owner, WeeklySchedule.Rotation request) {
+        var scope = lock(owner, request.configuration());
+        var state = checkedState(scope, request.configuration());
+        var presets = store.presets(scope);
+        var previous = presets.stream().map(p -> new WeeklySchedule.RotationEntry(p.id(), p.rotationIncluded())).toList();
+        if (request.presets().size() != presets.size()) throw RoutineRequests.invalid();
+        for (var entry : request.presets()) preset(presets, entry.id());
+        boolean changed = !previous.equals(request.presets());
+        if (changed) store.configure(scope, request.presets());
+        if (request.autoEnabled() && (changed || !state.autoEnabled())) {
+            rotation.restart(scope, state, store.presets(scope), request.timeZone(), now());
+        } else if (changed || state.autoEnabled() != request.autoEnabled()) {
+            store.changeState(scope, state.activePresetId(), false, null);
+        }
+        return view(scope);
+    }
+
+    /** Reads only saved preset evidence inside the G5 preview or owner-locked START transaction. */
+    @Transactional(transactionManager = "workoutTransactionManager", propagation = Propagation.MANDATORY, readOnly = true)
+    public Optional<WeeklySchedule.Preset> sourcePreset(UUID owner, long generation, UUID requested) {
+        var scope = new Scope(owner, generation);
+        return store.state(scope).flatMap(state -> {
+            UUID selected = requested == null ? state.activePresetId() : requested;
+            return store.presets(scope).stream().filter(preset -> preset.id().equals(selected)).findFirst();
+        });
     }
 
     /** Called after logical routine deletion under the same owner lock and workout transaction. */
@@ -159,13 +176,6 @@ public class WeeklyScheduleService {
 
     private static void checkVersion(WeeklySchedule.Preset preset, long expected) {
         if (Long.parseLong(preset.presetVersion()) != expected) throw new RoutineFailure(PRESET_VERSION_CONFLICT);
-    }
-
-    private String timeZone(Scope scope, Optional<WeeklySchedule.Version> current, String requested) {
-        String bound = applied.timeZone(scope, current);
-        if (bound != null && requested != null && !Objects.equals(bound, requested))
-            throw new RoutineFailure(SCHEDULE_TIME_ZONE_CONFLICT);
-        return bound == null ? requested : bound;
     }
 
     private WeeklySchedule.View view(Scope scope) {

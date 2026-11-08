@@ -17,7 +17,7 @@ class DeloadPlanGeneratorTests {
         return new Day(weekday,new RoutineResponses.Detail(owner,"0",UUID.randomUUID(),"3","source",weights,cardio));
     }
     Classification classification(RoutineResponses.Weight w,String joint,String group,String name) {return new Classification(w.standardExerciseId(),w.exerciseName(),joint,List.of(new Muscle(UUID.randomUUID(),group,name)));}
-    Source source(List<Day> days,List<Classification> classes) {return new Source(owner,"0","Asia/Seoul",today,"2",days,classes);}
+    Source source(List<Day> days,List<Classification> classes) {return new Source(owner,"0","Asia/Seoul",today,UUID.randomUUID(),"2",days,classes,null);}
     Generated generate(Source s,Method m,Split split) {return DeloadPlanGenerator.generate(s,new Choice(m,split,List.of()));}
     Weight keep(RoutineResponses.Weight w) {return generate(source(List.of(day(1,List.of(w),List.of())),List.of()),Method.KEEP,Split.ORIGINAL).plans().getFirst().weights().getFirst();}
     @Test void supportedMethodsFollowOriginalFrequencyWithoutMinimumTrainingGate() {

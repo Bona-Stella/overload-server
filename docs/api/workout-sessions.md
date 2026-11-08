@@ -486,7 +486,7 @@ V24의 nullable schedule_version_at_start는 신규 START에서만 설정한다.
 
 ### 현행 정책과 적용 범위
 
-디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 분석, G5-1 기간 시작, G5-2 운동 세션과 G5-3 종료·재개가 구현되었다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 기존 격리 검토DB는 이전 확인 기준 V24이며, 이번에는 중지 상태를 유지하고 개인/운영DB를 조회하거나 변경하지 않았다.
+디로딩은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) 기준이며 G4 분석, G5-1 기간 시작, G5-2 운동 세션과 G5-3 종료·재개가 구현되었다. 일반 계획 ST-17~23과 디로딩 후보는 분리하며 G3는 분석OFF여도 유지한다. 주간 자동 순환도 START와 같은 사용자 잠금을 사용하고 기존 ACTIVE 운동 중에는 보류한다. FINISH나 기존 24시간 AUTO_CLOSED 이후 다음 tick이 현재 주차를 계산한다. [자동 순환과 세션 보호](weekly-schedule.md#자동-순환-적용과-세션-보호) 기존 격리 검토DB는 이전 확인 기준 V24이며, 이번에는 중지 상태를 유지하고 개인/운영DB를 조회하거나 변경하지 않았다.
 
 ### 다중 프리셋 자동 순환 연동 · 미구현
 

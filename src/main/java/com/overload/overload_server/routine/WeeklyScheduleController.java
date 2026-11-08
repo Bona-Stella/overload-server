@@ -46,6 +46,13 @@ public class WeeklyScheduleController {
         return response(200, service.activate(principal.userId(), WeeklyScheduleRequests.activate(raw)));
     }
 
+    @PutMapping(path = "/rotation", consumes = "application/json")
+    ResponseEntity<WeeklySchedule.View> rotation(@AuthenticationPrincipal SessionPrincipal principal, @RequestBody String raw,
+                                                 HttpServletRequest request) {
+        noQuery(request);
+        return response(200, service.configureRotation(principal.userId(), WeeklyScheduleRequests.rotation(raw)));
+    }
+
     @DeleteMapping(path = "/presets/{id}", consumes = "application/json")
     ResponseEntity<WeeklySchedule.View> delete(@AuthenticationPrincipal SessionPrincipal principal, @PathVariable String id,
                                                @RequestBody String raw, HttpServletRequest request) {

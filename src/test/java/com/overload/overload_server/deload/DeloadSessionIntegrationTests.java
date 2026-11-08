@@ -70,8 +70,8 @@ class DeloadSessionIntegrationTests {
     DeloadTemporaryPlans temporary(){return app.getBean(DeloadTemporaryPlans.class);}
     DeloadPeriodService service(){return app.getBean(DeloadPeriodService.class);}
     Choice rest(){return new Choice(Method.REST,Split.REST,List.of());}
-    DeloadPeriodService.Preview preview(Choice c){return service().preview(owner,0,c);}
-    DeloadPeriodRequests.Start request(DeloadPeriodService.Preview p){return new DeloadPeriodRequests.Start(0,UUID.randomUUID(),p.previewToken(),p.choice());}
+    DeloadPeriodService.Preview preview(Choice c){return service().preview(owner,0,null,c);}
+    DeloadPeriodRequests.Start request(DeloadPeriodService.Preview p){return new DeloadPeriodRequests.Start(0,UUID.randomUUID(),p.previewToken(),null,p.choice());}
     DeloadPeriodService.Current start(Choice c){return service().start(owner,request(preview(c)));}
     JsonNode ok(HttpResponse<String> r){assertThat(r.statusCode()).as(r.body()).isEqualTo(200);return JSON.readTree(r.body());}
     void conflict(Runnable work,String code){assertThatThrownBy(work::run).isInstanceOfSatisfying(DeloadPeriodFailure.class,e->assertThat(e.code).isEqualTo(code));}
@@ -124,8 +124,13 @@ class DeloadSessionIntegrationTests {
     }
     void schedule(UUID id,int... days) {
         var assignments=new ArrayList<WeeklySchedule.Assignment>();for(int d:days)assignments.add(new WeeklySchedule.Assignment(d,id));
+        saveSourcePreset(assignments);
         jdbc.update("INSERT INTO weekly_schedule_versions(user_id,data_generation,version,recorded_at,effective_from,time_zone,assignments) VALUES (?,0,1,?,?,'Asia/Seoul',?::jsonb)",owner,Timestamp.from(EmailOtpFixtures.CLOCK.instant()),monday,JSON.writeValueAsString(assignments));
         jdbc.update("INSERT INTO workout_calendar_control(user_id,data_generation,time_zone,baseline_version,review_from_date,reviewed_through) VALUES (?,0,'Asia/Seoul',1,?,?)",owner,monday,monday.minusDays(1));
+    }
+    void saveSourcePreset(List<WeeklySchedule.Assignment> assignments) {
+        jdbc.update("UPDATE weekly_schedule_presets SET assignments=?::jsonb,preset_version=1 WHERE user_id=? AND data_generation=0",
+                JSON.writeValueAsString(assignments),owner);
     }
     List<String> originals(){var out=new ArrayList<String>();for(String t:List.of("routines","routine_weight_placements","routine_cardio_placements","weekly_schedule_versions","workout_sessions"))out.addAll(jdbc.queryForList("SELECT to_jsonb(t)::text FROM "+t+" t WHERE user_id=? ORDER BY to_jsonb(t)::text",String.class,owner));for(String t:List.of("performed_sets","cardio_results"))out.addAll(jdbc.queryForList("SELECT to_jsonb(t)::text FROM "+t+" t JOIN workout_sessions ws ON ws.id=t.session_id WHERE ws.user_id=? ORDER BY to_jsonb(t)::text",String.class,owner));return out;}
     DeloadPeriodRepository.Stored begin(int... days) {weight(2,1,1);schedule(planRoutine(),days);return start(new Choice(Method.KEEP,Split.ORIGINAL,List.of())).period();}
@@ -244,6 +249,7 @@ class DeloadSessionIntegrationTests {
     }
     @Test void compressedSessionSealsSeveralRealRoutineOriginsWithoutCreatingFakeRoutines()throws Exception {
         weight(2,1,1);var routines=List.of(planRoutine(),planRoutine(),planRoutine(),planRoutine());var assignments=new ArrayList<WeeklySchedule.Assignment>();int[] days={1,2,3,7};for(int i=0;i<4;i++)assignments.add(new WeeklySchedule.Assignment(days[i],routines.get(i)));
+        saveSourcePreset(assignments);
         jdbc.update("INSERT INTO weekly_schedule_versions(user_id,data_generation,version,recorded_at,effective_from,time_zone,assignments) VALUES (?,0,1,?,?,'Asia/Seoul',?::jsonb)",owner,Timestamp.from(EmailOtpFixtures.CLOCK.instant()),monday,JSON.writeValueAsString(assignments));jdbc.update("INSERT INTO workout_calendar_control VALUES (?,0,'Asia/Seoul',1,?,?)",owner,monday,monday.minusDays(1));
         var count=jdbc.queryForObject("SELECT count(*) FROM routines WHERE user_id=?",Integer.class,owner);start(new Choice(Method.TWO,Split.EQUAL,List.of()));var s=session(todayPlan());var origins=s.get("initialPlan").get("deloadOrigin").get("initialSource").get("weights");var ids=new HashSet<String>();origins.forEach(w->ids.add(w.get("sourceRoutineId").asString()));assertThat(ids).hasSize(2);assertThat(jdbc.queryForObject("SELECT count(*) FROM routines WHERE user_id=?",Integer.class,owner)).isEqualTo(count);assertThat(s.get("initialPlan").get("routineId").isNull()).isTrue();
     }

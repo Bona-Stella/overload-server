@@ -1,6 +1,7 @@
 package com.overload.overload_server.statistics;
 
 import com.overload.overload_server.OverloadServerApplication;
+import com.overload.overload_server.routine.WeeklyScheduleRotation;
 import com.overload.overload_server.workoutsession.*;
 import com.overload.testfixture.*;
 import org.junit.jupiter.api.*;
@@ -41,7 +42,7 @@ class StatisticsIntegrationTests {
                 .web(WebApplicationType.SERVLET).run("--spring.profiles.active=local,integration",
                         "--spring.datasource.url="+POSTGRES.getJdbcUrl(),"--spring.datasource.username="+POSTGRES.getUsername(),"--spring.datasource.password="+POSTGRES.getPassword(),
                         "--server.address=127.0.0.1","--server.port=0","--OTP_HMAC_KEY="+Base64.getEncoder().encodeToString(key),"--OTP_EMAIL_ENABLED=false",
-                        "--GOOGLE_OIDC_ENABLED=false","--GOOGLE_REAUTH_ENABLED=false","--spring.session.jdbc.cleanup-cron=-","--logging.level.root=WARN","--spring.main.banner-mode=off");
+                        "--GOOGLE_OIDC_ENABLED=false","--GOOGLE_REAUTH_ENABLED=false","--overload.workout.review.enabled=false","--spring.session.jdbc.cleanup-cron=-","--logging.level.root=WARN","--spring.main.banner-mode=off");
         jdbc=app.getBean(JdbcTemplate.class);
     }
     @BeforeEach void login() throws Exception {
@@ -479,6 +480,150 @@ class StatisticsIntegrationTests {
             expectError(browser.send("PUT", path, JSON.writeValueAsString(invalid), csrf()), 404, "ROUTINE_NOT_FOUND");
         }
         assertThat(schedule()).isEqualTo(initial);
+    }
+
+    private Map<String,Object> rotationEntry(String id, boolean included) {
+        return Map.of("id", id, "rotationIncluded", included);
+    }
+
+    private HttpResponse<String> rotationRequest(JsonNode view, boolean enabled, String zone,
+                                                 List<Map<String,Object>> entries) throws Exception {
+        var body = config(view);
+        body.put("autoEnabled", enabled);
+        body.put("presets", entries);
+        if (zone != null) body.put("timeZone", zone);
+        return browser.send("PUT", SCHEDULE + "/rotation", JSON.writeValueAsString(body), csrf());
+    }
+
+    private JsonNode configure(JsonNode view, boolean enabled, String zone, List<Map<String,Object>> entries) throws Exception {
+        return success(rotationRequest(view, enabled, zone, entries));
+    }
+
+    private String presetId(JsonNode view, int index) { return view.get("presets").get(index).get("id").asString(); }
+
+    private void scheduleClock(String instant) {
+        EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(), Instant.parse(instant)));
+    }
+
+    private WeeklyScheduleRotation rotation() { return app.getBean(WeeklyScheduleRotation.class); }
+
+    @Test void rotationSettingsEnforceScopeAndMinimumAndSwitchOnAndOffAtomically() throws Exception {
+        var r = routine(1);
+        var two = createPreset(schedule(r, "0", List.of(1)));
+        String a = activeId(two), b = presetId(two, 1);
+        var invalid = List.of(rotationEntry(b, true), rotationEntry(a, false));
+        expectError(rotationRequest(two, true, null, invalid), 409, "ROTATION_REQUIRES_TWO_PRESETS");
+        assertThat(schedule()).isEqualTo(two);
+        expectError(rotationRequest(two, false, null, List.of(rotationEntry(b, false), rotationEntry(a, true))), 400, "INVALID_REQUEST");
+        expectError(rotationRequest(two, false, null, List.of(rotationEntry(UUID.randomUUID().toString(), true), rotationEntry(a, false))),
+                404, "PRESET_NOT_FOUND");
+
+        var both = List.of(rotationEntry(b, true), rotationEntry(a, true));
+        var on = configure(two, true, null, both);
+        assertThat(activeId(on)).isEqualTo(b);
+        assertThat(on.get("appliedScheduleVersion").asString()).isEqualTo("2");
+        assertThat(on.get("nextRotationAt").asString()).isEqualTo("2026-11-01T15:00:00Z");
+        var manual = config(on);manual.put("presetId",a);
+        expectError(browser.send("PUT", SCHEDULE + "/active", JSON.writeValueAsString(manual), csrf()), 409, "AUTO_ROTATION_ENABLED");
+        expectError(rotationRequest(two, true, null, both), 409, "SCHEDULE_STATE_VERSION_CONFLICT");
+        var off = configure(on, false, null, List.of(rotationEntry(a, true), rotationEntry(b, false)));
+        assertThat(activeId(off)).isEqualTo(b);
+        assertThat(off.get("autoEnabled").asBoolean()).isFalse();
+        assertThat(off.get("nextRotationAt").isNull()).isTrue();
+        assertThat(off.get("appliedScheduleVersion")).isEqualTo(on.get("appliedScheduleVersion"));
+    }
+
+    @Test void includedAndExcludedReorderingRestartButNoopAndAssignmentEditsKeepTheCursor() throws Exception {
+        var four = createPreset(createPreset(createPreset(schedule())));
+        String a = presetId(four, 0), b = presetId(four, 1), c = presetId(four, 2), d = presetId(four, 3);
+        var config = List.of(rotationEntry(a, true), rotationEntry(b, true), rotationEntry(c, false), rotationEntry(d, false));
+        var on = configure(four, true, "Asia/Seoul", config);
+        scheduleClock("2026-11-01T15:00:00Z");
+        rotation().runBatch();
+        var second = schedule();
+        assertThat(activeId(second)).isEqualTo(b);
+        assertThat(configure(second, true, null, config)).isEqualTo(second);
+        var r = routine(1);
+        var inactiveEdit = edit(second, c, "0", assignments(r, 7));
+        var activeEdit = edit(inactiveEdit, b, "0", assignments(r, 1));
+        assertThat(activeEdit.get("nextRotationAt")).isEqualTo(second.get("nextRotationAt"));
+        assertThat(activeEdit.get("stateVersion")).isEqualTo(second.get("stateVersion"));
+
+        var excludedOrder = configure(activeEdit, true, null,
+                List.of(rotationEntry(a,true),rotationEntry(b,true),rotationEntry(d,false),rotationEntry(c,false)));
+        assertThat(activeId(excludedOrder)).isEqualTo(a);
+        assertThat(excludedOrder.get("presets")).extracting(p -> p.get("id").asString()).containsExactly(a,b,d,c);
+        var includedOrder = configure(excludedOrder, true, null,
+                List.of(rotationEntry(b,true),rotationEntry(a,true),rotationEntry(d,false),rotationEntry(c,false)));
+        assertThat(activeId(includedOrder)).isEqualTo(b);
+
+        var excludedActive = configure(includedOrder, true, null,
+                List.of(rotationEntry(a,true),rotationEntry(c,true),rotationEntry(d,false),rotationEntry(b,false)));
+        assertThat(activeId(excludedActive)).isEqualTo(a);
+        expectError(deletePreset(excludedActive, c, "1"), 409, "ROTATION_REQUIRES_TWO_PRESETS");
+        assertThat(schedule()).isEqualTo(excludedActive);
+        var afterDelete = success(deletePreset(excludedActive, d, "0"));
+        assertThat(afterDelete.get("presets")).extracting(p -> p.get("displayOrder").asInt()).containsExactly(1,2,3);
+        var afterCreate = createPreset(afterDelete);
+        assertThat(activeId(afterCreate)).isEqualTo(activeId(afterDelete));
+        assertThat(afterCreate.get("nextRotationAt")).isEqualTo(afterDelete.get("nextRotationAt"));
+        assertThat(afterCreate.get("appliedScheduleVersion")).isEqualTo(afterDelete.get("appliedScheduleVersion"));
+    }
+
+    @Test void localMondayAcrossDstStartsOnceEvenWithTwoWorkersAndIdenticalAssignments() throws Exception {
+        scheduleClock("2026-10-26T12:00:00Z");
+        var two = createPreset(schedule());
+        String a = presetId(two, 0), b = presetId(two, 1);
+        var on = configure(two, true, "America/New_York", List.of(rotationEntry(a,true),rotationEntry(b,true)));
+        assertThat(on.get("nextRotationAt").asString()).isEqualTo("2026-11-02T05:00:00Z");
+        scheduleClock("2026-11-02T04:59:59.999999Z");
+        rotation().runBatch();
+        assertThat(schedule()).isEqualTo(on);
+
+        scheduleClock("2026-11-02T05:00:00Z");
+        var gate = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            Callable<Integer> advance = () -> { gate.await(); return rotation().runBatch(); };
+            var one = pool.submit(advance);
+            var other = pool.submit(advance);
+            gate.countDown();
+            one.get(15, TimeUnit.SECONDS);
+            other.get(15, TimeUnit.SECONDS);
+        }
+        var after = schedule();
+        assertThat(activeId(after)).isEqualTo(b);
+        assertThat(after.get("stateVersion").asInt()).isEqualTo(on.get("stateVersion").asInt()+1);
+        assertThat(after.get("appliedScheduleVersion")).isEqualTo(on.get("appliedScheduleVersion"));
+        assertThat(after.get("nextRotationAt").asString()).isEqualTo("2026-11-09T05:00:00Z");
+    }
+
+    @Test void recoverySkipsPastApplicationsAndFailedApplyKeepsTheOriginalCursor() throws Exception {
+        var r = routine(1);
+        var three = createPreset(createPreset(schedule()));
+        String a = presetId(three, 0), b = presetId(three, 1), c = presetId(three, 2);
+        three = edit(three,b,"0",assignments(r,2));
+        three = edit(three,c,"0",assignments(r,3));
+        var on = configure(three,true,"Asia/Seoul",List.of(rotationEntry(a,true),rotationEntry(b,true),rotationEntry(c,true)));
+        scheduleClock("2026-11-15T16:00:00Z"); // Three missed Mondays return to A without a journal row.
+        rotation().runBatch();
+        var same = schedule();
+        assertThat(activeId(same)).isEqualTo(a);
+        assertThat(same.get("appliedScheduleVersion")).isEqualTo(on.get("appliedScheduleVersion"));
+        assertThat(same.get("nextRotationAt").asString()).isEqualTo("2026-11-22T15:00:00Z");
+
+        scheduleClock("2026-11-29T16:00:00Z"); // Two elapsed Mondays advance directly to C.
+        WorkoutReadFixtures.observer=event->{
+            if(event.before()&&event.sql().stripLeading().toLowerCase(Locale.ROOT).startsWith("insert into weekly_schedule_versions"))
+                throw new org.springframework.dao.DataAccessResourceFailureException("isolated rotation write failure");
+        };
+        try { rotation().runBatch(); } finally { WorkoutReadFixtures.observer=null; }
+        assertThat(schedule()).isEqualTo(same);
+        rotation().runBatch();
+        var after = schedule();
+        assertThat(activeId(after)).isEqualTo(c);
+        assertThat(after.get("appliedScheduleVersion").asString()).isEqualTo("2");
+        assertThat(after.get("appliedAt").asString()).isEqualTo("2026-11-29T16:00:00Z");
+        assertThat(after.get("nextRotationAt").asString()).isEqualTo("2026-12-06T15:00:00Z");
     }
 
     @Test void scheduleWritesRequireCsrfOwnerGenerationAndExpectedVersionAndKeepImmutableHistory() throws Exception {

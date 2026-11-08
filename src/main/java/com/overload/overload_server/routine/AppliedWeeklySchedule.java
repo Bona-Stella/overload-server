@@ -50,6 +50,21 @@ class AppliedWeeklySchedule {
                 .orElseGet(() -> analysis.boundTimeZone(scope.owner(), scope.generation()));
     }
 
+    String resolveTimeZone(WeeklyScheduleStore.Scope scope, Optional<WeeklySchedule.Version> current, String requested) {
+        String bound = timeZone(scope, current);
+        if (bound != null && requested != null && !bound.equals(requested)) throw new RoutineFailure(SCHEDULE_TIME_ZONE_CONFLICT);
+        return bound == null ? requested : bound;
+    }
+
+    void applyPreset(WeeklyScheduleStore.Scope scope, WeeklyScheduleStore.State state, WeeklySchedule.Preset target,
+                     Optional<WeeklySchedule.Version> current, String zone, Instant at) {
+        if (current.isEmpty() || !current.get().assignments().equals(target.assignments())) {
+            apply(scope, current, zone, target.assignments(), at);
+        } else if (!target.id().equals(state.activePresetId())) {
+            plans.requireEditableSchedule(scope.owner(), scope.generation());
+        }
+    }
+
     /** Caller holds the owner lock in the same transaction as preset and routine changes. */
     void apply(WeeklyScheduleStore.Scope scope, Optional<WeeklySchedule.Version> current, String zone,
                List<WeeklySchedule.Assignment> assignments, Instant now) {

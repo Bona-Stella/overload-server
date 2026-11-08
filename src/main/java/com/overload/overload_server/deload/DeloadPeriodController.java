@@ -20,7 +20,13 @@ class DeloadPeriodController {
     @DeleteMapping(path="/{period}/plans/{plan}",consumes="application/json") ResponseEntity<?> remove(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String period,@PathVariable String plan,@RequestBody String raw,HttpServletRequest r){query(r);return ok(plans.remove(p.userId(),DeloadPeriodRequests.id(period),DeloadPeriodRequests.remove(raw,DeloadPeriodRequests.id(plan))));}
     @PutMapping(path="/{period}/method",consumes="application/json") ResponseEntity<?> method(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String period,@RequestBody String raw,HttpServletRequest r){query(r);return ok(plans.change(p.userId(),DeloadPeriodRequests.id(period),DeloadPeriodRequests.change(raw)));}
     @GetMapping("/eligibility") ResponseEntity<?> eligibility(@AuthenticationPrincipal SessionPrincipal p,HttpServletRequest r){read(r);return ok(service.eligibility(p.userId()));}
-    @GetMapping("/options") ResponseEntity<?> options(@AuthenticationPrincipal SessionPrincipal p,HttpServletRequest r){read(r);return ok(service.options(p.userId()));}
+    @GetMapping("/options") ResponseEntity<?> options(@AuthenticationPrincipal SessionPrincipal p,HttpServletRequest r) {
+        rejectBody(r);
+        String query = r.getQueryString();
+        if (query == null || query.isEmpty()) return ok(service.options(p.userId(),null));
+        if (!query.matches("presetId=[0-9a-fA-F-]{36}")) throw DeloadPeriodFailure.invalid();
+        return ok(service.options(p.userId(),DeloadPeriodRequests.id(query.substring("presetId=".length()))));
+    }
     @GetMapping("/current") ResponseEntity<?> current(@AuthenticationPrincipal SessionPrincipal p,HttpServletRequest r){read(r);return ok(service.current(p.userId()));}
     @GetMapping("/{period}") ResponseEntity<?> detail(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String period,HttpServletRequest r){read(r);return ok(service.detail(p.userId(),DeloadPeriodRequests.id(period)));}
     @GetMapping("/history") ResponseEntity<?> history(@AuthenticationPrincipal SessionPrincipal p,HttpServletRequest r) {
@@ -33,7 +39,7 @@ class DeloadPeriodController {
     }
     @PostMapping(path="/{period}/complete",consumes="application/json") ResponseEntity<?> complete(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String period,@RequestBody String raw,HttpServletRequest r){query(r);return ok(lifecycle.end(p.userId(),DeloadPeriodRequests.id(period),DeloadPeriodRequests.end(raw),false));}
     @PostMapping(path="/{period}/cancel",consumes="application/json") ResponseEntity<?> cancel(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String period,@RequestBody String raw,HttpServletRequest r){query(r);return ok(lifecycle.end(p.userId(),DeloadPeriodRequests.id(period),DeloadPeriodRequests.end(raw),true));}
-    @PostMapping(path="/preview",consumes="application/json") ResponseEntity<?> preview(@AuthenticationPrincipal SessionPrincipal p,@RequestBody String raw,HttpServletRequest r){query(r);var input=DeloadPeriodRequests.preview(raw);return ok(service.preview(p.userId(),input.generation(),input.choice()));}
+    @PostMapping(path="/preview",consumes="application/json") ResponseEntity<?> preview(@AuthenticationPrincipal SessionPrincipal p,@RequestBody String raw,HttpServletRequest r){query(r);var input=DeloadPeriodRequests.preview(raw);return ok(service.preview(p.userId(),input.generation(),input.presetId(),input.choice()));}
     @PostMapping(consumes="application/json") ResponseEntity<?> start(@AuthenticationPrincipal SessionPrincipal p,@RequestBody String raw,HttpServletRequest r){query(r);return ok(service.start(p.userId(),DeloadPeriodRequests.start(raw)));}
     private static void query(HttpServletRequest r){if(r.getQueryString()!=null&&!r.getQueryString().isEmpty())throw DeloadPeriodFailure.invalid();}
     private static void read(HttpServletRequest r){query(r);rejectBody(r);}

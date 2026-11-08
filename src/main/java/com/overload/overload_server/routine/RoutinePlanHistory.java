@@ -24,8 +24,12 @@ public class RoutinePlanHistory {
                 java.sql.Timestamp.from(now), deleted, JSON.writeValueAsString(plan));
     }
     /** Caller already owns the user row; guard both explicit saves and deletion-driven changes. */
-    void requireEditableSchedule(UUID owner,long generation) {
-        if(Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE user_id=? AND data_generation=? AND status='ACTIVE')",Boolean.class,owner,generation)))
-            throw new RoutineFailure(RoutineFailure.Reason.ACTIVE_SESSION_EXISTS);
+    void requireEditableSchedule(UUID owner, long generation) {
+        if (hasActiveWorkout(owner, generation)) throw new RoutineFailure(RoutineFailure.Reason.ACTIVE_SESSION_EXISTS);
+    }
+    boolean hasActiveWorkout(UUID owner, long generation) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE user_id=? AND data_generation=? AND status='ACTIVE')
+                """, Boolean.class, owner, generation));
     }
 }

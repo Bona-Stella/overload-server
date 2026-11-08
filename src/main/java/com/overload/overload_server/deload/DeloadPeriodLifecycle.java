@@ -1,5 +1,6 @@
 package com.overload.overload_server.deload;
 
+import com.overload.overload_server.routine.WeeklyScheduleRotation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -28,13 +29,15 @@ public class DeloadPeriodLifecycle {
     private final DeloadAnalysisRepository analysis;
     private final DeloadWeeklyRepository weekly;
     private final Clock clock;
+    private final WeeklyScheduleRotation rotation;
     private final TransactionTemplate writes;
 
     DeloadPeriodLifecycle(DeloadPeriodRepository periods, DeloadAnalysisRepository analysis, DeloadWeeklyRepository weekly,
-                          ObjectProvider<Clock> clocks, @Qualifier("workoutTransactionManager") PlatformTransactionManager manager) {
+                          WeeklyScheduleRotation rotation, ObjectProvider<Clock> clocks, @Qualifier("workoutTransactionManager") PlatformTransactionManager manager) {
         this.periods=periods;
         this.analysis=analysis;
         this.weekly=weekly;
+        this.rotation=rotation;
         clock=clocks.getIfAvailable(Clock::systemUTC);
         writes=new TransactionTemplate(manager);
         writes.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
@@ -107,6 +110,8 @@ public class DeloadPeriodLifecycle {
         periods.end(owner,generation,period,request,cancelled?"CANCELLED":"COMPLETED",reason,closedAt,closedDate,at);
         weekly.invalidateProtection(owner,generation,period.startDate(),automatic?processedDate.minusDays(1):closedDate,at);
         if(!cancelled)analysis.resetAfterCompletion(owner,generation,period.id(),closedAt,at);
+        var returnDate = cancelled || automatic ? processedDate : closedDate.plusDays(1);
+        rotation.resumeAfterDeload(owner,generation,returnDate,period.zone());
     }
 
     private Instant now() {

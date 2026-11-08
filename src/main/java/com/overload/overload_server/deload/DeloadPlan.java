@@ -11,7 +11,10 @@ final class DeloadPlan {
     record Muscle(UUID id,String group,String name){}
     record Classification(UUID id,String name,String jointType,List<Muscle> primary){}
     record Day(int weekday,RoutineResponses.Detail routine){}
-    record Source(UUID userId,String dataGeneration,String timeZone,LocalDate today,String scheduleVersion,List<Day> days,List<Classification> classifications){}
+    record Source(UUID userId,String dataGeneration,String timeZone,LocalDate today,
+                  UUID presetId,String presetVersion,List<Day> days,List<Classification> classifications,
+                  @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                  String scheduleVersion){}
     record Choice(Method method,Split split,List<LocalDate> dates){}
     record Weight(int sourceWeekday,UUID sourceRoutineId,String sourceVersion,RoutineResponses.Weight original,String weightKg,int setCount,int minReps,int maxReps){}
     record Cardio(int sourceWeekday,UUID sourceRoutineId,String sourceVersion,RoutineResponses.Cardio original,RoutineResponses.Plan target){}

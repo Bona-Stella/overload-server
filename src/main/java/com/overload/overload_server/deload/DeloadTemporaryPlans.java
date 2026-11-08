@@ -67,7 +67,7 @@ public class DeloadTemporaryPlans {
         var p=lock(owner,input.generation(),id);String hash=DeloadPeriodService.hash(Arrays.asList("METHOD",input));if(retry(p,input.version(),input.request(),hash))return view(owner,input.generation());
         if(hasActivity(owner,input.generation(),id)||Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE user_id=? AND data_generation=? AND status='ACTIVE')",Boolean.class,owner,input.generation())))throw DeloadPeriodFailure.conflict("DELOAD_METHOD_FROZEN");
         var today=today(p);if(input.choice().method()!=Method.REST&&today.isAfter(p.start().plusDays(6)))throw DeloadPeriodFailure.conflict("DELOAD_GENERATION_WINDOW_CLOSED");
-        var original=DeloadPeriodRepository.JSON.readValue(p.source(),Source.class);var source=new Source(owner,Long.toString(input.generation()),p.zone(),today,original.scheduleVersion(),original.days(),original.classifications());
+        var original=DeloadPeriodRepository.JSON.readValue(p.source(),Source.class);var source=new Source(owner,Long.toString(input.generation()),p.zone(),today,original.presetId(),original.presetVersion(),original.days(),original.classifications(),original.scheduleVersion());
         var generated=DeloadPlanGenerator.generate(source,input.choice());if(!generated.ready())throw DeloadPeriodFailure.conflict("DELOAD_PLAN_REQUIRES_POLICY");
         if(DeloadPlanGenerator.dates(source,input.choice()).stream().anyMatch(date->date.isAfter(p.start().plusDays(6))))throw DeloadPeriodFailure.conflict("DELOAD_INSUFFICIENT_DATES");
         // Finished (even empty) plans require explicit no-activity abandonment before replacing the method.

@@ -4,6 +4,8 @@ import com.overload.overload_server.OverloadServerApplication;
 import com.overload.overload_server.routine.RoutineResponses;
 import com.overload.overload_server.workoutsession.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -46,7 +48,7 @@ class DeloadPeriodIntegrationTests {
         app=new SpringApplicationBuilder(OverloadServerApplication.class,EmailOtpFixtures.class,WorkoutReadFixtures.class).web(WebApplicationType.SERVLET).run(
             "--spring.profiles.active=local,integration","--spring.datasource.url="+POSTGRES.getJdbcUrl(),"--spring.datasource.username="+POSTGRES.getUsername(),"--spring.datasource.password="+POSTGRES.getPassword(),
             "--server.address=127.0.0.1","--server.port=0","--OTP_HMAC_KEY="+Base64.getEncoder().encodeToString(key),"--OTP_EMAIL_ENABLED=false",
-            "--GOOGLE_OIDC_ENABLED=false","--GOOGLE_REAUTH_ENABLED=false","--spring.session.jdbc.cleanup-cron=-","--logging.level.root=WARN","--spring.main.banner-mode=off");
+            "--GOOGLE_OIDC_ENABLED=false","--GOOGLE_REAUTH_ENABLED=false","--overload.workout.review.enabled=false","--spring.session.jdbc.cleanup-cron=-","--logging.level.root=WARN","--spring.main.banner-mode=off");
         jdbc=app.getBean(JdbcTemplate.class);
     }
     @AfterAll static void stop() {if(app!=null)app.close();}
@@ -69,8 +71,8 @@ class DeloadPeriodIntegrationTests {
     Instant at(int day){return monday.plusDays(day).atTime(12,0).atZone(ZoneId.of("Asia/Seoul")).toInstant();}
     DeloadPeriodService service(){return app.getBean(DeloadPeriodService.class);}
     Choice rest(){return new Choice(Method.REST,Split.REST,List.of());}
-    DeloadPeriodService.Preview preview(Choice c){return service().preview(owner,0,c);}
-    DeloadPeriodRequests.Start request(DeloadPeriodService.Preview p){return new DeloadPeriodRequests.Start(0,UUID.randomUUID(),p.previewToken(),p.choice());}
+    DeloadPeriodService.Preview preview(Choice c){return service().preview(owner,0,null,c);}
+    DeloadPeriodRequests.Start request(DeloadPeriodService.Preview p){return new DeloadPeriodRequests.Start(0,UUID.randomUUID(),p.previewToken(),null,p.choice());}
     DeloadPeriodService.Current start(Choice c){return service().start(owner,request(preview(c)));}
     JsonNode ok(HttpResponse<String> r){assertThat(r.statusCode()).as(r.body()).isEqualTo(200);return JSON.readTree(r.body());}
     void conflict(Runnable work,String code){assertThatThrownBy(work::run).isInstanceOfSatisfying(DeloadPeriodFailure.class,e->assertThat(e.code).isEqualTo(code));}
@@ -172,14 +174,188 @@ class DeloadPeriodIntegrationTests {
     }
     @Test void duplicateRequestIsIdempotentButDifferentPayloadOrActivePeriodIsRejected() {
         weight(2,1,1);var req=request(preview(rest()));var first=service().start(owner,req);assertThat(service().start(owner,req)).isEqualTo(first);
-        conflict(()->service().start(owner,new DeloadPeriodRequests.Start(0,req.requestId(),"f".repeat(64),rest())),"DELOAD_REQUEST_CONFLICT");
+        conflict(()->service().start(owner,new DeloadPeriodRequests.Start(0,req.requestId(),"f".repeat(64),null,rest())),"DELOAD_REQUEST_CONFLICT");
         conflict(()->start(rest()),"DELOAD_ACTIVE_PERIOD");assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_periods WHERE user_id=?",Integer.class,owner)).isEqualTo(1);
     }
+    private static final String WEEKLY = "/api/v1/weekly-schedule";
+
+    private JsonNode weekly() throws Exception { return ok(browser.get(WEEKLY)); }
+
+    private Map<String,Object> weeklyConfig(JsonNode view) {
+        return new LinkedHashMap<>(Map.of("dataGeneration","0","expectedStateVersion",view.get("stateVersion").asString()));
+    }
+
+    private JsonNode addPreset(JsonNode view) throws Exception {
+        var response=browser.send("POST",WEEKLY+"/presets",JSON.writeValueAsString(weeklyConfig(view)),browser.csrf());
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+        return JSON.readTree(response.body());
+    }
+
+    private UUID weeklyId(JsonNode view,int position) {
+        return UUID.fromString(view.get("presets").get(position).get("id").asString());
+    }
+
+    private JsonNode savePreset(JsonNode view,UUID id,String version,List<?> assignments) throws Exception {
+        var body=weeklyConfig(view);
+        body.put("expectedPresetVersion",version);body.put("assignments",assignments);
+        return ok(browser.send("PUT",WEEKLY+"/presets/"+id+"/assignments",JSON.writeValueAsString(body),browser.csrf()));
+    }
+
+    private Map<String,Object> rotationBody(JsonNode view,boolean enabled,UUID... order) {
+        var body=weeklyConfig(view);
+        body.put("autoEnabled",enabled);
+        body.put("presets",Arrays.stream(order).map(id->Map.of("id",id,"rotationIncluded",enabled)).toList());
+        return body;
+    }
+
+    private JsonNode setRotation(JsonNode view,boolean enabled,UUID... order) throws Exception {
+        return ok(browser.send("PUT",WEEKLY+"/rotation",JSON.writeValueAsString(rotationBody(view,enabled,order)),browser.csrf()));
+    }
+
+    private com.overload.overload_server.routine.WeeklyScheduleRotation rotation() {
+        return app.getBean(com.overload.overload_server.routine.WeeklyScheduleRotation.class);
+    }
+
+    private long journalSize() {
+        return jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Long.class,owner);
+    }
+
+    @Test void selectedInactiveSourceIsFrozenWithoutApplyingItAndMondayReturnKeepsA() throws Exception {
+        weight(2,1,1);
+        UUID general=planRoutine(), selected=planRoutine();
+        schedule(general,1);
+        var two=addPreset(weekly());
+        UUID a=weeklyId(two,0), b=weeklyId(two,1);
+        two=savePreset(two,b,"0",List.of(Map.of("dayOfWeek",2,"routineId",selected)));
+        var on=setRotation(two,true,a,b);
+        assertThat(on.get("nextRotationAt").asString()).isEqualTo("2026-11-08T15:00:00Z");
+        assertThat(ok(browser.get(PATH+"/options")).get("sourcePresetId").asString()).isEqualTo(a.toString());
+        assertThat(ok(browser.get(PATH+"/options?presetId="+b)).get("sourcePresetId").asString()).isEqualTo(b.toString());
+        assertThat(browser.get(PATH+"/options?presetId="+UUID.randomUUID()).statusCode()).isEqualTo(404);
+
+        var choice=new Choice(Method.KEEP,Split.ORIGINAL,List.of());
+        var preview=ok(browser.send("POST",PATH+"/preview",JSON.writeValueAsString(Map.of("dataGeneration","0",
+                "presetId",b,"method",choice.method(),"split",choice.split(),"dates",List.of())),browser.csrf()));
+        String requestId=UUID.randomUUID().toString();
+        var body=JSON.writeValueAsString(Map.of("dataGeneration","0","requestId",requestId,"presetId",b,
+                "previewToken",preview.get("previewToken").asString(),"method",choice.method(),"split",choice.split(),"dates",List.of()));
+        var started=ok(browser.send("POST",PATH,body,browser.csrf()));
+        var source=started.get("period").get("source");
+        assertThat(source.get("presetId").asString()).isEqualTo(b.toString());
+        assertThat(source.get("presetVersion").asString()).isEqualTo("1");
+        assertThat(source.has("scheduleVersion")).isFalse();
+        assertThat(source.get("days").get(0).get("routine").get("id").asString()).isEqualTo(selected.toString());
+        assertThat(started.get("period").get("plans").size()).isEqualTo(1);
+        assertThat(ok(browser.send("POST",PATH,body,browser.csrf()))).isEqualTo(started);
+        var paused=weekly();
+        assertThat(paused.get("activePresetId").asString()).isEqualTo(a.toString());
+        assertThat(paused.get("autoEnabled").asBoolean()).isTrue();
+        assertThat(paused.get("nextRotationAt").isNull()).isTrue();
+        assertThat(journalSize()).isEqualTo(1);
+        assertScheduleProtected(browser.send("PUT",WEEKLY+"/rotation",
+                JSON.writeValueAsString(rotationBody(paused,false,a,b)),browser.csrf()));
+
+        var period=service().current(owner).period();
+        lifecycle().end(owner,period.id(),new DeloadPeriodRequests.End(0,0,UUID.randomUUID()),false);
+        var resumed=weekly();
+        assertThat(resumed.get("activePresetId").asString()).isEqualTo(a.toString());
+        assertThat(resumed.get("nextRotationAt").asString()).isEqualTo("2026-11-15T15:00:00Z");
+        clock("2026-11-08T15:00:00Z");
+        rotation().runBatch();
+        assertThat(weekly()).isEqualTo(resumed);
+        assertThat(journalSize()).isEqualTo(1);
+        clock("2026-11-15T15:00:00Z");
+        rotation().runBatch();
+        assertThat(weekly().get("activePresetId").asString()).isEqualTo(b.toString());
+        assertThat(journalSize()).isEqualTo(2);
+    }
+
+    @Test void explicitSourceSurvivesReorderingButEditOrDeletionInvalidatesStart() throws Exception {
+        weight(2,1,1);
+        UUID selected=planRoutine();
+        var two=addPreset(weekly());
+        UUID a=weeklyId(two,0), b=weeklyId(two,1);
+        var assigned=savePreset(two,b,"0",List.of(Map.of("dayOfWeek",2,"routineId",selected)));
+        var choice=new Choice(Method.KEEP,Split.ORIGINAL,List.of());
+        var old=service().preview(owner,0,b,choice);
+        var reordered=setRotation(assigned,false,b,a);
+        assertThat(service().preview(owner,0,b,choice).previewToken()).isEqualTo(old.previewToken());
+        var changed=savePreset(reordered,b,"1",List.of());
+        var oldRequest=new DeloadPeriodRequests.Start(0,UUID.randomUUID(),old.previewToken(),b,old.choice());
+        conflict(()->service().start(owner,oldRequest),"DELOAD_PREVIEW_STALE");
+
+        var newest=service().preview(owner,0,b,rest());
+        var body=weeklyConfig(changed);body.put("expectedPresetVersion","2");
+        ok(browser.send("DELETE",WEEKLY+"/presets/"+b,JSON.writeValueAsString(body),browser.csrf()));
+        var removed=new DeloadPeriodRequests.Start(0,UUID.randomUUID(),newest.previewToken(),b,newest.choice());
+        conflict(()->service().start(owner,removed),"DELOAD_PREVIEW_STALE");
+        assertThat(journalSize()).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans={true,false})
+    void cancellationAndDelayedAutoCompletionRestartAfterActualReturnMonday(boolean cancel) throws Exception {
+        weight(2,1,1);
+        var two=addPreset(weekly());
+        UUID a=weeklyId(two,0), b=weeklyId(two,1);
+        setRotation(two,true,a,b);
+        var period=start(rest()).period();
+        clock(cancel?"2026-11-09T03:00:00Z":"2026-11-23T03:00:00Z");
+        rotation().runBatch();
+        assertThat(weekly().get("nextRotationAt").isNull()).isTrue();
+        if(cancel) lifecycle().end(owner,period.id(),new DeloadPeriodRequests.End(0,0,UUID.randomUUID()),true);
+        else lifecycle().completeDuePeriods();
+        var resumed=weekly();
+        assertThat(resumed.get("activePresetId").asString()).isEqualTo(a.toString());
+        assertThat(resumed.get("nextRotationAt").asString()).isEqualTo(cancel?"2026-11-15T15:00:00Z":"2026-11-29T15:00:00Z");
+        rotation().runBatch();
+        assertThat(weekly()).isEqualTo(resumed);
+        assertThat(journalSize()).isEqualTo(1);
+        clock(cancel?"2026-11-15T15:00:00Z":"2026-11-29T15:00:00Z");
+        rotation().runBatch();
+        assertThat(weekly().get("activePresetId").asString()).isEqualTo(b.toString());
+        assertThat(journalSize()).isEqualTo(1);
+    }
+
+    @Test void rotationWriteFailureRollsBackPeriodStartAndCancellation() throws Exception {
+        weight(2,1,1);
+        var two=addPreset(weekly());
+        var on=setRotation(two,true,weeklyId(two,0),weeklyId(two,1));
+        var request=request(preview(rest()));
+        WorkoutReadFixtures.observer=event->{
+            if(event.before()&&event.sql().stripLeading().toLowerCase(Locale.ROOT).startsWith("update weekly_schedule_state"))
+                throw new org.springframework.dao.DataAccessResourceFailureException("isolated cursor write failure");
+        };
+        try {
+            assertThatThrownBy(()->service().start(owner,request))
+                    .isInstanceOf(org.springframework.dao.DataAccessResourceFailureException.class);
+        } finally { WorkoutReadFixtures.observer=null; }
+        assertThat(service().current(owner).period()).isNull();
+        assertThat(weekly()).isEqualTo(on);
+
+        var period=service().start(owner,request).period();
+        var paused=weekly();
+        var end=new DeloadPeriodRequests.End(0,0,UUID.randomUUID());
+        WorkoutReadFixtures.observer=event->{
+            if(event.before()&&event.sql().stripLeading().toLowerCase(Locale.ROOT).startsWith("update weekly_schedule_state"))
+                throw new org.springframework.dao.DataAccessResourceFailureException("isolated cursor restore failure");
+        };
+        try {
+            assertThatThrownBy(()->lifecycle().end(owner,period.id(),end,true))
+                    .isInstanceOf(org.springframework.dao.DataAccessResourceFailureException.class);
+        } finally { WorkoutReadFixtures.observer=null; }
+        assertThat(service().current(owner).period().status()).isEqualTo("ACTIVE");
+        assertThat(weekly()).isEqualTo(paused);
+        assertThat(lifecycle().end(owner,period.id(),end,true).period().status()).isEqualTo("CANCELLED");
+        assertThat(weekly().get("nextRotationAt").isNull()).isFalse();
+    }
+
     @Test void sourceScheduleEligibilityAndDateChangesInvalidatePreview() {
         weight(2,1,1);UUID id=planRoutine();schedule(id,1);var c=new Choice(Method.KEEP,Split.ORIGINAL,List.of());var old=request(preview(c));
         jdbc.update("UPDATE routines SET name='changed',version=version+1 WHERE id=?",id);conflict(()->service().start(owner,old),"DELOAD_PREVIEW_STALE");
-        var staleSchedule=request(preview(c));jdbc.update("INSERT INTO weekly_schedule_versions SELECT user_id,data_generation,2,recorded_at,effective_from,time_zone,'[]'::jsonb FROM weekly_schedule_versions WHERE user_id=?",owner);
-        conflict(()->service().start(owner,staleSchedule),"INVALID_REQUEST");
+        var staleSchedule=request(preview(c));
+        jdbc.update("UPDATE weekly_schedule_presets SET assignments='[]',preset_version=preset_version+1 WHERE user_id=?",owner);
+        conflict(()->service().start(owner,staleSchedule),"DELOAD_PREVIEW_STALE");
     }
     @Test void tomorrowRequiresFreshPreviewAndTodayActivityRevalidatesEligibility() {
         weight(2,1,1);var old=request(preview(rest()));clock("2026-11-09T03:00:00Z");conflict(()->service().start(owner,old),"DELOAD_PREVIEW_STALE");
