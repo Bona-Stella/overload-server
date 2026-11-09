@@ -224,6 +224,80 @@ class DeloadPeriodIntegrationTests {
         return jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Long.class,owner);
     }
 
+    private String renameBody(JsonNode view, int index, String name) {
+        var body = weeklyConfig(view);
+        body.put("expectedPresetVersion", view.get("presets").get(index).get("presetVersion").asString());
+        body.put("name", name);
+        return JSON.writeValueAsString(body);
+    }
+
+    @Test void renamingPreservesRotationAndWorkoutOriginsAndSharesTheAssignmentVersion() throws Exception {
+        weight(2, 1, 1);
+        UUID routine = planRoutine();
+        schedule(routine, 1);
+        var two = addPreset(weekly());
+        assertThat(two.get("presets").get(0).get("name").asString()).isEqualTo("01 주간 일정");
+        assertThat(two.get("presets").get(1).get("name").asString()).isEqualTo("02 주간 일정");
+        UUID first = weeklyId(two, 0), second = weeklyId(two, 1);
+        var on = setRotation(two, true, first, second);
+        clock(on.get("nextRotationAt").asString());
+        rotation().runBatch();
+        var before = weekly();
+        assertThat(before.get("activePresetId").asString()).isEqualTo(second.toString());
+        var protectedRows = originals();
+        String path = WEEKLY + "/presets/" + second;
+        String rename = renameBody(before, 1, "  훈련 주간  ");
+        var saved = ok(browser.send("PUT", path + "/name", rename, browser.csrf()));
+        var expected = (tools.jackson.databind.node.ObjectNode) JSON.readTree(before.toString());
+        var changed = (tools.jackson.databind.node.ObjectNode) expected.get("presets").get(1);
+        changed.put("name", "훈련 주간");
+        changed.put("presetVersion", "1");
+        assertThat(saved).isEqualTo(expected).isEqualTo(weekly());
+        assertThat(originals()).isEqualTo(protectedRows);
+        assertThat(ok(browser.send("PUT", path + "/name", renameBody(saved, 1, "훈련 주간"), browser.csrf())))
+                .isEqualTo(saved);
+        var stale = browser.send("PUT", path + "/name", rename, browser.csrf());
+        assertThat(stale.statusCode()).isEqualTo(409);
+        assertThat(JSON.readTree(stale.body()).get("code").asString()).isEqualTo("PRESET_VERSION_CONFLICT");
+        var assignment = weeklyConfig(before);
+        assignment.put("expectedPresetVersion", "0");
+        assignment.put("assignments", List.of(Map.of("dayOfWeek", 2, "routineId", routine)));
+        var staleAssignment = browser.send("PUT", path + "/assignments", JSON.writeValueAsString(assignment), browser.csrf());
+        assertThat(staleAssignment.statusCode()).isEqualTo(409);
+        assertThat(JSON.readTree(staleAssignment.body()).get("code").asString()).isEqualTo("PRESET_VERSION_CONFLICT");
+        var reordered = setRotation(saved, false, second, first);
+        assertThat(weeklyId(reordered, 0)).isEqualTo(second);
+        assertThat(reordered.get("presets").get(0).get("name").asString()).isEqualTo("훈련 주간");
+        assertThat(reordered.get("presets").get(1).get("name").asString()).isEqualTo("02 주간 일정");
+    }
+
+    @Test void renameRejectsMissingDeletedForeignAndInvalidPresetsWithoutChangingState() throws Exception {
+        var view = addPreset(weekly());
+        UUID id = weeklyId(view, 1);
+        String path = WEEKLY + "/presets/" + id;
+        String rename = renameBody(view, 1, "이름");
+        assertThat(browser.send("PUT", path + "/name", rename, null).statusCode()).isEqualTo(403);
+        assertThat(browser.send("PUT", path + "/name?userId=" + owner, rename, browser.csrf()).statusCode()).isEqualTo(400);
+        assertThat(browser.send("PUT", path + "/name", renameBody(view, 1, "　"), browser.csrf()).statusCode()).isEqualTo(400);
+        assertThat(browser.send("PUT", path + "/name", rename.replace("\"expectedStateVersion\":\"1\"", "\"expectedStateVersion\":\"0\""), browser.csrf()).statusCode()).isEqualTo(409);
+        try (var other = new Browser()) {
+            other.login();
+            var own = ok(other.get(WEEKLY));
+            var foreign = other.send("PUT", path + "/name", renameBody(own, 0, "외부 변경"), other.csrf());
+            assertThat(foreign.statusCode()).isEqualTo(404);
+            assertThat(JSON.readTree(foreign.body()).get("code").asString()).isEqualTo("PRESET_NOT_FOUND");
+        }
+        assertThat(weekly()).isEqualTo(view);
+        var delete = weeklyConfig(view);
+        delete.put("expectedPresetVersion", "0");
+        var remaining = ok(browser.send("DELETE", path, JSON.writeValueAsString(delete), browser.csrf()));
+        for (UUID missing : List.of(id, UUID.randomUUID())) {
+            var failure = browser.send("PUT", WEEKLY + "/presets/" + missing + "/name", renameBody(remaining, 0, "없음"), browser.csrf());
+            assertThat(failure.statusCode()).isEqualTo(404);
+            assertThat(JSON.readTree(failure.body()).get("code").asString()).isEqualTo("PRESET_NOT_FOUND");
+        }
+    }
+
     @Test void selectedInactiveSourceIsFrozenWithoutApplyingItAndMondayReturnKeepsA() throws Exception {
         weight(2,1,1);
         UUID general=planRoutine(), selected=planRoutine();
@@ -258,6 +332,8 @@ class DeloadPeriodIntegrationTests {
         assertThat(journalSize()).isEqualTo(1);
         assertScheduleProtected(browser.send("PUT",WEEKLY+"/rotation",
                 JSON.writeValueAsString(rotationBody(paused,false,a,b)),browser.csrf()));
+        assertScheduleProtected(browser.send("PUT", WEEKLY + "/presets/" + a + "/name",
+                renameBody(paused, 0, "차단된 이름"), browser.csrf()));
 
         var period=service().current(owner).period();
         lifecycle().end(owner,period.id(),new DeloadPeriodRequests.End(0,0,UUID.randomUUID()),false);

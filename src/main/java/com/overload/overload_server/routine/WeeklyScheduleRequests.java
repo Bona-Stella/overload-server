@@ -4,6 +4,7 @@ import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -33,6 +34,14 @@ final class WeeklyScheduleRequests {
         }
         assignments.sort(Comparator.comparingInt(WeeklySchedule.Assignment::dayOfWeek));
         return new WeeklySchedule.Edit(configuration(body), counter(body.get("expectedPresetVersion")), zone(body), List.copyOf(assignments));
+    }
+
+    static WeeklySchedule.Rename rename(String raw) {
+        var body = body(raw, false, "dataGeneration", "expectedStateVersion", "expectedPresetVersion", "name");
+        String name = text(body.get("name")).replaceAll("(?U)^[\\s\\uFEFF]+|[\\s\\uFEFF]+$", "");
+        if (name.isEmpty() || name.codePointCount(0, name.length()) > 100 || name.codePoints().anyMatch(Character::isISOControl)
+                || !StandardCharsets.UTF_8.newEncoder().canEncode(name)) throw RoutineRequests.invalid();
+        return new WeeklySchedule.Rename(configuration(body), counter(body.get("expectedPresetVersion")), name);
     }
 
     static WeeklySchedule.Activate activate(String raw) {

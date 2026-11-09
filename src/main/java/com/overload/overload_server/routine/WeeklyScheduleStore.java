@@ -8,6 +8,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,10 +38,15 @@ class WeeklyScheduleStore {
 
     List<WeeklySchedule.Preset> presets(Scope scope) {
         return jdbc.query("""
-                SELECT id, display_order, preset_version, rotation_included, assignments::text
+                SELECT id, display_order, preset_version, rotation_included, assignments::text AS assignments, name
                 FROM weekly_schedule_presets WHERE user_id=? AND data_generation=? ORDER BY display_order
-                """, (row, index) -> new WeeklySchedule.Preset(row.getObject(1, UUID.class), row.getInt(2),
-                    row.getString(3), row.getBoolean(4), List.of(JSON.readValue(row.getString(5), WeeklySchedule.Assignment[].class))),
+                """, (row, index) -> {
+                    int order = row.getInt("display_order");
+                    String name = row.getString("name");
+                    return new WeeklySchedule.Preset(row.getObject("id", UUID.class), order, row.getString("preset_version"),
+                            row.getBoolean("rotation_included"), List.of(JSON.readValue(row.getString("assignments"), WeeklySchedule.Assignment[].class)),
+                            name == null ? String.format(Locale.ROOT, "%02d 주간 일정", order) : name);
+                },
                 scope.owner(), scope.generation());
     }
 
@@ -55,6 +61,14 @@ class WeeklyScheduleStore {
                 UPDATE weekly_schedule_presets SET assignments=?::jsonb, preset_version=preset_version+1
                 WHERE user_id=? AND data_generation=? AND id=?
                 """, JSON.writeValueAsString(assignments), scope.owner(), scope.generation(), id);
+    }
+
+    void rename(Scope scope, UUID id, String name) {
+        int changed = jdbc.update("""
+                UPDATE weekly_schedule_presets SET name=?, preset_version=preset_version+1
+                WHERE user_id=? AND data_generation=? AND id=? AND preset_version < 9223372036854775807
+                """, name, scope.owner(), scope.generation(), id);
+        if (changed != 1) throw new RoutineFailure(RoutineFailure.Reason.WRITE_CONFLICT);
     }
 
     void changeState(Scope scope, UUID activePresetId, boolean autoEnabled, Instant next) {

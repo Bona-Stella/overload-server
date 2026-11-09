@@ -11,12 +11,13 @@ public final class WeeklySchedule {
     public record Assignment(int dayOfWeek, UUID routineId) { }
     public record Version(String version, LocalDate effectiveFrom, String timeZone, Instant recordedAt, List<Assignment> assignments) { }
 
-    public record Preset(UUID id, int displayOrder, String presetVersion, boolean rotationIncluded, List<Assignment> assignments) { }
+    public record Preset(UUID id, int displayOrder, String presetVersion, boolean rotationIncluded, List<Assignment> assignments, String name) { }
     public record View(String dataGeneration, String stateVersion, UUID activePresetId, boolean autoEnabled, String timeZone,
                        Instant nextRotationAt, String appliedScheduleVersion, Instant appliedAt, List<Preset> presets) { }
 
     record Configuration(long generation, long expectedStateVersion) { }
     record Edit(Configuration configuration, long expectedPresetVersion, String timeZone, List<Assignment> assignments) { }
+    record Rename(Configuration configuration, long expectedPresetVersion, String name) { }
     record Activate(Configuration configuration, UUID presetId, String timeZone) { }
     record RotationEntry(UUID id, boolean rotationIncluded) { }
     record Rotation(Configuration configuration, boolean autoEnabled, String timeZone, List<RotationEntry> presets) { }

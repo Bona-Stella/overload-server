@@ -88,6 +88,15 @@ public class WeeklyScheduleService {
         return view(scope);
     }
 
+    WeeklySchedule.View rename(UUID owner, UUID id, WeeklySchedule.Rename request) {
+        var scope = lock(owner, request.configuration());
+        checkedState(scope, request.configuration());
+        var target = preset(store.presets(scope), id);
+        checkVersion(target, request.expectedPresetVersion());
+        if (!target.name().equals(request.name())) store.rename(scope, id, request.name());
+        return view(scope);
+    }
+
     WeeklySchedule.View delete(UUID owner, UUID id, WeeklySchedule.Delete request) {
         var scope = lock(owner, request.configuration());
         var state = checkedState(scope, request.configuration());

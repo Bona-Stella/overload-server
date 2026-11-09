@@ -61,13 +61,15 @@ class PostgresMigrationTests {
 					"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_definitions", "exercise_muscle",
 					"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_presets", "weekly_schedule_state", "weekly_schedule_versions", "workout_calendar_control", "workout_sessions");
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();
-			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("30");
+			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("31");
 			assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();
 			assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
 			flyway.validate();
 			history = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
-			assertThat(history).hasSize(30);
-			assertThat(history.getLast()).containsEntry("version", "30")
+			assertThat(history).hasSize(31);
+			assertThat(history.getLast()).containsEntry("version", "31")
+					.containsEntry("script", "V31__add_weekly_schedule_preset_name.sql").containsEntry("success", true);
+			assertThat(history.get(29)).containsEntry("version", "30")
 					.containsEntry("script", "V30__create_weekly_schedule_presets.sql").containsEntry("success", true);
             assertThat(history.get(25)).containsEntry("version", "26").containsEntry("script", "V26__add_excluded_deload_weekly_assessments.sql").containsEntry("success", true);
             assertThat(history.get(21)).containsEntry("version", "22").containsEntry("script", "V22__add_bodyweight_additional_load.sql").containsEntry("success", true);
@@ -293,7 +295,7 @@ class PostgresMigrationTests {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_analysis_versions",Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM deload_weekly_assessments",Integer.class)).isZero();
         assertThat(latest.migrate().migrationsExecuted).isZero();latest.validate();
-        var finalSchema=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).load();
+        var finalSchema=Flyway.configure().dataSource(postgres.getJdbcUrl(),postgres.getUsername(),postgres.getPassword()).target("30").load();
         assertThat(finalSchema.migrate().migrationsExecuted).isEqualTo(5);
         for(var table:tables) {
             var projected=table.equals("workout_sessions")
@@ -387,10 +389,47 @@ class PostgresMigrationTests {
 		var checksums = java.util.Arrays.stream(v2.info().applied()).map(info -> info.getChecksum()).toList();
 		try (var context = startApplication(WebApplicationType.NONE)) {
 			var latest = context.getBean(Flyway.class);
-			assertThat(latest.info().current().getVersion().toString()).isEqualTo("30");
+			assertThat(latest.info().current().getVersion().toString()).isEqualTo("31");
 			assertThat(java.util.Arrays.stream(latest.info().applied()).limit(2).map(info -> info.getChecksum()).toList())
 					.isEqualTo(checksums);
 			assertThat(latest.migrate().migrationsExecuted).isZero();
+		}
+	}
+
+	@Test
+	void v31PreservesExistingPresetDataAndStoresNamesAcrossRestart() {
+		var v30 = Flyway.configure().dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()).target("30").load();
+		v30.migrate();
+		var jdbc = new JdbcTemplate(new org.springframework.jdbc.datasource.DriverManagerDataSource(
+				postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword()));
+		UUID owner = UUID.randomUUID(), preset = UUID.randomUUID(), routine = UUID.randomUUID();
+		jdbc.update("INSERT INTO users(id,created_at,updated_at) VALUES (?,now(),now())", owner);
+		jdbc.update("""
+				INSERT INTO weekly_schedule_presets(user_id,data_generation,id,display_order,preset_version,rotation_included,assignments)
+				VALUES (?,0,?,1,3,true,?::jsonb)
+				""", owner, preset, "[{\"dayOfWeek\":2,\"routineId\":\"" + routine + "\"}]");
+		jdbc.update("""
+				INSERT INTO weekly_schedule_state(user_id,data_generation,active_preset_id,state_version,auto_enabled,next_rotation_at)
+				VALUES (?,0,?,4,true,'2026-11-23T00:00:00Z')
+				""", owner, preset);
+		var original = jdbc.queryForMap("SELECT * FROM weekly_schedule_presets WHERE id=?", preset);
+		var state = jdbc.queryForMap("SELECT * FROM weekly_schedule_state WHERE user_id=?", owner);
+		var checksums = jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history ORDER BY installed_rank");
+		try (var context = startApplication(WebApplicationType.NONE)) {
+			var migrated = context.getBean(JdbcTemplate.class);
+			var withName = migrated.queryForMap("SELECT * FROM weekly_schedule_presets WHERE id=?", preset);
+			assertThat(withName).containsEntry("name", null);
+			withName.remove("name");
+			assertThat(withName).isEqualTo(original);
+			assertThat(migrated.queryForMap("SELECT * FROM weekly_schedule_state WHERE user_id=?", owner)).isEqualTo(state);
+			assertThat(migrated.queryForList("SELECT version,checksum FROM flyway_schema_history WHERE installed_rank<=30 ORDER BY installed_rank"))
+					.isEqualTo(checksums);
+			migrated.update("UPDATE weekly_schedule_presets SET name=? WHERE id=?", "지속되는 일정", preset);
+		}
+		try (var context = startApplication(WebApplicationType.NONE)) {
+			assertThat(context.getBean(JdbcTemplate.class).queryForObject("SELECT name FROM weekly_schedule_presets WHERE id=?", String.class, preset))
+					.isEqualTo("지속되는 일정");
+			assertThat(context.getBean(Flyway.class).migrate().migrationsExecuted).isZero();
 		}
 	}
 
