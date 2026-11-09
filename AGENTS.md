@@ -91,9 +91,9 @@ README에 작성된 예정 기능을
 
 ## 3. Required Engineering Documents
 
-코드 변경 전 현재 저장소의 `AGENTS.md`와 [Backend 개발 규칙](docs/engineering/backend.md)을 적용합니다.
+새 작업은 이 문서에서 시작합니다. [Backend 개발 현황](docs/engineering/backend.md#11-현재-개발-현황)을 확인한 뒤 아래 표에서 해당 작업의 최신 확정 정책과 UI·API 계약을 고르고, 코드 변경 전에 [Backend 개발 규칙](docs/engineering/backend.md)을 적용합니다. 실제 Git HEAD와 작업 트리, 관련 구현·테스트를 확인하고 기존 작업을 보존합니다. 두 저장소 연동 시에는 양쪽 Git 상태와 [Frontend AGENTS.md](../overload-pwa/AGENTS.md#3-required-engineering-documents)를 확인합니다.
 
-DB 구조를 확인해야 하는 작업에서는 [ERD](docs/database/erd.md)와 [DB 설계서](docs/database/schema.md)를 참고합니다. 스키마 변경은 Flyway migration, 클라이언트 통신은 해당 API 계약을 기준으로 합니다.
+DB 구조를 확인해야 하는 작업에서는 [ERD](docs/database/erd.md)와 [DB 설계서](docs/database/schema.md)를 참고합니다. 스키마 변경은 [Flyway migration](src/main/resources/db/migration/), 클라이언트 통신은 [해당 API 계약](docs/api/)을 기준으로 합니다. 실제 DB 적용과 데이터 보호는 4.2절과 15절을 따릅니다.
 
 PWA의 실제 API 연동을 지원할 때는 [테스트 환경 안내](docs/engineering/test-environment.md)에서 기존 격리 환경과 버전·데이터·재개 승인 조건을 확인합니다. UI 시연과 승인 순서는 [Frontend 개발 절차](../overload-pwa/docs/engineering/frontend.md#181-기본-ui-개발-절차)를 따릅니다.
 
@@ -109,7 +109,7 @@ PWA의 실제 API 연동을 지원할 때는 [테스트 환경 안내](docs/engi
 | 루틴·세션 쓰기·오프라인·복구 | [Task 009 v1.0](docs/tasks/task-009-redesign-v1.0.md)의 정책과 [루틴](docs/api/routine-management.md)·[세션](docs/api/workout-sessions.md)·[휴식 설정](docs/api/workout-online-write.md)·[표준 카탈로그](docs/api/standard-exercise-catalog.md) 계약을 적용합니다. 현재 카탈로그·세션·PWA 기술 계약이 과거 DTO와 스키마 설명을 대체합니다. 일반 관리는 온라인 API, 진행 운동 보호는 전체 확정 스냅샷과 IndexedDB를 기준으로 하며 범용 명령·Outbox·필드 병합·영수증/feed를 재도입하지 않습니다. |
 | 인증·계정 및 유지된 도메인 정책 | [Task 006 v0.3.1](docs/tasks/task-006-integrated-design-v0.3.1.md)의 확정 정책 중 Task 009와 후속 확정 계약에서 바꾸지 않은 범위에 적용합니다. 인증 작업은 [PWA 세션 연동](../overload-pwa/docs/engineering/authentication.md) 또는 [서버 세션·보안](docs/engineering/security-session.md)에서 해당 수단의 최신 계약으로 이동합니다. |
 
-구현·검증 상태는 [Frontend 8.7절](../overload-pwa/docs/engineering/frontend.md#87-v09-적용-범위와-구현-상태)과 [Backend 12.4~12.5절](docs/engineering/backend.md#125-다중-주간-일정-프리셋)에서 확인합니다. 정책 승인, 소스 구현, 격리 테스트, 실제 DB 적용, 실기기 승인은 별도로 확인합니다. 이전 버전·핸드오프·단계별 계획과 보고서는 작성 당시 결정을 추적할 때만 확인합니다. 위 표에 명시한 설계와 운영 절차는 해당 작업에 적용합니다.
+정책 승인, 소스 구현, 격리 테스트, 실제 DB 적용, 실기기 승인은 별도로 확인합니다. 버전 번호와 함께 최신 확정 결정의 승인·적용 범위를 확인합니다. 이전 버전·핸드오프·단계별 계획과 보고서는 당시 결정이나 검증 근거가 필요할 때 읽으며, 4.1절로 해소되지 않는 실질적 충돌은 보고합니다. 기능·단계 마감 및 API·스키마·환경·선행조건 변경 시 작업 담당자가 [Backend 현황 갱신 규칙](docs/engineering/backend.md#현황-갱신)을 적용합니다.
 
 ---
 
