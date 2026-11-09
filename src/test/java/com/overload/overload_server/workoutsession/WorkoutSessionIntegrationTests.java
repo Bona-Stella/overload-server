@@ -33,6 +33,7 @@ import static com.overload.overload_server.workoutsession.WorkoutSnapshotData.*;
 class WorkoutSessionIntegrationTests {
     static final JsonMapper JSON = JsonMapper.builder().build();
     static final String BASE = "/api/v1/workout-sessions";
+    private static final Instant SCENARIO_START = Instant.parse("2026-11-08T03:00:00Z");
     @Container static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18.6-alpine")
             .withDatabaseName("overload_session_isolated_test").withUsername("overload_test").withPassword(UUID.randomUUID().toString());
     static ConfigurableApplicationContext app;
@@ -54,7 +55,10 @@ class WorkoutSessionIntegrationTests {
         jdbc = app.getBean(JdbcTemplate.class); MixedPersistenceAssertions.verify(app);
     }
     @BeforeEach void prepare() throws Exception {
-        WorkoutReadFixtures.observer = null; EmailOtpFixtures.CLOCK.reset(); app.getBean(EmailOtpFixtures.FakeSender.class).reset();
+        WorkoutReadFixtures.observer = null;
+        // Issue the real OTP session before the earliest calendar request in this scenario.
+        setClock(SCENARIO_START);
+        app.getBean(EmailOtpFixtures.FakeSender.class).reset();
         jdbc.update("DELETE FROM email_otp_rate_limits");
         email = UUID.randomUUID() + "@example.test";
         owner = app.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email(email), null);
@@ -63,8 +67,24 @@ class WorkoutSessionIntegrationTests {
         browser = new Browser(); browser.login(email); csrf = browser.csrf();
         assertThat(browser.send("POST", "/api/v1/routines", json(routineBody()), csrf).statusCode()).isEqualTo(201);
     }
-    @AfterEach void cleanup() { WorkoutReadFixtures.observer = null; if (browser != null) browser.close(); }
+    @AfterEach void cleanup() {
+        WorkoutReadFixtures.observer = null;
+        try {
+            if (browser != null) browser.close();
+        } finally {
+            EmailOtpFixtures.CLOCK.reset();
+        }
+    }
     @AfterAll static void stop() { if (app != null) app.close(); }
+
+    @Test void otpSessionFollowsTheScenarioClockAndRejectsRequestsBeforeLogin() throws Exception {
+        calendarAt("2026-11-09T00:00:00Z");
+        assertThat(node(browser.get("/api/v1/auth/session")).get("userId").asString()).isEqualTo(owner.id().toString());
+        assertThat(node(browser.get(BASE + "/active")).get("session").isNull()).isTrue();
+
+        setClock(SCENARIO_START.minusSeconds(1));
+        error(browser.get(BASE + "/active"), 401, "AUTHENTICATION_REQUIRED");
+    }
 
     @Test void startCopiesImmutablePlanDistinctIdsAndOriginalClientDate() throws Exception {
         assertThat(node(browser.get(BASE + "/active")).get("session").isNull()).isTrue();
@@ -480,14 +500,18 @@ class WorkoutSessionIntegrationTests {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM weekly_schedule_versions WHERE user_id=?",Integer.class,owner.id())).isEqualTo(2);
     }
 
-    void calendarAt(String at) {EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),Instant.parse(at)));}
+    private static void setClock(Instant at) {
+        EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(), at));
+    }
+
+    void calendarAt(String at) { setClock(Instant.parse(at)); }
     void reviewDates(){for(int n=0;n<12;n++)app.getBean(com.overload.overload_server.statistics.DailyTrainingReviewService.class).reviewBatch();}
     HttpResponse<String> scheduleWithClock(String at,Map<String,Object> body) throws Exception {
         var original=EmailOtpFixtures.CLOCK.instant();var once=new AtomicBoolean();
         // Move the domain clock after normal authentication, without weakening session/OTP policy.
-        WorkoutReadFixtures.observer=e->{if(e.before()&&e.sql().contains("FROM users")&&e.sql().contains("FOR UPDATE")&&once.compareAndSet(false,true))EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),Instant.parse(at)));};
+        WorkoutReadFixtures.observer=e->{if(e.before()&&e.sql().contains("FROM users")&&e.sql().contains("FOR UPDATE")&&once.compareAndSet(false,true))calendarAt(at);};
         try{return browser.send("PUT",schedulePath(),json(body),csrf);}
-        finally{WorkoutReadFixtures.observer=null;EmailOtpFixtures.CLOCK.advance(Duration.between(EmailOtpFixtures.CLOCK.instant(),original));}
+        finally{WorkoutReadFixtures.observer=null;setClock(original);}
     }
     Map<String,Object> daily(String day){return jdbc.queryForMap("SELECT * FROM daily_training_assessments WHERE user_id=? AND workout_date=?::date",owner.id(),day);}
     State startOn(String day) throws Exception {
