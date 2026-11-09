@@ -1,5 +1,7 @@
 # 로컬 PostgreSQL · Flyway
 
+PWA 실제 API 연동에 사용할 격리 환경의 선택, 검토 서버 재개, 전용 테스트 데이터 준비는 [테스트 환경 안내](test-environment.md)를 따릅니다. 이 문서는 로컬 개발용 Compose와 자동 통합 테스트 명령을 설명합니다.
+
 > **개인 개발 DB의 마지막 확인 기록:** [2026-11-01 V15 재구성](../tasks/task-009-dev-v15-rebuild-report.md) 뒤 [2026-11-02 승인된 V16·V17 적용](../tasks/standard-exercise-catalog-dev-phase-4-report.md)과 소량의 검증 데이터 등록이 있었습니다. 이후 문서의 V18~V22 미적용 표기는 당시 기록입니다. 6A에서는 개인 DB에 접속하지 않았으며 현재 실행·데이터·Flyway 상태를 재확인하지 않았습니다. 아래 실행 예시를 개인 DB에 적용하면 대기 migration이 실행될 수 있으므로 대상·영향과 별도 승인을 먼저 확인합니다.
 
 Task 007의 개발 환경이다. Windows/WSL에 PostgreSQL을 직접 설치하지 않는다.

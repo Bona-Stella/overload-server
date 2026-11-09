@@ -318,6 +318,8 @@ curl.exe -i -X POST http://localhost:8080/api/v1/health
 
 ### 테스트 및 빌드
 
+PWA 브라우저에서 실제 API를 검증할 때는 [테스트 환경 안내](docs/engineering/test-environment.md)에서 보존 검토 환경과 일회용 V30 fixture의 실행 조건을 확인합니다.
+
 ```powershell
 .\gradlew.bat --no-daemon test
 .\gradlew.bat --no-daemon integrationTest

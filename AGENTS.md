@@ -95,6 +95,8 @@ README에 작성된 예정 기능을
 
 DB 구조를 확인해야 하는 작업에서는 [ERD](docs/database/erd.md)와 [DB 설계서](docs/database/schema.md)를 참고합니다. 스키마 변경은 Flyway migration, 클라이언트 통신은 해당 API 계약을 기준으로 합니다.
 
+PWA의 실제 API 연동을 지원할 때는 [테스트 환경 안내](docs/engineering/test-environment.md)에서 기존 격리 환경과 버전·데이터·재개 승인 조건을 확인합니다. UI 시연과 승인 순서는 [Frontend 개발 절차](../overload-pwa/docs/engineering/frontend.md#181-기본-ui-개발-절차)를 따릅니다.
+
 아래 표에서 작업 영역의 현행 제품 정책과 API 또는 UI 계약을 골라 읽습니다. 상대 링크는 두 저장소가 같은 상위 폴더에 있을 때 해석됩니다. 상대 저장소나 근거 문서가 없으면 확인 범위를 보고합니다.
 
 | 작업 영역 | 현행 기준 |
