@@ -567,6 +567,8 @@ Entity와 Service는 데이터의 일관성을 유지해야 합니다.
 
 ### 8.1 데이터베이스 설계
 
+현행 목표 스키마의 관계는 [ERD](../database/erd.md), 전체 컬럼·제약조건과 보존 규칙은 [DB 설계서](../database/schema.md)를 참고합니다. 실제 개발 DB에 적용된 버전은 별도로 확인합니다.
+
 - PostgreSQL을 기본 RDBMS로 사용합니다.
 - 테이블과 컬럼 이름은 `snake_case`를 사용합니다.
 - Primary Key와 Foreign Key를 명확하게 정의합니다.
@@ -580,7 +582,7 @@ Entity와 Service는 데이터의 일관성을 유지해야 합니다.
 | Data | Java | PostgreSQL |
 |:---|:---|:---|
 | Domain Identifier | UUID | UUID |
-| Weight (후보) | BigDecimal | NUMERIC |
+| Weight | BigDecimal | NUMERIC |
 | Repetitions | Integer | INTEGER |
 | Workout Date | LocalDate | DATE |
 | Timestamp | Instant | TIMESTAMPTZ |
@@ -588,7 +590,7 @@ Entity와 Service는 데이터의 일관성을 유지해야 합니다.
 
 도메인 UUID와 소유권·세대 제약의 적용 범위는 최종 설계 6절을 따릅니다.
 Spring Session 관리 테이블 등 프레임워크 내부 식별자는 해당 스키마와 구분합니다.
-중량 타입·정밀도는 최종 설계 2절의 후보 및 미확정 범위를 확인한 뒤 확정합니다.
+이미 구현한 컬럼의 자료형·정밀도는 [DB 설계서](../database/schema.md)를 확인합니다.
 
 Enum 저장 방식은 확장성을 고려하여 결정하며,
 변경 가능성이 있는 Enum에서 ORDINAL 저장을 피합니다.
@@ -606,22 +608,7 @@ Enum 저장 방식은 확장성을 고려하여 결정하며,
 
 ### 8.4 DB Migration
 
-스키마 버전 관리는 Flyway 도입을 권장합니다.
-
-현재 로컬 PostgreSQL·Flyway 구성과 검증 명령은 [로컬 실행 문서](local-postgresql.md)를 따릅니다.
-007-1A의 users V1에 이어 007-1B는 신원·개인 종목·설정 V2를 추가했습니다.
-아래 후속 SQL 파일명은 구조 예시이며 실제 적용 이력은 db/migration을 기준으로 확인합니다.
-
-권장 경로:
-
-```text
-src/main/resources/
-└── db/
-    └── migration/
-        ├── V1__create_users.sql
-        ├── V2__create_exercises.sql
-        └── V3__create_workout_tables.sql
-```
+스키마 변경의 실행 기준은 [Flyway migration](../../src/main/resources/db/migration/)입니다. 현재 로컬 PostgreSQL·Flyway 구성과 검증 명령은 [로컬 실행 문서](local-postgresql.md)를 따릅니다.
 
 규칙:
 

@@ -92,6 +92,9 @@ README에 작성된 예정 기능을
 ## 3. Required Engineering Documents
 
 코드 변경 전 현재 저장소의 `AGENTS.md`와 [Backend 개발 규칙](docs/engineering/backend.md)을 적용합니다.
+
+DB 구조를 확인해야 하는 작업에서는 [ERD](docs/database/erd.md)와 [DB 설계서](docs/database/schema.md)를 참고합니다. 스키마 변경은 Flyway migration, 클라이언트 통신은 해당 API 계약을 기준으로 합니다.
+
 아래 표에서 작업 영역의 현행 제품 정책과 API 또는 UI 계약을 골라 읽습니다. 상대 링크는 두 저장소가 같은 상위 폴더에 있을 때 해석됩니다. 상대 저장소나 근거 문서가 없으면 확인 범위를 보고합니다.
 
 | 작업 영역 | 현행 기준 |

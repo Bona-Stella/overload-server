@@ -397,6 +397,7 @@ V10 전체 회귀·실제 V8 백업의 격리 복원/업그레이드·승인된 
 ## 📚 참고 문서
 
 - 개발은 [AGENTS.md 3절](AGENTS.md#3-required-engineering-documents)에서 작업별 정책과 계약을 찾고 [Backend 개발 규칙](docs/engineering/backend.md)을 적용합니다.
+- DB 구조를 조사할 때는 [현행 ERD](docs/database/erd.md)에서 관계를, [DB 설계서](docs/database/schema.md)에서 V30의 테이블·컬럼·제약조건과 보존 규칙을 확인합니다.
 - [주간 프리셋·순환·G5 연동 최종 현황](docs/engineering/backend.md#125-다중-주간-일정-프리셋)에서 구현과 전체 격리 회귀 결과를 확인합니다. 실제 DB 적용과 PWA 신규 프리셋·G6 연동은 후속입니다.
 - 변경 이유와 과거 검증은 [두 저장소 문서 감사 기록](../overload-pwa/docs/tasks/documentation-audit-2026-11-09.md)에서 찾습니다.
 

@@ -100,6 +100,8 @@ SELECT count(*) FROM users;
 
 ## 스키마 정책
 
+Backend의 현행 목표 스키마는 [DB 설계서](../database/schema.md)와 [ERD](../database/erd.md)에 있습니다. 아래 V1~V4 및 Task 008의 내용은 초기 도입 기록입니다. 이 문서 상단에는 개인 DB를 마지막으로 확인했을 당시의 적용 버전을 기록합니다.
+
 - Spring Boot 시작 시 Flyway가 `classpath:db/migration`의 버전 SQL을 적용·검증한다.
 - V1 users → V2 계정 기반 → V3 Spring Session → V4 이메일 OTP 순서로 적용한다.
   `users.id`는 서버가 공급할 UUID PK이며 DB 자동 UUID 기본값은 없다.
@@ -111,11 +113,11 @@ SELECT count(*) FROM users;
 - V2는 신원·개인 웨이트 종목·휴식 설정 기반을 추가한다. 마이그레이션/앱 시작은 계정 seed를 생성하지 않는다.
   검증된 신원에 대한 내부 프로비저닝에서만 개인 seed를 생성한다.
   V3는 공식 Spring Session JDBC 테이블·인덱스를 생성하며 Session 자체 DDL 실행은 비활성화한다.
-  V4는 OTP 발급·제한·로그인 claim을 추가한다. 루틴·운동 기록·동기화 테이블은 아직 없다.
+  V4는 OTP 발급·제한·로그인 claim을 추가했다. 루틴과 세션·운동 기록은 이후 V11~V15에서 추가됐다.
 - 스키마 변경 경로는 Flyway 하나다. 기본 SQL 초기화는 비활성화하고,
   Flyway clean은 차단하며 자동 baseline은 사용하지 않는다. 008-0C의 JPA/Hibernate는 기존 V2 종목·설정만 매핑하고
   `ddl-auto=validate`, `generate-ddl=false`, `open-in-view=false`를 사용한다. 인증·계정·세션은 JDBC를 유지한다.
-- 적용한 버전 SQL을 수정하지 않는다. 이후 변경은 V2 이상 새 마이그레이션으로 추가한다.
+- 적용한 버전 SQL을 수정하지 않는다. 이후 변경은 다음 버전의 새 migration으로 추가한다.
   비어 있지 않은 미관리 스키마에서 시작이 거부되면 자동 baseline/초기화로 우회하지 않는다.
 
 ## 테스트와 빌드
