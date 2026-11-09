@@ -34,7 +34,7 @@
 | F03 | [workout/storage.ts](../../../overload-pwa/src/features/workout/storage.ts) | `overload.core.v1`, 검증·로드·단일 저장·승인 실패 처리 |
 | F04 | [workout/useWorkout.ts](../../../overload-pwa/src/features/workout/useWorkout.ts) | 메모리/저장 오류, 다중 탭 차단, 재시도 |
 | F05 | [workout/cardio.ts](../../../overload-pwa/src/features/workout/cardio.ts) | 계획 범위·기구별 입력, 상태 전이·타이머·결과 |
-| F06 | [workout/id.ts](../../../overload-pwa/src/features/workout/id.ts), [reps.ts](../../../overload-pwa/src/features/workout/reps.ts), [weight.ts](../../../overload-pwa/src/features/workout/weight.ts) | UUID, 반복 횟수, 중량 초안과 소수 증감 |
+| F06 | workout/id.ts (당시 PWA `src/features/workout/id.ts`, `60a6dce^`의 Git 트리), [reps.ts](../../../overload-pwa/src/features/workout/reps.ts), [weight.ts](../../../overload-pwa/src/features/workout/weight.ts) | UUID, 반복 횟수, 중량 초안과 소수 증감 |
 | F07 | [App.tsx](../../../overload-pwa/src/App.tsx), [RoutineEditor.tsx](../../../overload-pwa/src/features/routine/RoutineEditor.tsx), [CardioPlanEditor.tsx](../../../overload-pwa/src/features/routine/CardioPlanEditor.tsx) | 종목 정의 추가, 요일/선택 상태, 편집 초안·명시 승인, 분→초 변환 |
 | F08 | [WorkoutScreen.tsx](../../../overload-pwa/src/features/workout/WorkoutScreen.tsx), [CardioScreen.tsx](../../../overload-pwa/src/features/workout/CardioScreen.tsx), [ResumeWorkoutCard.tsx](../../../overload-pwa/src/features/workout/ResumeWorkoutCard.tsx) | 모달 중량 초안, 종목 전환·복원 상태 표시 |
 | F09 | [SessionDetail.tsx](../../../overload-pwa/src/features/history/SessionDetail.tsx), [ProgressionHistory.tsx](../../../overload-pwa/src/features/history/ProgressionHistory.tsx) | 당시 판단 재계산/현재 판단/승인 사건 표시. 완료 이력 편집·삭제 UI 없음 |

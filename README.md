@@ -364,6 +364,8 @@ V10 전체 회귀·실제 V8 백업의 격리 복원/업그레이드·승인된 
 
 ## 🗺 개발 로드맵
 
+초기 계획표입니다. 기능별 현재 제공 범위는 위 API 표와 아래 개발 문서 안내에서 확인합니다.
+
 ### Phase 1. 프로젝트 기반 구축
 - [x] Spring Boot 프로젝트 생성
 - [x] Gradle 및 MVC·Validation 의존성 구성
@@ -394,6 +396,10 @@ V10 전체 회귀·실제 V8 백업의 격리 복원/업그레이드·승인된 
 
 ## 📚 참고 문서
 
+- 개발은 [AGENTS.md 3절](AGENTS.md#3-required-engineering-documents)에서 작업별 정책과 계약을 찾고 [Backend 개발 규칙](docs/engineering/backend.md)을 적용합니다.
+- [주간 프리셋·순환·G5 연동 최종 현황](docs/engineering/backend.md#125-다중-주간-일정-프리셋)에서 구현과 전체 격리 회귀 결과를 확인합니다. 실제 DB 적용과 PWA 신규 프리셋·G6 연동은 후속입니다.
+- 변경 이유와 과거 검증은 [두 저장소 문서 감사 기록](../overload-pwa/docs/tasks/documentation-audit-2026-11-09.md)에서 찾습니다.
+
 - [Spring Boot 공식 문서](https://docs.spring.io/spring-boot/index.html)
 - [Spring Framework 공식 문서](https://docs.spring.io/spring-framework/reference/)
 - [Java 공식 문서](https://docs.oracle.com/en/java/)
@@ -405,7 +411,3 @@ V10 전체 회귀·실제 V8 백업의 격리 복원/업그레이드·승인된 
 <div align="center">
   <strong>Overload — Track your lifts. Own your progress. 💪</strong>
 </div>
-
-### 2026-11-07 디로딩 현행 문서
-
-정책은 [v1.7](../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md), 구현 근거와 잔여 작업은 [Backend 최종 현황](../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#0-2026-11-08-1차-개발-최종-현황)을 따른다. G0~G3 기반은 구현 확인, [G4-1 설정/epoch API](docs/api/deload-analysis.md)와 V25 스키마는 구현했으며 [G4-2 공통 InitialPlan 판정/정확분수](docs/tasks/deload-g4-2-report.md)와 [G4-3 독립 후보/E/N](docs/tasks/deload-g4-3-report.md) 내부 계산을 구현했고 [G4-4 월04시 확정/RESET·ADD·내부 누적](docs/tasks/deload-g4-4-report.md)도 구현했으며 [G4-5 과거 정정 재계산](docs/tasks/deload-g4-5-report.md)과 승인된 V26 EXCLUDED 상태를 구현했다. 가장 이른 변경 주부터 같은 epoch의 후속 주를 재평가하며 실제 DB에는 V25/V26을 적용하지 않았다. [G4-6 읽기 전용 조회](docs/tasks/deload-g4-6-report.md)로 확정 prefix·보류/재계산·정확8주 추천을 연결했다. [G5-1 기간 시작/최초 임시 계획](docs/api/deload-periods.md)·V27을 구현했다. [G5-2 운동 실행/임시 계획 관리](docs/tasks/deload-g5-2-report.md)·V28을 구현했다. [G5-3 기간 완료·취소·자동 종료·분석 재개](docs/tasks/deload-g5-3-report.md)와 V29를 구현했다. 기존 DB에는 V25~V29를 적용하지 않았다. 실제 적용에는 기존 계정의 비소급 T_adopt 절차와 별도 승인이 필요하며 G6 PWA 연동은 후속이다. V25/명시적 T_adopt 이행은 기존 검토·개인 DB에 실행하지 않았다. 신규 계정은 기본ON·누적0의 초기 epoch로 확정됐고 OFF→ON은 새 epoch다. 기존 미설정 계정은 비소급 이행 경계를 사용하며 HTML 초기ON은 실제 서버 상태의 근거가 아니다. 자격은4조건, 기간 중복 생성 차단은 별도 상태 제약이다. 일반 G3는 분석OFF와 독립이다. 기존 격리 검토 DB의 V24 확인을 개인/운영DB 적용으로 확대하지 않는다.

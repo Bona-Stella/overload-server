@@ -1,5 +1,7 @@
 # 주간 루틴 즉시 적용·기록 기반 디로딩 구현 계획
 
+> **완료 단계의 구현 계획 기록.** 현재 순환·일별 검사·기간 적용은 [주간 일정 API](../api/weekly-schedule.md)와 [G5 기간 API](../api/deload-periods.md), 현재 구현 범위는 [Backend 12.5절](../engineering/backend.md#125-다중-주간-일정-프리셋)을 따른다.
+
 > **2026-11-07 현행 진입점:** [디로딩v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md)과 [실제 구현 현황](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md)이 우선한다. G0~G3의 아래 착수 전 문장은 계획 작성 당시 이력이고 현재는 구현 확인 상태다. 남은 구현은 G4/G5 및 G6 실제 디로딩 연결이다. 기존 제품 수치/최소확장 방향은 유지한다.
 
 작성: 2026-11-06, Asia/Seoul. **계획 작성·보완 전용이며 구현 착수·실제 DB 적용 승인이 아니다.** 이번 사용자 요청의 신규 확정 정책을 [이전 영향 분석](weekly-schedule-immediate-application-analysis.md)보다 우선한다. 코드·API·마이그레이션·테스트·공식 설계는 변경하지 않고 이 계획 문서만 보완한다.

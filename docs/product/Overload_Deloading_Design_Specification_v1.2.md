@@ -1,5 +1,7 @@
 # Overload Deloading Design Specification
 
+> **역사 자료.** 현재 디로딩 정책은 [v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md)에 통합했다. 아래 버전의 시작 조건·분석·UI와 구현 상태는 당시 기준이다.
+
 **버전:** v1.2  
 **기준일:** 2026-11-02  
 **상태:** 제품 정책 합의본 · 구현 전 (기술 검증은 별도)  

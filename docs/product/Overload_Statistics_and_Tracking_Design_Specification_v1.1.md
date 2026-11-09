@@ -1,5 +1,7 @@
 # Overload Statistics and Tracking Design Specification
 
+> **역사 자료.** 현재 일반 통계는 [v1.4](Overload_Statistics_and_Tracking_Design_Specification_v1.4.md)와 [Overview API](../api/statistics.md), 일정 적용·순환은 [주간 일정 API](../api/weekly-schedule.md)를 따른다.
+
 **버전:** v1.1  
 **기준일:** 2026-11-02  
 **상태:** 제품 설계 합의본 · 구현 전  

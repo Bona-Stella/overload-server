@@ -91,101 +91,20 @@ README에 작성된 예정 기능을
 
 ## 3. Required Engineering Documents
 
-AI 에이전트는 코드 변경 전에
-현재 저장소의 적용 규칙을 확인해야 합니다.
+코드 변경 전 현재 저장소의 `AGENTS.md`와 [Backend 개발 규칙](docs/engineering/backend.md)을 적용합니다.
+아래 표에서 작업 영역의 현행 제품 정책과 API 또는 UI 계약을 골라 읽습니다. 상대 링크는 두 저장소가 같은 상위 폴더에 있을 때 해석됩니다. 상대 저장소나 근거 문서가 없으면 확인 범위를 보고합니다.
 
-### Common Rules
+| 작업 영역 | 현행 기준 |
+|---|---|
+| 화면 구조·조작·알림 | [UI/UX 적용 지점](../overload-pwa/docs/product/ui-ux.md)에서 해당 화면과 확정 결정 절을 확인합니다. 다중 프리셋 UI는 [10.16절](../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#1016--다중-주간-루틴-일정과-자동-순환), 휴식 타이머 알림은 [10.17절](../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#1017--휴식-타이머-시각효과음-알림)이 기준입니다. |
+| 시각 디자인·자산 | [Visual Theme Spec](../overload-pwa/docs/product/Overload_UI_Visual_Theme_Spec_v0.9.md)이 실제 Onyx 색상과 토큰을 소유합니다. [HTML](../overload-pwa/docs/product/Overload_UI_Baseline_Wireframe_v0.9.html)은 무채색 시연입니다. 검색·선택은 [원본 6종](../overload-pwa/docs/product/assets/exercise-icons/README.md)을 32 CSS px로 표시합니다. |
+| 주간 일정·자동 순환 | [주간 일정 계약](docs/api/weekly-schedule.md)이 적용·순환·복구·G3 날짜 근거와 API의 기준입니다. 최신 서버 API와 기존 PWA 단일 일정 상태를 구분합니다. |
+| 일반 운동 통계·기록 | [통계·추적 v1.4](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md)와 [Overview](docs/api/statistics.md), [성장](docs/api/approved-weight-growth.md), [유산소 실제 측정](docs/api/cardio-actual-measurements.md), [맨몸 추가 부하](docs/api/bodyweight-additional-load.md) 중 관련 계약을 적용합니다. |
+| G4/G5 디로딩·G6 PWA | 정책은 [v1.7](../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md), 서버 계약은 [분석](docs/api/deload-analysis.md)·[기간과 임시 계획](docs/api/deload-periods.md)·[디로딩 세션](docs/api/workout-sessions.md#g5-2-디로딩-세션), G6는 [PWA 연동 지침](../overload-pwa/docs/engineering/backend-ui-v0.9.md)을 적용합니다. 테마와 기간 상태·쓰기 권한을 구분하고 테마 변경으로 입력·타이머를 초기화하지 않습니다. |
+| 루틴·세션 쓰기·오프라인·복구 | [Task 009 v1.0](docs/tasks/task-009-redesign-v1.0.md)의 정책과 [루틴](docs/api/routine-management.md)·[세션](docs/api/workout-sessions.md)·[휴식 설정](docs/api/workout-online-write.md)·[표준 카탈로그](docs/api/standard-exercise-catalog.md) 계약을 적용합니다. 현재 카탈로그·세션·PWA 기술 계약이 과거 DTO와 스키마 설명을 대체합니다. 일반 관리는 온라인 API, 진행 운동 보호는 전체 확정 스냅샷과 IndexedDB를 기준으로 하며 범용 명령·Outbox·필드 병합·영수증/feed를 재도입하지 않습니다. |
+| 인증·계정 및 유지된 도메인 정책 | [Task 006 v0.3.1](docs/tasks/task-006-integrated-design-v0.3.1.md)의 확정 정책 중 Task 009와 후속 확정 계약에서 바꾸지 않은 범위에 적용합니다. 인증 작업은 [PWA 세션 연동](../overload-pwa/docs/engineering/authentication.md) 또는 [서버 세션·보안](docs/engineering/security-session.md)에서 해당 수단의 최신 계약으로 이동합니다. |
 
-Required:
-- `AGENTS.md`
-
-### Task 009 Current Design
-
-**2026-11-08 현행 디로딩:** G0~G3 기반은 구현 확인, G4-1 분석 설정/epoch·GET/PUT·V25 스키마와 G4-2 공통 InitialPlan 판정/정확분수·G4-3 독립 후보/E/N 내부 계산은 구현했고 G4-4 월04시 확정/RESET·ADD·내부 누적은 구현했고 [G4-5 과거 정정 재계산](docs/tasks/deload-g4-5-report.md)·V26 EXCLUDED 저장/fold를 구현했고, [G4-6 읽기 전용 조회·정확8주 추천](docs/tasks/deload-g4-6-report.md)을 구현했으며 [G5-1 기간 시작/최초 임시 계획](docs/tasks/deload-g5-1-report.md)·V27은 구현했고 [G5-2 실행/임시 계획 관리](docs/tasks/deload-g5-2-report.md)·V28을 구현했고 [G5-3 기간 종료/분석 재개](docs/tasks/deload-g5-3-report.md)·V29를 구현했고, G6는 시안 일부와 실제 API 미연동을 구분합니다. 시작 자격은4조건이며 계획0/1일·분석OFF·게이지0 자체로 차단하지 않습니다. 중복 ACTIVE 기간은 별도 상태 제약입니다. 신규 계정은 기본ON·누적0의 초기 epoch로 확정됐으며 OFF→ON 새 epoch와 구분합니다. 기존 미설정 계정은 비소급 이행 경계를 검증하고 HTML 초기ON을 실제 서버 상태로 보지 않습니다. G3 일반 검사는 OFF여도 유지하고 G5-3은 G3 보호 날짜를 보존하고 G4의 종료 후 재개를 연결합니다. 완료는 ON 상태에서 새 epoch, 무수행 취소는 기존 epoch를 유지합니다. 기존 환경은 V24 중지 상태로 유지하며 새 기능을 부분 배포하지 않습니다.
-
-아래는 현행 계약의 진입점과 단계별 구현·적용 기록입니다. 통계·추적 2A~2E 구현과 해당 단계의 자동 검증은 완료되었습니다.
-이전 단계의 미구현 표기는 당시 범위이며, 이후 단계에서 확장된 내용은 최신 계약을 따릅니다.
-실제 개인 DB 적용·운영 분류·실기기 검증·디로딩 연결 여부는 각각 구분합니다.
-스키마·구JSON/hash 등의 보존 문구는 해당 단계의 계약·검증 조건이며 영구적인 구버전 지원 의무를 뜻하지 않습니다.
-현재 데이터와 고정 요청의 안전성은 4.2절에 따라 보호하며, 이 문서 정리만으로 기존 계약을 변경하지 않습니다.
-
-맨몸 추가 부하2E는 [보고서](docs/tasks/statistics-tracking-phase-2e-report.md)와 [DB/API·오프라인 계약](docs/api/bodyweight-additional-load.md)을 따릅니다. V22의 optional bodyweightLoad에 명시한 추가 중량만 실제 반복과 곱하며 기존 BODYWEIGHT weight·체중은 재해석하지 않습니다. 승인 평가·구JSON/hash·IndexedDB3/schema2·고정 요청을 보존하고 생략/명시적 제거를 구분합니다. 개인 DB V18~V22 미적용·운영 분류 검증 미완료·디로딩3단계 연결 전 상태를 유지합니다.
-
-유산소 실제 측정 2D는 [보고서](docs/tasks/statistics-tracking-phase-2d-report.md)와 [DB/API·오프라인 계약](docs/api/cardio-actual-measurements.md)을 따릅니다. 실제 속도와 활동 시간만으로 거리를 계산하며 직접 입력/정정 거리가 우선입니다. 선택 measurement와 V21은 기존5필드 JSON·고정 요청·미확인 과거 출처를 보존합니다. IndexedDB3/schema2를 변경하지 않고 다른 종류 거리를 하나의 총 km로 합산하지 않습니다. 개인 DB V18~V21 미적용·운영 분류 검증 미완료·디로딩3단계 연결 전 상태를 유지합니다.
-
-승인 중량 성장 2C는 [진행 보고서](docs/tasks/statistics-tracking-phase-2c-report.md)와 [조회 계약](docs/api/approved-weight-growth.md)을 따릅니다. 기존 승인 사건을 routineId+placementId별로 분리하고 과거 수행/승인 이름을 검색하며, 초기/현재 중량으로 과거 점을 생성하지 않습니다. 연결 근거가 없는 점은 선으로 잇지 않습니다. 디로딩 식별/일반 승인 차단의 실제 연결은 후속3단계이며 혼재 검증 완료로 표시하지 않습니다. 개인 DB V18~V20 미적용을 유지합니다.
-
-통계 2B는 [진행 보고서](docs/tasks/statistics-tracking-phase-2b-report.md), [주간 일정 계약](docs/api/weekly-schedule.md), [통계 overview](docs/api/statistics.md)를 따릅니다. 최신 제품 정책은 [Statistics and Tracking v1.4](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md)입니다. 일정 최초 등록은 당일부터 즉시 적용하며 첫 주는 등록일~일요일 예정일만 분모에 포함하고, 기존 요일·빈도 변경도 즉시 적용하며 과거 판정 근거를 보존하고, 동일 예정일은 최고 단일 세션 InitialPlan 달성률을 사용합니다. V19는 이력2표, V20은 최초 version의 평일 적용 제약만 보완하며 과거 일정 백필은 없습니다. 개인 DB V18·V19·V20 미적용·운영 분류 미검증 상태를 유지합니다. 이력 없는 날짜·실제 유산소 목표 증거 부족은 null/확인 불가이며 추정하지 않습니다. 이전 2A endpoint는 3단계 승인 정리에서 제거했으며, 현재 통계 조회는 overview와 성장 조회 계약을 따릅니다.
-
-통계 2A `/api/v1/statistics`의 과거 구현 기록은 [진행 보고서](docs/tasks/statistics-tracking-phase-2a-report.md)와 [읽기 API](docs/api/statistics.md)에 보존하며, 해당 GET endpoint는 3단계 승인 정리에서 제거했습니다. 당시에는 완료 기록의 실제 집계와 종료 세션 InitialPlan 계획만 구현했으며 주간 전체 계획/달성률은 null입니다. 성장선의 이후 구현은2C를 따르며 실제 속도/계산 거리 저장·디로딩 연결을 완료로 간주하지 않습니다. 개인 DB V18 미적용·운영 분류 검토 미완료를 유지합니다.
-
-통계·추적은 [통계 v1.4](docs/product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md), 디로딩은 [디로딩 v1.7](../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md)과 [UI v0.9 결정 로그](../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md)의 현행 규칙을 따릅니다. [서버 연동 범위](docs/engineering/backend.md#124-ui-v09와-디로딩-v17-연동)는 G0~G5-3 Backend, G6 PWA 연동, 실제 DB 적용을 구분합니다. 서버 저장소의 디로딩 v1.3 및 [0·1단계 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)는 이전 설계·검증 기록입니다. 통계는 PRIMARY/SECONDARY를 분리하며 보조근 0.5 환산을 사용하지 않습니다. V18의 nullable `joint_type`에서 NULL은 미분류, OTHER는 명시적 해당 없음입니다. 미시작 과거 예정일의 계획은 추정하지 않습니다. v1.7의 CHECK-08은 G5-1 자동 편성에서 격리 검증했습니다. 운영 카탈로그 분류 검증은 별도입니다. 개인 DB 적용 범위는 위 기록을 따릅니다.
-
-표준 운동 연결은 [최종 카탈로그 설계](docs/tasks/standard-exercise-catalog-design-analysis.md)와
-[Backend 2단계 보고서](docs/tasks/standard-exercise-catalog-backend-phase-2-report.md)를 따릅니다.
-V17부터 신규 루틴·세션은 standardExerciseId 단일 계약과 계획/평가 schemaVersion=2를 사용합니다.
-장비 변경은 승인 중량·공식 비교 키를 바꾸지 않으며 완료 세트의 장비는 불변입니다.
-개인 운동 seed는 중단하고 일반 개인 POST/PATCH는403으로 차단합니다. 개인 운동 GET과 전용 Entity·Repository는 제거했으며 테이블·기존 데이터·Flyway 이력은 보존합니다.
-V17의 격리 검증과 개인 DB 적용은 구분합니다. 2026-11-02 사용자 승인으로 기존 `127.0.0.1:5433/overload_dev`에 V16·V17을 정상 적용하고 개발용 카탈로그를 등록했습니다. [4단계 실제 적용·통합 검증 보고서](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)를 따릅니다. 기존 migration/이력·볼륨은 보존했으며 다른 DB나 후속 파괴적 변경은 별도 승인이 필요합니다.
-Frontend/IndexedDB3·schema2 전환과 실제 앱 연동을 확인했습니다. 오프라인 접근 허용은 갱신을 직렬화하고 동일 계정·세대의 이미 허용된 nonce를 유지하며, 로그아웃·계정/세대 변경은 계속 즉시 차단합니다.
-
-Task 009 및 이후 운동 쓰기·진행 세션·복구 작업 시 필수:
-- [Task 009 현행 설계 v1.0](docs/tasks/task-009-redesign-v1.0.md)
-
-일반 관리는 온라인 API, 진행 운동 보호는 전체 확정 스냅샷과 IndexedDB를 기준으로 합니다.
-폐기된 범용 명령·Outbox·필드 병합·영수증/feed 구조를 다시 구현하지 않습니다.
-현재 온라인 휴식 설정 변경과 개인 운동 POST/PATCH 차단·내부 구현 제거 상태는 [온라인 쓰기 API 계약](docs/api/workout-online-write.md)을 따릅니다.
-루틴 관리 API는 [루틴 온라인 계약](docs/api/routine-management.md)을 따릅니다. 개인 개발 DB는 2026-11-01 사용자 승인으로 기존 테스트 데이터를 폐기하고 V15까지 재구성했습니다. [실제 재구성 보고서](docs/tasks/task-009-dev-v15-rebuild-report.md)를 따릅니다.
-세션 START·조회·takeover(V12), snapshot·승인 요청/해결(V13), FINISH·최초 평가·AUTO_CLOSED(V14), 종료 후 정정·명시 복구·논리 삭제·현재 평가·승인 해결(V15)은 [세션 계약](docs/api/workout-sessions.md)을 따릅니다. V12~V15의 격리 검증과 개인 개발 DB의 승인된 V15 신규 구성을 완료했습니다. 다른 DB나 후속 파괴적 변경은 별도 승인이 필요합니다.
-Frontend/IndexedDB/PWA 연결은 구현되어 있습니다. 조회·중복·takeover·실제 무변경 snapshot·승인 해결은 마지막 운동 동기화 시각을 연장하지 않습니다. 종료 후 쓰기는 expectedVersion으로 분리하고, 봉인 계획/평가와 최초 수행 승인 문맥을 유지합니다. 확인 불가 복구 주장은 UNVERIFIED입니다.
-2026-10-31 사용자 승인으로 개인 로컬 `127.0.0.1:5433/overload_dev`에 V9/V10을 적용하고 기존 데이터를 보존했습니다.
-근거는 [실제 적용 보고서](docs/tasks/task-009-v10-local-application-report.md)를 따릅니다. 다른 DB나 후속 파괴적 마이그레이션은 이 승인에 포함되지 않습니다.
-Task 006의 운동·인증 정책은 v1.0에서 명시적으로 바꾼 부분을 제외하고 유지합니다.
-
-### Task 006 Domain and Authentication Design
-
-Task 007 관련 작업 시 필수:
-- [Task 006 최종 설계 v0.3.1](docs/tasks/task-006-integrated-design-v0.3.1.md)
-
-Task 009 v1.0에서 유지하는 운동 도메인·인증 정책은 이 명세를 따릅니다.
-상세 운동 정책은 AGENTS.md에 중복 작성하지 않습니다.
-확정 정책, 현재 구현 상태 및 남은 기술 계약은 구분합니다.
-
-### Backend Rules
-
-Repository: `overload-server`
-
-Required:
-- `docs/engineering/backend.md`
-
-Backend 작업 시 해당 문서를 읽고
-Java, Spring Boot, JPA, PostgreSQL,
-API 및 테스트 규칙을 적용합니다.
-
-### Frontend Rules
-
-Repository: `overload-pwa`
-
-Required:
-- `docs/engineering/frontend.md`
-
-Frontend 작업 시 해당 문서를 읽고
-React, TypeScript, 상태 관리,
-PWA, 모바일 UI 및 데이터 동기화 규칙을 적용합니다.
-
-### Document Resolution
-
-1. 현재 저장소를 확인합니다.
-2. 루트 AGENTS.md를 읽습니다.
-3. 해당 저장소의 기술별 규칙을 읽습니다.
-4. 관련 코드, 설정, 테스트 및 문서를 확인합니다.
-5. 필요한 범위의 규칙을 적용합니다.
-
-다른 저장소의 문서를
-현재 저장소에 존재한다고 가정하지 않습니다.
-
-문서가 누락된 경우 이를 보고하고,
-확인되지 않은 정책을 임의로 확정하지 않습니다.
+구현·검증 상태는 [Frontend 8.7절](../overload-pwa/docs/engineering/frontend.md#87-v09-적용-범위와-구현-상태)과 [Backend 12.4~12.5절](docs/engineering/backend.md#125-다중-주간-일정-프리셋)에서 확인합니다. 정책 승인, 소스 구현, 격리 테스트, 실제 DB 적용, 실기기 승인은 별도로 확인합니다. 이전 버전·핸드오프·단계별 계획과 보고서는 작성 당시 결정을 추적할 때만 확인합니다. 위 표에 명시한 설계와 운영 절차는 해당 작업에 적용합니다.
 
 ---
 
