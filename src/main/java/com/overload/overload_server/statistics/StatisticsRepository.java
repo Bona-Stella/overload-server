@@ -39,7 +39,10 @@ public class StatisticsRepository {
                 WHERE user_id=? AND data_generation=? AND status IN ('FINISHED','AUTO_CLOSED') AND deleted_at IS NULL
                 ORDER BY started_at DESC,id LIMIT 3
                 """, (r, i) -> new StatisticsResponse.Recent(r.getObject(1, UUID.class), r.getString(2), r.getObject(3, LocalDate.class), r.getTimestamp(4).toInstant(), r.getString(5)), owner, generation);
-        return new Input(sessions, sets, cardio, mappings, recent);
+        var categories = new HashMap<UUID, String>();
+        if (!cardio.isEmpty()) jdbc.query("SELECT id, category FROM cardio_activity_catalog",
+                (org.springframework.jdbc.core.RowCallbackHandler) row -> categories.put(row.getObject(1, UUID.class), row.getString(2)));
+        return new Input(sessions, sets, cardio, mappings, recent, categories);
     }
     private List<SetFact> sets(String scope,Object[] args) {
         return jdbc.query("""

@@ -16,7 +16,10 @@ class DeloadPlanGeneratorTests {
     Day day(int weekday,List<RoutineResponses.Weight> weights,List<RoutineResponses.Cardio> cardio) {
         return new Day(weekday,new RoutineResponses.Detail(owner,"0",UUID.randomUUID(),"3","source",weights,cardio));
     }
-    Classification classification(RoutineResponses.Weight w,String joint,String group,String name) {return new Classification(w.standardExerciseId(),w.exerciseName(),joint,List.of(new Muscle(UUID.randomUUID(),group,name)));}
+    Classification classification(RoutineResponses.Weight w,String joint,String group,String name) {return classification(w, joint, group, name, null, null); }
+    Classification classification(RoutineResponses.Weight w, String joint, String group, String name, String ppl, String frontBack) {
+        return new Classification(w.standardExerciseId(), w.exerciseName(), joint, List.of(new Muscle(UUID.randomUUID(), group, name)), ppl, frontBack);
+    }
     Source source(List<Day> days,List<Classification> classes) {return new Source(owner,"0","Asia/Seoul",today,UUID.randomUUID(),"2",days,classes,null);}
     Generated generate(Source s,Method m,Split split) {return DeloadPlanGenerator.generate(s,new Choice(m,split,List.of()));}
     Weight keep(RoutineResponses.Weight w) {return generate(source(List.of(day(1,List.of(w),List.of())),List.of()),Method.KEEP,Split.ORIGINAL).plans().getFirst().weights().getFirst();}
@@ -56,14 +59,14 @@ class DeloadPlanGeneratorTests {
     }
     @Test void pplOrderFollowsFirstMainAppearanceAndNeverDuplicatesWeightAcrossDates() {
         var pull=weight(null,"50",null,4,6,10);var legs=weight(null,"50",null,4,6,10);var push=weight(null,"50",null,4,6,10);
-        var s=four(List.of(pull,legs,push),List.of(classification(pull,"COMPOUND","BACK","광배근"),classification(legs,"COMPOUND","LEGS","대퇴사두근"),classification(push,"COMPOUND","CHEST","대흉근")),3);
+        var s=four(List.of(pull,legs,push),List.of(classification(pull,"COMPOUND","CHEST","전면삼각근","PULL","BACK"),classification(legs,"COMPOUND","BACK","광배근","LEGS","BACK"),classification(push,"COMPOUND","LEGS","대퇴사두근","PUSH","FRONT")),3);
         var g=generate(s,Method.THREE,Split.PPL);assertThat(g.ready()).isTrue();assertThat(g.plans().stream().map(Plan::label)).containsExactly("PULL","LEGS","PUSH");
         assertThat(g.plans().stream().mapToInt(p->p.weights().size()).sum()).isEqualTo(3);assertThat(g.plans().get(1).cardio()).isEmpty();assertThat(g.plans().getFirst().cardio()).hasSize(1);assertThat(g.plans().get(2).cardio()).hasSize(1);
         assertThat(g.plans().stream().map(Plan::date)).containsExactly(today,today.plusDays(2),today.plusDays(4));
     }
     @Test void equalRoundRobinAndFrontBackAndFirstCardioSelection() {
         var front=weight(null,"50",null,4,6,10);var back=weight(null,"50",null,4,6,10);
-        var s=four(List.of(front,back),List.of(classification(front,"COMPOUND","CHEST","대흉근"),classification(back,"COMPOUND","BACK","광배근")),1);
+        var s=four(List.of(front,back),List.of(classification(front,"COMPOUND","BACK","광배근","PUSH","FRONT"),classification(back,"COMPOUND","CHEST","대흉근","PULL","BACK")),1);
         var g=generate(s,Method.TWO,Split.FRONT_BACK);assertThat(g.ready()).isTrue();assertThat(g.plans().stream().map(Plan::label)).containsExactly("FRONT","BACK");assertThat(g.plans().getFirst().cardio()).hasSize(1);assertThat(g.plans().get(1).cardio()).isEmpty();
         var equal=generate(s,Method.THREE,Split.EQUAL);assertThat(equal.plans().getFirst().cardio()).hasSize(1);assertThat(equal.plans().get(1).weights().getFirst().original().id()).isEqualTo(back.id());
         assertThat(generate(s,Method.THREE,Split.PPL).issues()).extracting(Issue::code).contains("SPLIT_UNAVAILABLE");
@@ -78,11 +81,78 @@ class DeloadPlanGeneratorTests {
     @Test void multiPrimaryCoverageKeepsEarliestMainThenSortsCompoundBeforeIsolation() {
         var a=weight(null,"50",null,2,8,10);var b=weight(null,"50",null,2,8,10);var c=weight(null,"50",null,2,8,10);var d=weight(null,"50",null,2,8,10);
         var ma=new Muscle(UUID.randomUUID(),"CHEST","a");var mb=new Muscle(UUID.randomUUID(),"BACK","b");var mc=new Muscle(UUID.randomUUID(),"LEGS","c");var md=new Muscle(UUID.randomUUID(),"ARMS","d");
-        var classes=List.of(new Classification(a.standardExerciseId(),"a","ISOLATION",List.of(ma,mb)),new Classification(b.standardExerciseId(),"b","COMPOUND",List.of(mb)),new Classification(c.standardExerciseId(),"c","ISOLATION",List.of(mc)),new Classification(d.standardExerciseId(),"d","COMPOUND",List.of(md)));
+        var classes=List.of(new Classification(a.standardExerciseId(),"a","ISOLATION",List.of(ma,mb),null,null),new Classification(b.standardExerciseId(),"b","COMPOUND",List.of(mb),null,null),new Classification(c.standardExerciseId(),"c","ISOLATION",List.of(mc),null,null),new Classification(d.standardExerciseId(),"d","COMPOUND",List.of(md),null,null));
         var s=source(List.of(day(1,List.of(a,b,c,d),List.of()),day(2,List.of(a,b,c,d),List.of()),day(3,List.of(a,b,c,d),List.of()),day(4,List.of(a,b,c,d),List.of())),classes);
         var g=generate(s,Method.TWO,Split.EQUAL);assertThat(g.plans().getFirst().weights()).extracting(w->w.original().id()).containsExactly(d.id(),a.id());
         assertThat(g.plans().stream().flatMap(p->p.weights().stream()).map(w->w.original().id())).doesNotContain(b.id()).doesNotHaveDuplicates();
     }
+    @Test void ranksAllPrimaryMusclesAndReevaluatesRemainingCandidatesInOriginalOrder() {
+        var first = weight(null,"50",null,4,6,10);
+        var partial = weight(null,"50",null,4,6,10);
+        var duplicate = weight(null,"50",null,4,6,10);
+        var fresh = weight(null,"50",null,4,6,10);
+        var otherFresh = weight(null,"50",null,4,6,10);
+        var a = new Muscle(UUID.randomUUID(),"CHEST","a");
+        var b = new Muscle(UUID.randomUUID(),"BACK","b");
+        var c = new Muscle(UUID.randomUUID(),"LEGS","c");
+        var classes = List.of(
+                new Classification(first.standardExerciseId(),"first","COMPOUND",List.of(a,b),null,null),
+                new Classification(partial.standardExerciseId(),"partial","COMPOUND",List.of(b,c),null,null),
+                new Classification(duplicate.standardExerciseId(),"duplicate","COMPOUND",List.of(b),null,null),
+                classification(fresh,"COMPOUND","CORE","fresh"), classification(otherFresh,"COMPOUND","ARMS","other"));
+        var candidates = List.of(first,partial,duplicate,fresh,otherFresh);
+        var result = generate(source(List.of(day(1,candidates,List.of()), day(2,candidates,List.of()),
+                day(3,candidates,List.of())), classes), Method.TWO, Split.EQUAL);
+        assertThat(result.plans().getFirst().weights()).extracting(w -> w.original().id()).containsExactly(first.id(),otherFresh.id());
+        assertThat(result.plans().getLast().weights()).extracting(w -> w.original().id()).containsExactly(partial.id(),fresh.id());
+    }
+
+    @Test void keepsRegularSplitsWithUnclassifiedExerciseAndUsesDuplicateOnlyForAnUnrepresentedSplit() {
+        var push = weight(null,"50",null,6,6,10);
+        var pull = weight(null,"50",null,6,6,10);
+        var legs = weight(null,"50",null,6,6,10);
+        var unspecified = weight(null,"50",null,6,6,10);
+        var unnecessary = weight(null,"50",null,6,6,10);
+        var shared = new Muscle(UUID.randomUUID(),"CORE","same across both splits");
+        var classes = List.of(
+                new Classification(push.standardExerciseId(),"push","COMPOUND",List.of(shared),"PUSH","FRONT"),
+                new Classification(pull.standardExerciseId(),"pull","COMPOUND",List.of(shared),"PULL","BACK"),
+                new Classification(unnecessary.standardExerciseId(),"extra","COMPOUND",List.of(shared),"PUSH","FRONT"),
+                classification(legs,"COMPOUND","BACK","arbitrary","LEGS","BACK"),
+                classification(unspecified,"ISOLATION","LEGS","unclassified"));
+        var s = source(List.of(day(1,List.of(push,unspecified,unnecessary),List.of()),day(2,List.of(pull),List.of()),
+                day(3,List.of(legs),List.of()),day(4,List.of(push),List.of())), classes);
+        var ppl = generate(s, Method.THREE, Split.PPL);
+        assertThat(ppl.ready()).isTrue();
+        assertThat(ppl.plans()).extracting(Plan::label).containsExactly("PUSH","PULL","LEGS");
+        assertThat(ppl.plans().getFirst().weights()).extracting(w -> w.original().id()).containsExactly(push.id(), unspecified.id());
+        assertThat(ppl.plans().get(1).weights()).extracting(w -> w.original().id()).containsExactly(pull.id());
+        var frontBack = generate(s, Method.TWO, Split.FRONT_BACK);
+        assertThat(frontBack.ready()).isTrue();
+        assertThat(frontBack.plans()).extracting(Plan::label).containsExactly("FRONT","BACK");
+        assertThat(frontBack.plans().getFirst().weights()).extracting(w -> w.original().id()).containsExactly(push.id(), unspecified.id());
+        assertThat(frontBack.plans().stream().flatMap(plan -> plan.weights().stream()).map(w -> w.original().id()))
+                .doesNotContain(unnecessary.id()).doesNotHaveDuplicates();
+    }
+
+    @Test void compressedPlansKeepSixAndSevenExerciseCeilingsAndOriginalSetReduction() {
+        var weights = java.util.stream.IntStream.range(0,24).mapToObj(index -> weight("PLATE","80","80",4,6,10)).toList();
+        var classes = weights.stream().map(w -> classification(w,"COMPOUND","LEGS","candidate")).toList();
+        var s = source(List.of(day(1,weights,List.of()),day(2,weights,List.of()),
+                day(3,weights,List.of()),day(4,weights,List.of())), classes);
+        for (var method : List.of(Method.THREE,Method.TWO)) {
+            int cap = method == Method.THREE ? 6 : 7;
+            var plans = generate(s,method,Split.EQUAL).plans();
+            assertThat(plans).hasSize(method == Method.THREE ? 3 : 2).allSatisfy(plan ->
+                    assertThat(plan.weights()).hasSize(cap).allSatisfy(item -> {
+                        assertThat(item.setCount()).isEqualTo(2);
+                        assertThat(item.weightKg()).isEqualTo("65");
+                    }));
+            assertThat(plans.stream().flatMap(plan -> plan.weights().stream()).map(w -> w.original().standardExerciseId()))
+                    .doesNotHaveDuplicates();
+        }
+    }
+
     @Test void floorSetCapAllowsOneSetOnlyWhenAverageSeventyPercentIsBelowOne() {
         var w=weight(null,"50",null,1,10,10);var s=four(List.of(w),List.of(classification(w,"COMPOUND","CHEST","대흉근")),0);
         assertThat(generate(s,Method.TWO,Split.EQUAL).plans().getFirst().weights().getFirst().setCount()).isEqualTo(1);

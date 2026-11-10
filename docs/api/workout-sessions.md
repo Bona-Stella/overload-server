@@ -128,7 +128,7 @@ G1부터 START는 workoutTransactionManager의 READ_COMMITTED 쓰기 트랜잭�
 V12→V13은 기존 모든 컬럼값을 유지하고 InitialPlan에서 현재 계획과 종목 ID registry만 초기화한다. 초기 수행/승인 행을 만들지 않는다.
 InitialPlan은 계속 유일한 최초 계획 원본이며 관계형 registry는 그 계획의 두 번째 사본이 아니다.
 현재 AppliedPlan에는 목표·순서와 장비만, 실제 중량·반복·시간은 수행 테이블에만 저장한다.
-새 WEIGHT 종목은 활성 공용 표준 운동을 참조해야 한다. 기존 registry의 표준 운동이 비활성화되어도 START 재확인·snapshot·복구를 거절하지 않는다.
+새 WEIGHT 종목은 활성 상태이며 근육 타겟·분할 검수를 모두 완료한 SETS_REPS 표준 운동을 참조해야 한다. 기존에 저장된 종목은 활성·검수 상태가 바뀌어도 START 재확인·snapshot·복구에 사용할 수 있다.
 새 세션 종목에는 출처 배치 입력 필드가 없다. InitialPlan에 출처가 있는 최초 종목만 원래 루틴 배치로 승인할 수 있다.
 
 ## 표준 운동·장비 단일 계약
@@ -177,7 +177,7 @@ InitialPlan.weightExercises의 각 항목은 기존 목표·출처·중량에 ma
 }
 ```
 
-`sessionExercises.kind`: WEIGHT는 standardExerciseId UUID 필수, CARDIO는 null이다. ID·종류·표준 운동은 불변이며 누락된 기존 registry를 삭제하지 않는다.
+`sessionExercises.kind`: WEIGHT는 standardExerciseId UUID 필수다. V33의 새 CARDIO는 표준 UUID를 저장하고, 기존 연결 없는 CARDIO는 null을 유지한다. ID·종류·표준 운동은 불변이며 누락된 기존 registry를 삭제하지 않는다.
 AppliedPlan의 배열 순서가 현재 계획 순서다. CARDIO 항목은 `{sessionActivityId,plan}`이며 plan은 기존 [루틴 CardioPlan](routine-management.md)의 키·제약을 그대로 사용한다.
 setCount/반복 목표/ordinal/reps는 1..2147483647 JSON 정수이고 minReps≤maxReps다. ordinal은 계획 세트 수를 초과해도 허용한다.
 중량은 0 이상, 정수부 최대14자리·소수 최대6자리의 기존 정규 문자열(불필요한 소수 끝0 없음)이다. 시각은 START와 같은 UTC 밀리초 이하 형식이다.
@@ -476,7 +476,7 @@ AUTO_CLOSED/삭제 세션은 EXCLUDED, 이유 AUTO_CLOSED/SESSION_DELETED, advic
 일반 정정/복구/삭제는 users FOR SHARE→session FOR UPDATE, 재승인은 users→routine FOR UPDATE→session 순서다. 표준 운동 잠금이 필요한 ACTIVE/루틴 경로의 UUID순 규칙은 유지하며 세션을 잠근 뒤 루틴을 잠그지 않는다. JPA/JDBC workoutTransactionManager 하나에서 수행·이력·승인·version을 원자 처리한다. DB 실패는 전체 롤백하며 PENDING으로 위장하지 않는다.
 추가 오류는409 SESSION_NOT_CLOSED/SESSION_DELETED/SESSION_VERSION_CONFLICT/RECORD_SLOT_CONFLICT와422 RECOVERY_CONTEXT_UNAVAILABLE/INVALID_RECOVERY_ORIGIN이다. 기존404 RECORD_NOT_FOUND·409 SOURCE_NOT_APPROVABLE/RESOLUTION_CONFLICT·422 RECORD_DELETED/CLOCK_CONTEXT_INVALID 및 인증·CSRF·소유권·세대·503 경계를 유지한다.
 
-T02-B V23: 유산소 Plan의 optional activityId는 세션 최초/적용 계획에 그대로 전달된다. 새로 제공한 ID는 active catalog의 kind/name과 일치해야 하며 미제공 과거7필드 JSON을 보존한다. 기존 schemaVersion=2, snapshot 요청 고정·hash·ACK·writerEpoch 및 수행 불변 정책은 변경하지 않는다.
+V33 유산소 Plan은 기존 optional activityId와 새 optional standardExerciseId를 최초·적용 계획에 전달한다. 신규 세션 종목은 Plan과 registry의 표준 UUID가 같고 신규 선택 조건을 만족해야 한다. 기존 종목은 서버에 저장된 종목 UUID와 당시 기록 설정·종류·이름으로 확인한다. 이미 저장된 루틴에서 START하는 경우도 최신 카탈로그 이름이나 활성 여부를 다시 요구하지 않는다. 연결 없는 과거 계획은 원래 JSON을 보존한다. 기존 schemaVersion=2, 고정 요청 본문·hash·ACK·writerEpoch 및 완료 수행의 불변 계약을 유지한다.
 
 ## G2~G3: START 일정 출처·일별 파생 판정
 

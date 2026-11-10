@@ -14,10 +14,17 @@ public class ExerciseMuscle {
     @Id @Column(name = "muscle_id", nullable = false, updatable = false) private UUID muscleId;
     @Enumerated(EnumType.STRING) @Column(nullable = false, columnDefinition = "text") private Role role;
 
+    @Column(name = "primary_order") private Integer primaryOrder;
+
     protected ExerciseMuscle() { }
 
-    public static ExerciseMuscle create(UUID standardExerciseId, UUID muscleId, Role role) {
+    public static ExerciseMuscle create(UUID standardExerciseId, UUID muscleId, Role role, Integer primaryOrder) {
+        Objects.requireNonNull(role);
+        if (role == Role.PRIMARY ? primaryOrder == null || primaryOrder < 1 : primaryOrder != null) {
+            throw new IllegalArgumentException("Only PRIMARY requires a positive order");
+        }
         var value = new ExerciseMuscle();
+        value.primaryOrder = primaryOrder;
         value.standardExerciseId = standardExerciseId; value.muscleId = muscleId; value.role = role;
         return value;
     }
@@ -25,6 +32,7 @@ public class ExerciseMuscle {
     public UUID getStandardExerciseId() { return standardExerciseId; }
     public UUID getMuscleId() { return muscleId; }
     public Role getRole() { return role; }
+    public Integer getPrimaryOrder() { return primaryOrder; }
 
     public static class Key implements Serializable {
         public UUID standardExerciseId;

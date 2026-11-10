@@ -139,7 +139,7 @@ public final class V22BrowserEnvironment implements AutoCloseable {
         }
         app.getBean(Flyway.class).validate();
         var versions = jdbc.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
-        require(versions.equals(java.util.stream.IntStream.rangeClosed(1, 31).mapToObj(Integer::toString).toList()), "V1 through V31 required");
+        require(versions.equals(java.util.stream.IntStream.rangeClosed(1, 35).mapToObj(Integer::toString).toList()), "V1 through V35 required");
         require(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class) == 0, "Failed migration");
         require(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class) == 0, "Fresh users required");
         require(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions", Integer.class) == 0, "Personal seed prohibited");
@@ -179,13 +179,14 @@ public final class V22BrowserEnvironment implements AutoCloseable {
 
     private void seedCatalog(JdbcTemplate jdbc) {
         UUID weight = UUID.randomUUID(), body = UUID.randomUUID(), primary = UUID.randomUUID(), secondary = UUID.randomUUID(), manufacturer = UUID.randomUUID();
-        jdbc.update("INSERT INTO standard_exercise(id,name,joint_type) VALUES (?,'V22 synthetic weight','COMPOUND'),(?,'V22 synthetic bodyweight','COMPOUND')", weight, body);
+        jdbc.update("INSERT INTO standard_exercise(id,name,joint_type,muscle_targets_reviewed,splits_reviewed) VALUES (?,'V22 synthetic weight','COMPOUND',true,true),(?,'V22 synthetic bodyweight','COMPOUND',true,true)", weight, body);
         jdbc.update("INSERT INTO muscle(id,group_code,name) VALUES (?,'CHEST','V22 synthetic primary'),(?,'ARMS','V22 synthetic secondary')", primary, secondary);
         for (UUID exercise : List.of(weight, body)) {
-            jdbc.update("INSERT INTO exercise_muscle(standard_exercise_id,muscle_id,role) VALUES (?,?,'PRIMARY'),(?,?,'SECONDARY')", exercise, primary, exercise, secondary);
+            jdbc.update("INSERT INTO exercise_muscle(standard_exercise_id,muscle_id,role,primary_order) VALUES (?,?,'PRIMARY',1),(?,?,'SECONDARY',NULL)", exercise, primary, exercise, secondary);
         }
         jdbc.update("INSERT INTO manufacturer(id,name) VALUES (?,'V22 synthetic manufacturer')", manufacturer);
-        evidence.put("catalog", Map.of("weightExerciseId", weight.toString(), "bodyweightExerciseId", body.toString(), "manufacturerId", manufacturer.toString(),
+        var cardio = CatalogFixtures.reviewedCardio(jdbc, "V22 PWA cardio", CatalogFixtures.OUTDOOR);
+        evidence.put("catalog", Map.of("cardioExerciseId", cardio.toString(), "cardioActivityId", CatalogFixtures.OUTDOOR.toString(), "weightExerciseId", weight.toString(), "bodyweightExerciseId", body.toString(), "manufacturerId", manufacturer.toString(),
                 "cardioKinds", List.of("TREADMILL", "BIKE", "OUTDOOR", "STAIRS", "OTHER")));
     }
 

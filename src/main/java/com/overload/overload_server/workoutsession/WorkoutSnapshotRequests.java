@@ -30,7 +30,7 @@ final class WorkoutSnapshotRequests {
             fields(p, "id", "kind", "standardExerciseId");
             String kind = text(p, "kind");
             UUID definition = nullableUuid(p, "standardExerciseId");
-            if (!Set.of("WEIGHT", "CARDIO").contains(kind)||(kind.equals("WEIGHT")!=(definition!=null))) throw invalid();
+            if (!Set.of("WEIGHT", "CARDIO").contains(kind)||(kind.equals("WEIGHT")&&definition==null)) throw invalid();
             identities.add(new Exercise(uuid(p, "id"), kind, definition));
         }
         var plan = s.get("appliedPlan");

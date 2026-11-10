@@ -27,7 +27,7 @@ class WorkoutSnapshotRequestsTests {
                 .replace("\"performedSets\":[]","\"performedSets\":[{\"id\":\""+ID+"\",\"sessionExerciseId\":\""+ID+"\",\"ordinal\":1,\"weightKg\":\"60\",\"reps\":8,\"completedAt\":\"2026-10-31T16:02:00Z\",\"weightContext\":{\"kind\":\"INITIAL_APPROVED\",\"requestId\":null},\"manufacturerId\":null,\"loadType\":null}]");
         assertThat(WorkoutSnapshotRequests.save(valid).snapshot().sessionExercises().getFirst().standardExerciseId()).isEqualTo(UUID.fromString(ID));
         for(String invalid:List.of(valid.replace("standardExerciseId","exerciseDefinitionId"),
-                valid.replace("\"kind\":\"WEIGHT\"","\"kind\":\"CARDIO\""),
+                valid.replace("\"standardExerciseId\":\""+ID+"\"","\"standardExerciseId\":null"),
                 valid.replace(",\"manufacturerId\":null", ""),valid.replace("\"loadType\":null","\"loadType\":\"UNKNOWN\""))) {
             assertThatThrownBy(()->WorkoutSnapshotRequests.save(invalid)).isInstanceOf(WorkoutSessionFailure.class);
         }

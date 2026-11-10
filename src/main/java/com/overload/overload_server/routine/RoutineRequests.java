@@ -18,18 +18,30 @@ public final class RoutineRequests {
 	}
 	public enum Mode { NEW, EXISTING, RESTORE }
 	/** Reuses the existing closed CardioPlan contract without changing the routine HTTP boundary. */
+    public static Plan readCanonicalCardioPlan(JsonNode value) {
+        return cardioPlan(value);
+    }
+
 	public static Optional<JsonNode> canonicalCardioPlan(JsonNode value) {
 		try {
 			var p = cardioPlan(value);
 			return Optional.of(JSON.valueToTree(new RoutineResponses.Plan(p.kind(),p.name(),p.targetSeconds(),RoutineResponses.decimal(p.targetDistanceKm()),
 					p.intensityMode()==null?null:new RoutineResponses.Intensity(p.intensityMode(),RoutineResponses.decimal(p.intensityValue())),
-					RoutineResponses.decimal(p.inclinePercent()),RoutineResponses.decimal(p.resistance()),p.activityId())));
+					RoutineResponses.decimal(p.inclinePercent()),RoutineResponses.decimal(p.resistance()),p.activityId(),p.standardExerciseId())));
 		} catch (RoutineFailure failure) { return Optional.empty(); }
 	}
 	public record Weight(Mode mode, UUID id, UUID standardExerciseId, UUID manufacturerId, String loadType,
 			int setCount, int minReps, int maxReps, BigDecimal initialWeightKg) { }
 	public record Plan(String kind, String name, int targetSeconds, BigDecimal targetDistanceKm,
-			String intensityMode, BigDecimal intensityValue, BigDecimal inclinePercent, BigDecimal resistance, UUID activityId) { public Plan(String k,String n,int t,BigDecimal d,String m,BigDecimal v,BigDecimal i,BigDecimal r){this(k,n,t,d,m,v,i,r,null);} }
+			String intensityMode, BigDecimal intensityValue, BigDecimal inclinePercent, BigDecimal resistance, UUID activityId, UUID standardExerciseId) {
+        public Plan(String k,String n,int t,BigDecimal d,String m,BigDecimal v,BigDecimal i,BigDecimal r){this(k,n,t,d,m,v,i,r,null,null);}
+        public Plan(String k,String n,int t,BigDecimal d,String m,BigDecimal v,BigDecimal i,BigDecimal r,UUID a){this(k,n,t,d,m,v,i,r,a,null);}
+        public boolean sameCardioIdentity(Plan previous) {
+            return Objects.equals(standardExerciseId, previous.standardExerciseId)
+                    && Objects.equals(activityId, previous.activityId)
+                    && (activityId == null || (kind.equals(previous.kind) && name.equals(previous.name)));
+        }
+    }
 	public record Cardio(Mode mode, UUID id, Plan plan) { }
 	public record Approval(UUID placementId, BigDecimal nextApprovedWeightKg, Instant occurredAt) { }
 	public record Create(UUID id, long dataGeneration, String name, List<Weight> weightPlacements, List<Cardio> cardioPlacements, String tag) { public Create(UUID id,long dataGeneration,String name,List<Weight> weights,List<Cardio> cardio){this(id,dataGeneration,name,weights,cardio,null);} }
@@ -151,7 +163,13 @@ public final class RoutineRequests {
 		return List.copyOf(result);
 	}
 	private static Plan cardioPlan(JsonNode plan) {
-		if(plan!=null&&plan.has("activityId")){fields(plan,"kind","name","targetSeconds","targetDistanceKm","intensity","inclinePercent","resistance","activityId");}else fields(plan, "kind", "name", "targetSeconds", "targetDistanceKm", "intensity", "inclinePercent", "resistance");
+		var keys = new ArrayList<>(List.of("kind", "name", "targetSeconds", "targetDistanceKm", "intensity", "inclinePercent", "resistance"));
+		if (plan != null && plan.has("activityId")) keys.add("activityId");
+		if (plan != null && plan.has("standardExerciseId")) {
+			if (!plan.has("activityId")) throw invalid();
+			keys.add("standardExerciseId");
+		}
+		fields(plan, keys.toArray(String[]::new));
 		String kind = text(plan, "kind"), name = name(plan, "name");
 		if (!Set.of("TREADMILL", "BIKE", "OUTDOOR", "STAIRS", "OTHER").contains(kind) || name.length() > 100) throw invalid();
 		int seconds = count(plan, "targetSeconds"); if (seconds > 86400) throw invalid();
@@ -167,7 +185,8 @@ public final class RoutineRequests {
 		}
 		if ((!Set.of("TREADMILL", "BIKE", "OUTDOOR").contains(kind) && (distance != null || intensityMode != null))
 				|| (!kind.equals("TREADMILL") && incline != null) || (!kind.equals("BIKE") && resistance != null)) throw invalid();
-		return new Plan(kind, name, seconds, distance, intensityMode, intensityValue, incline, resistance, plan.has("activityId")?uuid(text(plan,"activityId")):null);
+		return new Plan(kind, name, seconds, distance, intensityMode, intensityValue, incline, resistance, plan.has("activityId") ? uuid(text(plan,"activityId")) : null,
+                plan.has("standardExerciseId") ? uuid(text(plan, "standardExerciseId")) : null);
 	}
 	private static void composition(List<Weight> weights, List<Cardio> cardio) {
 		if (weights.isEmpty() && cardio.isEmpty()) throw invalid();

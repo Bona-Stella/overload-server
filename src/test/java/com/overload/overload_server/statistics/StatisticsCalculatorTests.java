@@ -64,10 +64,17 @@ class StatisticsCalculatorTests {
         UUID quads=UUID.randomUUID(),glutes=UUID.randomUUID(),assist=UUID.randomUUID();
         var first=new Mapping(standard,quads,"quads","LEGS","PRIMARY");
         var result=calculate(List.of(set("80",10,null),set("80",10,null),set("80",10,null)),List.of(first,first,
-                new Mapping(standard,glutes,"glutes","LEGS","PRIMARY"),new Mapping(standard,assist,"assist","LEGS","SECONDARY")));
+                new Mapping(standard,glutes,"glutes","LEGS","PRIMARY"),new Mapping(standard,assist,"assist","LEGS","SECONDARY"),
+                new Mapping(standard,UUID.randomUUID(),"core","CORE","SECONDARY")));
         assertThat(result.summary().completedSets()).isEqualTo("3");
-        assertThat(result.muscles()).hasSize(3).allSatisfy(m->{assertThat(m.weights().completedSets()).isEqualTo("3");assertThat(m.weights().volumeLoadKg()).isEqualTo("2400");});
-        assertThat(result.groups()).hasSize(2).allSatisfy(g->{assertThat(g.weights().completedSets()).isEqualTo("3");assertThat(g.weights().plannedSets()).isEqualTo("4");});
+        assertThat(result.muscles()).hasSize(4).allSatisfy(m->{
+            assertThat(m.weights().completedSets()).isEqualTo("3");
+            assertThat(m.weights().volumeLoadKg()).isEqualTo("2400");
+            assertThat(m.contributionSets()).isEqualTo(m.role().equals("PRIMARY") ? "3.0" : "1.5");
+        });
+        assertThat(result.groupActuals()).containsExactly(new StatisticsResponse.GroupActual("CORE","3"),
+                new StatisticsResponse.GroupActual("LEGS","3"));
+        assertThat(result.groups()).hasSize(3).allSatisfy(g->{assertThat(g.weights().completedSets()).isEqualTo("3");assertThat(g.weights().plannedSets()).isEqualTo("4");});
         assertThat(result.unmappedCompletedSets()).isEqualTo("0");
     }
     @Test void additionalExercisesAndExcessSetsRemainActualFactsWithoutInventingPlans() {

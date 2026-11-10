@@ -20,6 +20,6 @@ public class StatisticsService {
         boolean week=period.fromDate().getDayOfWeek()==java.time.DayOfWeek.MONDAY&&period.toDateExclusive().equals(period.fromDate().plusDays(7));
         var statistics=StatisticsCalculator.calculate(owner,generation,period,facts,weights).withPlanning(known?"FULL_SCHEDULE_HISTORY":"PARTIAL_SCHEDULE_HISTORY",
                 known?plan.knownPlannedDays():null,verifiable&&week&&plan.knownPlannedDays()>0?plan.effective().percent(plan.knownPlannedDays()):null);
-        return new StatisticsOverview(statistics,verifiable?plan.effective().decimal():null,plan.unknownDays(),plan.unverifiableDays(),plan.days(),StatisticsCalculator.cardioByKind(facts));
+        return new StatisticsOverview(statistics,verifiable?plan.effective().decimal():null,plan.unknownDays(),plan.unverifiableDays(),plan.days(),StatisticsCalculator.cardioByKind(facts), StatisticsCalculator.cardioByCategory(facts));
     }
 }

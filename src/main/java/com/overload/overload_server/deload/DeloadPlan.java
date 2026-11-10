@@ -9,7 +9,11 @@ final class DeloadPlan {
     enum Method { KEEP, THREE, TWO, REST }
     enum Split { ORIGINAL, PPL, FRONT_BACK, EQUAL, REST }
     record Muscle(UUID id,String group,String name){}
-    record Classification(UUID id,String name,String jointType,List<Muscle> primary){}
+    record Classification(UUID id, String name, String jointType, List<Muscle> primary,
+                          @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                          String pplSplit,
+                          @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                          String frontBackSplit) { }
     record Day(int weekday,RoutineResponses.Detail routine){}
     record Source(UUID userId,String dataGeneration,String timeZone,LocalDate today,
                   UUID presetId,String presetVersion,List<Day> days,List<Classification> classifications,

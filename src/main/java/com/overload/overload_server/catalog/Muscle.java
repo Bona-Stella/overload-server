@@ -13,7 +13,20 @@ public class Muscle {
     @Column(nullable = false, columnDefinition = "text") private String name;
     @Column(name = "is_active", nullable = false) private boolean active;
 
+    @Enumerated(EnumType.STRING) @Column(name = "default_ppl_split", columnDefinition = "text")
+    private StandardExercise.PplSplit defaultPplSplit;
+    @Enumerated(EnumType.STRING) @Column(name = "default_front_back_split", columnDefinition = "text")
+    private StandardExercise.FrontBackSplit defaultFrontBackSplit;
+
     protected Muscle() { }
+
+    public void updateDefaultSplits(StandardExercise.PplSplit pplSplit, StandardExercise.FrontBackSplit frontBackSplit) {
+        this.defaultPplSplit = pplSplit;
+        this.defaultFrontBackSplit = frontBackSplit;
+    }
+
+    public StandardExercise.PplSplit getDefaultPplSplit() { return defaultPplSplit; }
+    public StandardExercise.FrontBackSplit getDefaultFrontBackSplit() { return defaultFrontBackSplit; }
 
     public static Muscle create(UUID id, Group group, String name, boolean active) {
         var value = new Muscle();

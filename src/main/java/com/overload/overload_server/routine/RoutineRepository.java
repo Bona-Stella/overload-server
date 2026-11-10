@@ -11,9 +11,11 @@ import java.util.*;
 public class RoutineRepository {
 	@PersistenceContext private EntityManager entityManager;
 	private final JdbcTemplate jdbc;
+    private final com.overload.overload_server.catalog.StandardCardioCatalog cardioCatalog;
 	private final RoutinePlanHistory history;
 	private final com.overload.overload_server.deload.DeloadPeriods periods;
-	RoutineRepository(JdbcTemplate jdbc, RoutinePlanHistory history,com.overload.overload_server.deload.DeloadPeriods periods) { this.jdbc = jdbc; this.history = history;this.periods=periods; }
+	RoutineRepository(JdbcTemplate jdbc, RoutinePlanHistory history,com.overload.overload_server.deload.DeloadPeriods periods,
+                      com.overload.overload_server.catalog.StandardCardioCatalog cardioCatalog) { this.cardioCatalog=cardioCatalog; this.jdbc = jdbc; this.history = history;this.periods=periods; }
 	void requireGeneralWrite(UUID owner, long generation) {
 		if (generalWriteBlocked(owner, generation)) throw new RoutineFailure(RoutineFailure.Reason.DELOAD_ACTIVE_PERIOD);
 	}
@@ -97,7 +99,7 @@ public class RoutineRepository {
 		if(Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE user_id=? AND data_generation=? AND source_routine_id=? AND status='ACTIVE')",
 				Boolean.class,owner,generation,routine)))throw new RoutineFailure(RoutineFailure.Reason.ACTIVE_SESSION_EXISTS);
 	}
-	boolean validCardio(RoutineRequests.Plan p){return p.activityId()==null || Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM cardio_activity_catalog WHERE id=? AND active AND kind=? AND name=?)",Boolean.class,p.activityId(),p.kind(),p.name()));}
+	boolean selectableCardio(RoutineRequests.Plan plan) { return cardioCatalog.selectable(plan); }
 	List<Routine> list(UUID owner, long generation) {
 		return entityManager.createQuery("select r from Routine r where r.userId=:owner and r.dataGeneration=:generation and r.deletedAt is null order by r.createdAt desc, r.id desc", Routine.class)
 				.setParameter("owner", owner).setParameter("generation", generation).getResultList();

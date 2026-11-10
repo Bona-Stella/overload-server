@@ -1,11 +1,11 @@
 # Overload ERD
 
-이 관계도는 격리 PostgreSQL 18.6에서 확인한 V30 구조에 [V31 이름 컬럼](../../src/main/resources/db/migration/V31__add_weekly_schedule_preset_name.sql)을 반영한 목표 스키마다. 실제 개발 DB의 적용 버전은 별도 확인이 필요하다. 컬럼 전체, 제약조건 이름, 인덱스와 보존 규칙은 [DB 설계서](schema.md)를 참고한다.
+이 관계도는 V31의 프리셋 이름, V32 표준 운동 카탈로그, V33 표준 유산소 연결과 [V34 ExerciseDB 검수 대기](../../src/main/resources/db/migration/V34__stage_exercisedb_v1_candidates.sql)를 반영한 목표 스키마다. 실제 개발 DB의 적용 버전은 별도 확인이 필요하다. 컬럼 전체, 제약조건 이름, 인덱스와 보존 규칙은 [DB 설계서](schema.md)를 참고한다.
 
 - 상세 관계도의 선은 PostgreSQL FK이며, 관계 이름은 자식의 FK 컬럼 순서다. 상위 개요는 이 중 대표 관계를 표시한다.
 - 부모 쪽 `||`는 자식 행의 참조가 필수이고 `|o`는 일부 FK 컬럼이 NULL일 수 있음을 뜻한다. 자식 쪽 `o|`는 FK가 자식의 PK 또는 UNIQUE 조합을 포함해 부모당 최대 한 행이라는 뜻이며, `o{`는 최대 여러 행을 뜻한다. 부분 인덱스나 특정 상태로 제한된 유일성은 [설계서](schema.md)에서 확인한다.
 - 실선은 자식 PK에 FK 전체가 포함된 식별 관계다. 점선은 그 외의 물리 FK다. `PK`/`FK`/`UK`는 키 구성 컬럼 표시이며 단일 컬럼의 `UK`만 별도 표기했다.
-- FK의 삭제 기본 동작은 `NO ACTION`이다. `CASCADE` 세 곳은 계정·인증 및 로그인 세션 절에 표시했다.
+- FK의 삭제 기본 동작은 `NO ACTION`이다. 계정·인증, 로그인 세션 및 GIF 열람 허용 행의 `CASCADE`는 해당 관계에 표시했다.
 
 ## 전체 관계 개요
 
@@ -14,8 +14,11 @@ erDiagram
     direction LR
     users ||..o{ auth_identities : "인증 식별자"
     users ||..o| user_workout_settings : "휴식 설정"
+    users ||--o| exercise_gif_access : "GIF 열람 허용 (CASCADE)"
     spring_session ||--o{ spring_session_attributes : "세션 속성 (CASCADE)"
     standard_exercise ||--o{ exercise_muscle : "운동별 근육"
+    standard_exercise ||--o{ exercise_source : "ExerciseDB 원본"
+    cardio_activity_catalog |o--o{ standard_exercise : "유산소 기록 설정"
     muscle ||--o{ exercise_muscle : "근육별 운동"
     users ||..o{ routines : "계정의 루틴"
     standard_exercise ||..o{ routine_weight_placements : "표준 운동"
@@ -127,7 +130,7 @@ erDiagram
 
 ### 3. 운동 카탈로그·루틴
 
-`exercise_muscle`은 표준 운동과 근육의 N:M 연결이며 역할을 저장한다. `exercise_definitions`는 V30에도 존재하지만 루틴·세션의 선택 경로는 `standard_exercise`다.
+`exercise_muscle`은 표준 운동과 근육의 N:M 연결이며 역할과 PRIMARY 순서를 저장한다. `exercise_source`는 하나의 표준 운동에 여러 ExerciseDB 원본을 연결한다. V34의 `exercise_db_v1_candidate`는 연결 전부터 원본 ID로 독립 보관하는 내부 대기 테이블이다. 연결 이후에는 `EXERCISEDB_V1`과 원본 ID로 기존 출처와 조회 시 결합한다. `exercise_definitions`는 V30에도 존재하지만 루틴·세션의 선택 경로는 `standard_exercise`다.
 
 ```mermaid
 erDiagram
@@ -145,6 +148,22 @@ erDiagram
     exercise_muscle {
         uuid standard_exercise_id PK, FK
         uuid muscle_id PK, FK
+        text role
+        integer primary_order
+    }
+    exercise_db_v1_candidate {
+        text source_exercise_id PK
+        text source_file_sha256
+        integer source_position
+        jsonb original
+        jsonb findings
+        jsonb review_draft
+        bigint draft_version
+    }
+    exercise_source {
+        text source_system PK
+        text source_exercise_id PK
+        uuid standard_exercise_id FK
     }
     manufacturer {
         uuid id PK
@@ -183,6 +202,12 @@ erDiagram
         uuid routine_id PK, FK
         bigint routine_version PK
     }
+    exercise_source {
+        text source_system PK
+        text source_exercise_id PK
+        uuid standard_exercise_id FK
+    }
+    standard_exercise ||--o{ exercise_source : "standard_exercise_id"
     standard_exercise ||--o{ exercise_alias : "standard_exercise_id"
     users ||..o{ exercise_definitions : "user_id, data_generation"
     muscle ||--o{ exercise_muscle : "muscle_id"
@@ -310,6 +335,7 @@ erDiagram
     routine_weight_placements ||..o{ progress_change_events : "user_id, data_generation, routine_id, placement_id"
     workout_sessions ||..o{ record_change_events : "session_id"
     standard_exercise |o..o{ session_exercises : "standard_exercise_id"
+    cardio_activity_catalog |o..o{ session_exercises : "cardio_activity_id"
     workout_sessions ||..o{ session_exercises : "user_id, data_generation, session_id"
     session_weight_approval_requests |o..o{ session_weight_approval_requests : "session_id, session_exercise_id, previous_request_id"
     session_weight_approval_requests |o..o{ session_weight_approval_requests : "session_id, session_exercise_id, resolved_by_request_id"

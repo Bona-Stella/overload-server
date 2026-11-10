@@ -79,6 +79,9 @@ import static org.mockito.Mockito.when;
 		com.overload.overload_server.workoutsession.WorkoutSnapshotService.class, com.overload.overload_server.workoutsession.WorkoutSnapshotRepository.class, com.overload.overload_server.workoutsession.WorkoutSessionService.class, com.overload.overload_server.workoutsession.WorkoutSessionRepository.class,
 		com.overload.overload_server.workout.WorkoutReadService.class,
 		com.overload.overload_server.catalog.CatalogReadService.class,
+		com.overload.overload_server.catalog.CatalogReviewService.class,
+		com.overload.overload_server.catalog.ExerciseDbIntakeService.class,
+		com.overload.overload_server.catalog.ExerciseMuscleService.class,
 		com.overload.overload_server.routine.RoutineService.class, com.overload.overload_server.routine.RoutineRepository.class, com.overload.overload_server.workout.WorkoutWriteService.class})
 class RequestIdHttpTests {
 

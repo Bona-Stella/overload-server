@@ -2,7 +2,7 @@
 
 현재 일반 통계 조회는 Overview를 사용한다. 제품 정책은 [통계·추적 v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md), 적용 이력과 날짜 판정은 [주간 일정](weekly-schedule.md), 관련 집계 계약은 [승인 성장](approved-weight-growth.md)·[유산소 실제 측정](cardio-actual-measurements.md)·[맨몸 추가 부하](bodyweight-additional-load.md)에 있다. 제거된 루트 GET과 당시 제약은 문서 마지막의 역사 기록에 보존한다.
 
-## GET /api/v1/statistics/overview — 2B
+## GET /api/v1/statistics/overview
 
 필수 query는 `fromDate=YYYY-MM-DD&toDateExclusive=YYYY-MM-DD` 두 개뿐이다. 종료일 배타 범위, 1~366일을 허용한다. 이는 조회량을 제한하는 기술 계약이며 주/월 보정 정책이 아니다. 기간 전체 성장은 별도 후속 계약이며 이 API의 366일 제한을 전체 성장 이력의 제품 제한으로 사용하지 않는다.
 
@@ -19,7 +19,8 @@
                   reviewStatus, reviewRevision }],
   cardioByKind: [{ kind, activeMs, distanceKm, manualDistanceKm, calculatedDistanceKm,
                   unknownSourceDistanceKm, manualRecords, calculatedRecords,
-                  unknownSourceRecords, recordsWithoutDistance }] }
+                  unknownSourceRecords, recordsWithoutDistance }],
+  cardioByCategory: [{ category, activeMs, distanceKm, recordsWithoutDistance }] }
 ```
 
 ### statistics 응답과 실제 집계
@@ -33,8 +34,9 @@ summary: Weight
 cardioActiveMs, unmappedCompletedSets: Counter
 days: [{ date, weights: Weight, cardioActiveMs }]
 exercises: [{ standardExerciseId, name, weights: Weight }]
-muscles: [{ id, name, groupCode, role, weights: Weight }]
+muscles: [{ id, name, groupCode, role, weights: Weight, contributionSets: "1.5" }]
 groups: [{ groupCode, role, weights: Weight }]
+groupActuals: [{ groupCode, completedSets: "3" }]
 cardio: [{ kind, name, activeMs, distanceKm, recordsWithoutDistance }]
 recentSessions: [{ id, routineName, workoutDate, startedAt, status }]
 
@@ -48,7 +50,10 @@ Decimal은 정확한 JSON 문자열이다. 유효 실제 수행의 중량은 실
 - 승인 상태·TODAY_ONLY·UNVERIFIED·장비·표준 운동 활성 여부로 실제 기록을 제외하지 않는다. 현재 활성 muscle 연결을 참고 분류로 사용한다.
 - 정정·삭제·명시 누락 복구 이후 매 조회에서 관계형 수행을 읽는다. record_change_events를 수행으로 더하지 않고 삭제 UUID를 복구하지 않는다. InitialPlan과 봉인 AppliedPlan·평가·승인 사건은 변경하지 않는다.
 - `completedSets`, `reps`는 실제 유효 완료 세트·실제 반복 합계다. 추가 종목·추가 세트를 포함하며 계획을 초과해도 잘라내지 않는다. 계획0/실제양수는 계획 없음으로 표시한다.
-- 세부 muscle에는 역할별 각 세트를 전부 반영한다. group에서는 같은 실제 세트/대분류/role 조합을 한 번만 센다. SECONDARY는 별도 참여량이며 0.5 환산이나 PRIMARY와 합산하지 않는다. 전체 summary는 muscle JOIN과 무관하게 실제 세트를 한 번씩만 센다. 총중량에도 동일 중복 제거 원칙을 적용한다.
+- `muscles[].weights.completedSets`는 역할별 실제 참여 세트를 정수 문자열로 유지한다. `contributionSets`는 완료 세트당 PRIMARY 1.0, SECONDARY 0.5를 적용한 한 자리 십진 문자열이다. 계획·반복·총중량에는 기여율을 적용하지 않는다.
+- `groupActuals`는 PRIMARY·SECONDARY를 가로질러 같은 실제 세트를 대분류마다 한 번 센다. 해당 기간에 실제 참여가 있는 그룹만 반환한다. 기존 `groups`는 역할별 계획·참여·총중량을 유지하며 전체 `summary`는 수행 세트당 한 번 집계한다.
+- 예를 들어 한 세트에 같은 대분류의 PRIMARY 하나와 SECONDARY 하나가 연결되면 각 근육 기여는 `"1.0"`과 `"0.5"`이며 해당 `groupActuals`와 전체 `summary.completedSets`에는 각각 한 세트가 반영된다. 다른 대분류에도 참여한 세트는 해당 그룹에 한 번씩 포함되므로 그룹을 더해 전체를 계산하지 않는다.
+- 과거 수행의 근육 통계에도 조회 시점의 활성 근육 연결을 사용한다. 기존 세트·계획·승인 이력을 바꾸지 않고, 정정·논리 삭제·복구의 기존 유효성 규칙을 적용한다.
 - `unmappedCompletedSets`는 활성 PRIMARY 연결이 없는 실제 세트 수이며 전체 실제 세트에는 남긴다. 카탈로그 검토 완료 수치가 아니다.
 - days는 조회 범위의 모든 날짜를 오름차순으로 포함한다. 운동이 없는 날의 실제 세트/시간은0이며 근거 없는 계획은 만들지 않는다.
 - 유산소는 kind+당시 계획의 name별로 분리한다. AppliedPlan을 우선하고 보존 InitialPlan을 대안으로 삼는다. 확인 불가 메타는 UNCLASSIFIED로 분리한다. 웨이트 세트와 합치지 않는다. 시간은 전체 actual active_ms이며 거리 미입력은 recordsWithoutDistance로 표시하고 거리 합계에서 제외한다. 모든 거리가 미입력이면 distanceKm=null이다. 서로 다른 종목 거리를 하나로 합산하지 않는다.
@@ -73,6 +78,8 @@ Decimal은 정확한 JSON 문자열이다. 유효 실제 수행의 중량은 실
 실제 계정 UI는 overview와 [성장 조회](approved-weight-growth.md)를 사용한다. 통계 GET 4종은 기능 API → AuthController → AuthApi.workoutRequest로 전달된다. Transport는 정확한 경로·메서드·UUID, 필수/허용 query와 중복 여부를 검사하고 GET 본문·미허용 경로를 거절한다. 날짜·기간·시간대·cursor는 API 계약을 따른다. 이전 일정 GET/PUT 경로는 T02-B의 기존 PWA 소비 기록이며, 새 일정 소비는 [다중 프리셋 계약](weekly-schedule.md)을 사용한다.
 
 ST-09에 따라 활동·근육 상세는 각각 `week/0`에서 시작해 독립적인 mode/offset을 갖는다. 주간·월간 선택은 해당 상세의 offset만0으로 바꾸며 요약을 거쳐 돌아와도 선택을 유지한다. 요약은 이번 주로 고정하고 성장의1/3/6개월·전체 정책은 별도로 유지한다. 상태는 기존 StatisticsPanel 수명 안에만 있으며 사용자·세대 key 변경으로 다시 마운트되면 초기화한다. 기간을 영구 저장하지 않는다.
+
+V33 Overview는 기존 유산소 기록 설정 `activityId`를 바탕으로 완료 기록을 RUNNING·WALKING·CYCLING별로 `cardioByCategory`에 합산한다. 여러 표준 운동 UUID가 같은 기록 설정을 공유할 수 있다. 분류 근거가 없는 과거 기록은 기존 전체·측정 종류 집계에 계속 포함한다. 현행 PWA 화면은 `cardioByKind`를 소비하고 거리 출처별 집계를 표시한다.
 
 ST-48 시간 비교와 `cardioByKind`/`statistics.cardio`의 역할은 [유산소 계약](cardio-actual-measurements.md#실제-통계와-계획-비교)을 따른다. `planning`은 StatisticsView에 전체 Overview 응답을 전달하는 Frontend prop 이름이며 Backend JSON 필드가 아니다. 실제·계획 시간은 활동 상세가 선택한 동일 기간의 검증된 응답을 사용하고 이전 기간의 늦은 응답은 표시하지 않는다.
 

@@ -69,11 +69,11 @@ class DeloadPeriodRepository {
         var ids=new TreeSet<UUID>();days.forEach(d->d.routine().weightPlacements().forEach(w->ids.add(w.standardExerciseId())));var classes=new ArrayList<Classification>();
         if(!ids.isEmpty()) {
             String marks=String.join(",",Collections.nCopies(ids.size(),"?"));Object[] parameters=ids.toArray();
-            var rows=jdbc.query("SELECT id,name,joint_type FROM standard_exercise WHERE id IN("+marks+") ORDER BY id"+(lock?" FOR SHARE":""),(r,i)->new Classification(r.getObject(1,UUID.class),r.getString(2),r.getString(3),List.of()),parameters);
+            var rows=jdbc.query("SELECT id,name,joint_type,ppl_split,front_back_split FROM standard_exercise WHERE id IN("+marks+") ORDER BY id"+(lock?" FOR SHARE":""),(r,i)->new Classification(r.getObject(1,UUID.class),r.getString(2),r.getString(3),List.of(),r.getString(4),r.getString(5)),parameters);
             if(rows.size()!=ids.size())throw DeloadPeriodFailure.conflict("DELOAD_SOURCE_CHANGED");
             var muscles=new HashMap<UUID,List<Muscle>>();
-            jdbc.query("SELECT em.standard_exercise_id,m.id,m.group_code,m.name FROM exercise_muscle em JOIN muscle m ON m.id=em.muscle_id WHERE em.standard_exercise_id IN("+marks+") AND em.role='PRIMARY' ORDER BY em.standard_exercise_id,m.id"+(lock?" FOR SHARE OF em,m":""),(org.springframework.jdbc.core.RowCallbackHandler)r->muscles.computeIfAbsent(r.getObject(1,UUID.class),key->new ArrayList<>()).add(new Muscle(r.getObject(2,UUID.class),r.getString(3),r.getString(4))),parameters);
-            rows.forEach(c->classes.add(new Classification(c.id(),c.name(),c.jointType(),List.copyOf(muscles.getOrDefault(c.id(),List.of())))));
+            jdbc.query("SELECT em.standard_exercise_id,m.id,m.group_code,m.name FROM exercise_muscle em JOIN muscle m ON m.id=em.muscle_id WHERE em.standard_exercise_id IN("+marks+") AND em.role='PRIMARY' AND m.is_active ORDER BY em.standard_exercise_id,m.id"+(lock?" FOR SHARE OF em,m":""),(org.springframework.jdbc.core.RowCallbackHandler)r->muscles.computeIfAbsent(r.getObject(1,UUID.class),key->new ArrayList<>()).add(new Muscle(r.getObject(2,UUID.class),r.getString(3),r.getString(4))),parameters);
+            rows.forEach(c->classes.add(new Classification(c.id(),c.name(),c.jointType(),List.copyOf(muscles.getOrDefault(c.id(),List.of())),c.pplSplit(),c.frontBackSplit())));
         }
         return new Source(owner,Long.toString(generation),zone,eligibility.today(),schedule.id(),schedule.presetVersion(),
                 days,List.copyOf(classes),null);

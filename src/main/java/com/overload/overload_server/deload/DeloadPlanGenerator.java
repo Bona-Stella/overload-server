@@ -39,39 +39,48 @@ final class DeloadPlanGenerator {
             candidates.add(new Candidate(day.weekday(),day.routine().id(),day.routine().version(),weight,classification,priority++));
         }
         if(!issues.isEmpty())return new Generated(List.of(),List.copyOf(issues));
-        var selected=new ArrayList<Candidate>();var covered=new HashSet<UUID>();
-        for(var c:candidates)if(c.classification().primary().stream().anyMatch(m->!covered.contains(m.id()))) {
-            selected.add(c);c.classification().primary().forEach(m->covered.add(m.id()));
-        }
-        int count=choice.method()==Method.THREE?3:2;var buckets=new ArrayList<List<Candidate>>();for(int i=0;i<count;i++)buckets.add(new ArrayList<>());
-        List<String> labels;
-        if(choice.split()==Split.EQUAL) {
-            labels=count==3?List.of("A","B","C"):List.of("A","B");
-            for(int i=0;i<selected.size();i++)buckets.get(i%count).add(selected.get(i));
-        } else {
-            var groups=new HashMap<UUID,String>();
-            for(var c:selected) {
-                var group=group(c.classification(),choice.split());if(group==null)issues.add(new Issue("SPLIT_CLASSIFICATION_REQUIRED",c.weight().standardExerciseId()));else groups.put(c.weight().standardExerciseId(),group);
+        int count = choice.method() == Method.THREE ? 3 : 2;
+        var mainSplits = new HashMap<Integer, String>();
+        for (var day : source.days()) {
+            if (!day.routine().weightPlacements().isEmpty()) {
+                var main = day.routine().weightPlacements().getFirst();
+                var split = group(classes.get(main.standardExerciseId()), choice.split());
+                if (split != null) mainSplits.put(day.weekday(), split);
             }
-            var needed=choice.split()==Split.PPL?List.of("PUSH","PULL","LEGS"):List.of("FRONT","BACK");
-            if(!new HashSet<>(groups.values()).containsAll(needed))issues.add(new Issue("SPLIT_UNAVAILABLE",null));
-            if(choice.split()==Split.PPL) {
-                var order=new LinkedHashSet<String>();for(var day:source.days())if(!day.routine().weightPlacements().isEmpty()) {
-                    var w=day.routine().weightPlacements().getFirst();String g=group(classes.get(w.standardExerciseId()),Split.PPL);if(g!=null)order.add(g);
-                }
-                if(!order.containsAll(needed))issues.add(new Issue("SPLIT_ORDER_UNRESOLVED",null));labels=List.copyOf(order);
-            } else labels=needed;
-            if(!issues.isEmpty())return new Generated(List.of(),List.copyOf(issues));
-            for(var c:selected)buckets.get(labels.indexOf(groups.get(c.weight().standardExerciseId()))).add(c);
+        }
+        List<String> labels;
+        if (choice.split() == Split.EQUAL) {
+            labels = count == 3 ? List.of("A", "B", "C") : List.of("A", "B");
+        } else {
+            var needed = choice.split() == Split.PPL ? List.of("PUSH", "PULL", "LEGS") : List.of("FRONT", "BACK");
+            var classified = new HashSet<String>();
+            for (var candidate : candidates) {
+                var split = group(candidate.classification(), choice.split());
+                if (split != null) classified.add(split);
+            }
+            if (!classified.containsAll(needed)) issues.add(new Issue("SPLIT_UNAVAILABLE", null));
+            var order = new LinkedHashSet<String>();
+            for (var day : source.days()) {
+                var split = mainSplits.get(day.weekday());
+                if (split != null) order.add(split);
+            }
+            if (choice.split() == Split.PPL && !order.containsAll(needed)) {
+                issues.add(new Issue("SPLIT_ORDER_UNRESOLVED", null));
+            }
+            if (!issues.isEmpty()) return new Generated(List.of(), List.copyOf(issues));
+            labels = choice.split() == Split.PPL ? List.copyOf(order) : needed;
         }
         int exerciseCap=Math.min(totalExercises/source.days().size()+(count==3?1:2),count==3?6:7);
         long setCap=Math.max(1,totalSets*7/(10L*source.days().size()));
+        var buckets = select(candidates, labels, mainSplits, choice.split(), (int) Math.min(exerciseCap, setCap));
+        var priorities = new HashMap<UUID, Integer>();
+        for (var candidate : candidates) priorities.put(candidate.weight().standardExerciseId(), candidate.priority());
         var cardioDays=source.days().stream().filter(d->!d.routine().cardioPlacements().isEmpty()).toList();
         var cardioSlots=new ArrayList<Integer>();for(int i=0;i<count;i++)if(!labels.get(i).equals("LEGS"))cardioSlots.add(i);
         int wanted=Math.min(cardioDays.size(),2);if(count==2)wanted=Math.min(cardioDays.size(),2);
         var plans=new ArrayList<Plan>();
         for(int i=0;i<count;i++) {
-            var bucket=buckets.get(i);if(bucket.size()>exerciseCap)bucket=new ArrayList<>(bucket.subList(0,exerciseCap));
+            var bucket=buckets.get(i);
             var weights=new ArrayList<Weight>();for(var c:bucket)weights.add(reduce(c.day(),c.routine(),c.version(),c.weight()));
             long sum=weights.stream().mapToLong(Weight::setCount).sum();
             for(int j=weights.size()-1;sum>setCap&&j>=0;j--) {
@@ -79,7 +88,8 @@ final class DeloadPlanGenerator {
                 if(remove>0){weights.set(j,new Weight(w.sourceWeekday(),w.sourceRoutineId(),w.sourceVersion(),w.original(),w.weightKg(),w.setCount()-remove,w.minReps(),w.maxReps()));sum-=remove;}
             }
             while(sum>setCap&&!weights.isEmpty())sum-=weights.removeLast().setCount();
-            weights.sort(Comparator.comparingInt(w->jointOrder(classes.get(w.original().standardExerciseId()).jointType())));
+            weights.sort(Comparator.comparingInt((Weight w) -> jointOrder(classes.get(w.original().standardExerciseId()).jointType()))
+                    .thenComparingInt(w -> priorities.get(w.original().standardExerciseId())));
             var cardio=new ArrayList<Cardio>();if(wanted>0&&cardioSlots.subList(0,wanted).contains(i)) {
                 var d=cardioDays.getFirst();var c=reduceCardio(d.weekday(),d.routine(),d.routine().cardioPlacements().getFirst(),issues);if(c!=null)cardio.add(c);
             }
@@ -123,21 +133,69 @@ final class DeloadPlanGenerator {
         int seconds=BigDecimal.valueOf(p.targetSeconds()).divide(BigDecimal.valueOf(120),0,RoundingMode.HALF_UP).intValueExact()*60;
         if(seconds==0){issues.add(new Issue("CARDIO_TIME_ROUNDS_TO_ZERO",c.id()));return null;}
         var intensity=p.intensity()==null?null:new RoutineResponses.Intensity("SPEED",new BigDecimal(p.intensity().value()).multiply(new BigDecimal("0.85")).setScale(1,RoundingMode.HALF_UP).toPlainString());
-        return new Cardio(day,r.id(),r.version(),c,new RoutineResponses.Plan(p.kind(),p.name(),seconds,null,intensity,null,null,p.activityId()));
+        return new Cardio(day,r.id(),r.version(),c,new RoutineResponses.Plan(p.kind(),p.name(),seconds,null,intensity,null,null,p.activityId(),p.standardExerciseId()));
     }
     private static int jointOrder(String joint){return switch(joint){case "COMPOUND"->0;case "ISOLATION"->1;default->2;};}
-    private static String group(Classification c,Split split) {
-        if(c==null||c.primary().isEmpty())return null;var groups=new HashSet<String>();
-        for(var m:c.primary()) {var g=region(m,split);if(g==null)return null;groups.add(g);}return groups.size()==1?groups.iterator().next():null;
+    private static List<List<Candidate>> select(List<Candidate> candidates, List<String> labels,
+                                                 Map<Integer, String> mainSplits, Split split, int capacity) {
+        var buckets = new ArrayList<List<Candidate>>();
+        for (String ignored : labels) buckets.add(new ArrayList<>());
+        var represented = new boolean[labels.size()];
+        var remaining = new ArrayList<>(candidates);
+        var covered = new HashSet<UUID>();
+        while (!remaining.isEmpty()) {
+            Candidate best = null;
+            int bestSlot = -1;
+            int bestOverlap = Integer.MAX_VALUE;
+            for (var candidate : remaining) {
+                var group = group(candidate.classification(), split);
+                int slot = slotFor(candidate, group, labels, buckets, represented, mainSplits, split, capacity);
+                if (slot < 0) continue;
+                var primary = candidate.classification().primary();
+                long overlap = primary.stream().filter(muscle -> covered.contains(muscle.id())).count();
+                int rank = overlap == 0 ? 0 : overlap == primary.size() ? 2 : 1;
+                // A full duplicate can supply an otherwise unrepresented day or explicit split.
+                boolean needed = split == Split.EQUAL ? buckets.get(slot).isEmpty() : group != null && !represented[slot];
+                if (rank < bestOverlap && (rank < 2 || needed)) {
+                    best = candidate;
+                    bestSlot = slot;
+                    bestOverlap = rank;
+                    if (rank == 0) break;
+                }
+            }
+            if (best == null) break;
+            buckets.get(bestSlot).add(best);
+            if (group(best.classification(), split) != null) represented[bestSlot] = true;
+            for (var muscle : best.classification().primary()) covered.add(muscle.id());
+            remaining.remove(best);
+        }
+        return buckets;
     }
-    private static String region(Muscle m,Split split) {
-        if(m.group().equals("CHEST"))return split==Split.PPL?"PUSH":"FRONT";
-        if(m.group().equals("BACK"))return split==Split.PPL?"PULL":"BACK";
-        if(split==Split.PPL&&m.group().equals("LEGS"))return "LEGS";
-        String n=m.name().replace(" ","");
-        if(Set.of("전면삼각근","측면삼각근","전면어깨","측면어깨","삼두","삼두근").contains(n))return split==Split.PPL?"PUSH":"FRONT";
-        if(Set.of("후면삼각근","후면어깨","이두","이두근").contains(n))return split==Split.PPL?"PULL":"BACK";
-        if(split==Split.FRONT_BACK){if(Set.of("대퇴사두근","복근","복직근").contains(n))return "FRONT";if(Set.of("햄스트링","둔근","종아리").contains(n))return "BACK";}
-        return null;
+
+    private static int slotFor(Candidate candidate, String group, List<String> labels, List<List<Candidate>> buckets,
+                               boolean[] represented, Map<Integer, String> mainSplits, Split split, int capacity) {
+        if (group != null) {
+            int slot = labels.indexOf(group);
+            return buckets.get(slot).size() < capacity ? slot : -1;
+        }
+        int preferred = labels.indexOf(mainSplits.getOrDefault(candidate.day(), ""));
+        int best = -1;
+        for (int slot = 0; slot < labels.size(); slot++) {
+            // Preserve a place for the explicit split even when an unclassified candidate ranks first.
+            int reserved = split != Split.EQUAL && !represented[slot] ? 1 : 0;
+            if (buckets.get(slot).size() >= capacity - reserved) continue;
+            if (slot == preferred) return slot;
+            if (best < 0 || buckets.get(slot).size() < buckets.get(best).size()) best = slot;
+        }
+        return best;
+    }
+
+    private static String group(Classification classification, Split split) {
+        if (classification == null) return null;
+        return switch (split) {
+            case PPL -> classification.pplSplit();
+            case FRONT_BACK -> classification.frontBackSplit();
+            default -> null;
+        };
     }
 }

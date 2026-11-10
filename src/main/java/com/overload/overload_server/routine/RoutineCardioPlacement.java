@@ -14,6 +14,7 @@ public class RoutineCardioPlacement {
 	@Column(name = "routine_id", nullable = false, updatable = false) UUID routineId;
 	@Column(nullable = false) int position;
 	@Column(name="activity_id") UUID activityId;
+	@Column(name="standard_exercise_id") UUID standardExerciseId;
 	@Column(nullable = false, columnDefinition = "text") String kind;
 	@Column(nullable = false, columnDefinition = "text") String name;
 	@Column(name = "target_seconds", nullable = false) int targetSeconds;
@@ -35,14 +36,14 @@ public class RoutineCardioPlacement {
 	}
 	RoutineRequests.Plan plan() {
 		return new RoutineRequests.Plan(kind, name, targetSeconds, normalize(targetDistance), intensityMode,
-				normalize(intensityValue), normalize(incline), normalize(resistance),activityId);
+				normalize(intensityValue), normalize(incline), normalize(resistance),activityId,standardExerciseId);
 	}
 	private static BigDecimal normalize(BigDecimal value) { return value == null ? null : value.stripTrailingZeros(); }
 	boolean differs(RoutineRequests.Cardio input, int order) {
 		return deletedAt != null || position != order || !plan().equals(input.plan());
 	}
 	void apply(RoutineRequests.Plan plan, int order, Instant now) {
-		activityId=plan.activityId(); position = order; kind = plan.kind(); name = plan.name(); targetSeconds = plan.targetSeconds();
+		activityId=plan.activityId(); standardExerciseId=plan.standardExerciseId(); position = order; kind = plan.kind(); name = plan.name(); targetSeconds = plan.targetSeconds();
 		targetDistance = plan.targetDistanceKm(); intensityMode = plan.intensityMode(); intensityValue = plan.intensityValue();
 		incline = plan.inclinePercent(); resistance = plan.resistance(); deletedAt = null; updatedAt = now;
 	}

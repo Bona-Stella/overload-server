@@ -11,6 +11,24 @@ public final class CatalogFixtures {
         jdbc.update("INSERT INTO standard_exercise(id,name) VALUES (?,'test standard')",id);
         return id;
     }
+    public static UUID reviewedExercise(JdbcTemplate jdbc) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO standard_exercise(id,name,muscle_targets_reviewed,splits_reviewed) VALUES (?,'test standard',true,true)", id);
+        return id;
+    }
+
+    public static final UUID TREADMILL = UUID.fromString("ca000000-0000-4000-8000-000000000001");
+    public static final UUID OUTDOOR = UUID.fromString("ca000000-0000-4000-8000-000000000002");
+
+    public static UUID reviewedCardio(JdbcTemplate jdbc, String name, UUID activityId) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO standard_exercise(id,name,exercise_type,record_method,cardio_activity_id,muscle_targets_reviewed,splits_reviewed)
+                VALUES (?,?,'CARDIO','CARDIO',?,true,true)
+                """, id, name, activityId);
+        return id;
+    }
+
     public static UUID manufacturer(JdbcTemplate jdbc) {
         UUID id=UUID.randomUUID();
         jdbc.update("INSERT INTO manufacturer(id,name) VALUES (?,'test manufacturer')",id);

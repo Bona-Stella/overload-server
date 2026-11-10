@@ -15,6 +15,15 @@ class SessionExercise {
     @Column(updatable = false, columnDefinition = "text") String kind;
     @Column(name = "standard_exercise_id", updatable = false) UUID standardExerciseId;
     @Column(name = "name_at_addition", updatable = false, columnDefinition = "text") String nameAtAddition;
+    @Column(name = "cardio_activity_id", updatable = false) UUID cardioActivityId;
+    @Column(name = "cardio_kind", updatable = false, columnDefinition = "text") String cardioKind;
+
+    void captureCardio(UUID activityId, String kind, String name) {
+        cardioActivityId = activityId;
+        cardioKind = kind;
+        nameAtAddition = name;
+    }
+
     protected SessionExercise() {
     }
     SessionExercise(WorkoutSession session, WorkoutSnapshotData.Exercise input, String name) {

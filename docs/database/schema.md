@@ -2,17 +2,19 @@
 
 ## 기준과 범위
 
-현행 Backend의 목표 스키마는 [Flyway V1~V31](../../src/main/resources/db/migration/)의 누적 결과다. 2026-11-09에 빈 일회용 PostgreSQL 18.6에서 V30의 `public` 카탈로그를 확인했다. V31 차이는 추가 DDL과 새 DB 적용·V30→V31 격리 전환 테스트를 대조했다. 반복 실행 migration은 없다. 실제 개발·개인·운영 DB의 적용 버전은 이번 조사에서 확인하지 않았다. [격리 검증 기록](../engineering/backend.md#125-다중-주간-일정-프리셋)
+현행 Backend의 목표 스키마는 [Flyway V1~V35](../../src/main/resources/db/migration/)의 누적 결과다. 2026-11-09에 빈 일회용 PostgreSQL 18.6에서 V30의 `public` 카탈로그를 확인했다. V31 차이는 추가 DDL과 새 DB 적용·V30→V31 격리 전환 테스트를 대조했다. 반복 실행 migration은 없다. 실제 개발·개인·운영 DB의 적용 버전은 이번 조사에서 확인하지 않았다. [격리 검증 기록](../engineering/backend.md#125-다중-주간-일정-프리셋)
 
 [ERD](erd.md)는 관계를, 이 문서는 컬럼과 제약조건 및 보존 규칙을 설명한다. 스키마 변경의 실행 기준은 Flyway migration이며 클라이언트 요청·응답은 [API 계약](../api/)을 따른다. DB 제약보다 좁은 쓰기 조건은 서버 코드와 함께 읽는다.
 
-| 항목 | V31 목표 |
+| 항목 | V31 검증 기준 |
 | --- | ---: |
 | 기본 테이블 | 40 (Overload 37, Spring Session 2, Flyway 1) |
 | 컬럼 / NOT NULL | 379 / 281 |
 | PK / FK / UNIQUE / CHECK | 40 / 55 / 23 / 177 |
 | 인덱스 | 90 (제약조건 지원 63, 기타 27) |
 | 사용자 트리거 / 뷰 | 22 / 1 |
+
+V32는 표준 운동 상세·두 검수 상태·근육과 원본 연결을 추가한다. V33은 표준 운동과 유산소 기록 설정을 연결한다. V34는 ExerciseDB 원본 검수 대기, V35는 회원별 GIF 허용 행을 각각 분리한다. [표준 운동 인수인계](../engineering/standard-exercise-handoff.md)
 
 컬럼의 `YES`/`NO`는 NULL 허용 여부다. `—`는 해당 표에서 별도 기본값, 키 또는 지원 제약조건이 없음을 뜻한다. 생성식은 기본값과 구분했다. 복합 키의 컬럼 조합과 순서는 제약조건 표를 따른다. FK는 PostgreSQL 기본 `MATCH SIMPLE`을 사용한다. `ON UPDATE`는 모두 `NO ACTION`이고, 삭제 동작은 각 FK에 표시했다. 인덱스 정의의 `public.`은 카탈로그에 출력된 스키마 한정 이름이다.
 
@@ -387,13 +389,19 @@ Spring Session이 직렬화한 세션 속성. 부모 세션 삭제 시 연쇄 �
 
 현행 근력 선택은 표준 운동과 선택 제조사를 사용한다. 유산소 배치는 선택한 카탈로그 항목 또는 기존 이름·종류를 보존한다.
 
-[`standard_exercise`](#standard_exercise) · [`exercise_alias`](#exercise_alias) · [`muscle`](#muscle) · [`exercise_muscle`](#exercise_muscle) · [`manufacturer`](#manufacturer) · [`cardio_activity_catalog`](#cardio_activity_catalog) · [`exercise_definitions`](#exercise_definitions) · [`routines`](#routines) · [`routine_weight_placements`](#routine_weight_placements) · [`routine_cardio_placements`](#routine_cardio_placements) · [`routine_plan_history`](#routine_plan_history)
+[`standard_exercise`](#standard_exercise) · [`exercise_alias`](#exercise_alias) · [`muscle`](#muscle) · [`exercise_muscle`](#exercise_muscle) · [`exercise_source`](#exercise_source) · [`manufacturer`](#manufacturer) · [`cardio_activity_catalog`](#cardio_activity_catalog) · [`exercise_definitions`](#exercise_definitions) · [`routines`](#routines) · [`routine_weight_placements`](#routine_weight_placements) · [`routine_cardio_placements`](#routine_cardio_placements) · [`routine_plan_history`](#routine_plan_history)
+
+V33의 표준 유산소 연결은 `standard_exercise.cardio_activity_id` → `cardio_activity_catalog.id`를 사용한다. 한 설정을 여러 운동이 공유한다. `routine_cardio_placements.standard_exercise_id`와 CARDIO의 `session_exercises.standard_exercise_id`는 과거 데이터에서 NULL이다. 신규 연결 세션은 당시 설정 ID·측정 종류·이름을 함께 저장한다. `cardio_results`는 계속 기존 세션 활동 ID를 참조한다. 기존 JSON·해시·기록 행을 변환하는 SQL은 없다. [V33 SQL](../../src/main/resources/db/migration/V33__link_standard_cardio_exercises.sql)
+
+#### ExerciseDB V1 검수 대기
+
+`exercise_db_v1_candidate`는 대소문자를 구분하는 원본 ID를 PK로 사용한다. `source_file_sha256`과 1부터 시작하는 `source_position` 조합은 고유하다. `original`에는 원본 JSON 객체와 순서 있는 배열을, `findings`에는 규칙으로 분석한 후보 근거를 저장한다. `review_draft`는 별도의 내부 초안이며 `draft_version`으로 동시 편집을 검증한다. 표준 운동 연결은 명시적 결정 후 V32의 `exercise_source`에서 관리한다. V34는 빈 테이블만 생성한다. [V34 SQL](../../src/main/resources/db/migration/V34__stage_exercisedb_v1_candidates.sql)
 
 ### `standard_exercise`
 
-표준 근력 운동 카탈로그. 루틴 배치와 세션 운동이 참조하며 이름·활성 여부·관절 분류를 저장한다.
+표준 운동 카탈로그. 루틴 배치와 세션 운동이 참조하며 한국어 이름, 운동 유형, 기록 방식과 검수 상태를 저장한다.
 
-근거 [V16](../../src/main/resources/db/migration/V16__create_standard_exercise_catalog.sql) · [V18](../../src/main/resources/db/migration/V18__add_standard_exercise_joint_type.sql)
+근거 [V16](../../src/main/resources/db/migration/V16__create_standard_exercise_catalog.sql) · [V18](../../src/main/resources/db/migration/V18__add_standard_exercise_joint_type.sql) · [V32](../../src/main/resources/db/migration/V32__expand_standard_exercise_catalog.sql)
 
 | 컬럼 | PostgreSQL 자료형 | NULL | 기본값 / 생성식 | 키 | 역할 |
 | --- | --- | --- | --- | --- | --- |
@@ -403,6 +411,12 @@ Spring Session이 직렬화한 세션 속성. 부모 세션 삭제 시 연쇄 �
 | `created_at` | `timestamp with time zone` | NO | `CURRENT_TIMESTAMP` | — | 생성 시각. |
 | `updated_at` | `timestamp with time zone` | NO | `CURRENT_TIMESTAMP` | — | 마지막 갱신 시각. |
 | `joint_type` | `text` | YES | — | — | 표준 운동의 관절 분류. |
+| `exercise_type` | `text` | NO | `WEIGHT` | — | WEIGHT, CARDIO, STATIC_HOLD, STRETCH, OTHER. |
+| `record_method` | `text` | NO | `SETS_REPS` | — | SETS_REPS, CARDIO, HOLD_DURATION, UNSPECIFIED. |
+| `ppl_split` / `front_back_split` | `text` | YES | — | — | 운동별 PPL(PUSH/PULL/LEGS) 및 전면·후면(FRONT/BACK). |
+| `instructions_ko` / `equipment_description` | `text` | YES | — | — | 한국어 운동 방법 및 선택적 기구 설명. |
+| `representative_gif_key` | `text` | YES | — | — | 운동당 하나의 비공개 대표 GIF 참조 키. |
+| `muscle_targets_reviewed` / `splits_reviewed` | `boolean` | NO | `false` | — | 서로 독립적인 근육 타겟·분할 검수 상태. |
 
 | 종류 | 제약조건 | 정의 |
 | --- | --- | --- |
@@ -439,7 +453,7 @@ Spring Session이 직렬화한 세션 속성. 부모 세션 삭제 시 연쇄 �
 
 ### `muscle`
 
-근육 카탈로그와 그룹 코드.
+근육 카탈로그와 그룹 코드. V32는 고정 UUID로 표준 근육 40개를 등록하며 기존 근육과 연결을 보존한다. 기본 분할은 운동별 분할을 자동 확정하는 데 사용하지 않는다.
 
 근거 [V16](../../src/main/resources/db/migration/V16__create_standard_exercise_catalog.sql)
 
@@ -447,6 +461,7 @@ Spring Session이 직렬화한 세션 속성. 부모 세션 삭제 시 연쇄 �
 | --- | --- | --- | --- | --- | --- |
 | `id` | `uuid` | NO | — | PK | 행 식별자. |
 | `group_code` | `text` | NO | — | — | 근육 그룹 코드. |
+| `default_ppl_split` / `default_front_back_split` | `text` | YES | — | — | 근육 기본 분할. 운동별 컬럼과 같은 허용값을 사용한다. |
 | `name` | `text` | NO | — | — | 표시 이름. |
 | `is_active` | `boolean` | NO | `true` | — | 카탈로그 활성 여부. |
 
@@ -471,17 +486,40 @@ Spring Session이 직렬화한 세션 속성. 부모 세션 삭제 시 연쇄 �
 | `standard_exercise_id` | `uuid` | NO | — | PK, FK | 표준 근력 운동 ID. |
 | `muscle_id` | `uuid` | NO | — | PK, FK | 근육 ID. |
 | `role` | `text` | NO | — | — | 해당 표준 운동에서 근육이 맡는 역할. |
+| `primary_order` | `integer` | YES | — | UNIQUE (운동, 순서) | PRIMARY의 양의 정수 순서. SECONDARY는 NULL. |
+
+V32는 기존 PRIMARY의 순서만 근육 UUID 오름차순으로 채운다. 관리용 백엔드 서비스는 연결 전체를 트랜잭션에서 교체하며 PRIMARY 순서를 1부터 연속으로 부여한다.
 
 | 종류 | 제약조건 | 정의 |
 | --- | --- | --- |
 | PK | `exercise_muscle_pkey` | `PRIMARY KEY (standard_exercise_id, muscle_id)` |
 | FK | `exercise_muscle_muscle_id_fkey` | `FOREIGN KEY (muscle_id) REFERENCES muscle(id)` · 삭제 `NO ACTION` |
 | FK | `exercise_muscle_standard_exercise_id_fkey` | `FOREIGN KEY (standard_exercise_id) REFERENCES standard_exercise(id)` · 삭제 `NO ACTION` |
+| UNIQUE | `exercise_muscle_primary_order_unique` | `UNIQUE (standard_exercise_id, primary_order)` |
+| CHECK | `exercise_muscle_role_order_check` | PRIMARY는 1 이상, SECONDARY는 NULL. |
 | CHECK | `exercise_muscle_role_check` | `CHECK ((role = ANY (ARRAY['PRIMARY'::text, 'SECONDARY'::text])))` |
 
 | 인덱스 | 정의 | 지원 제약조건 |
 | --- | --- | --- |
 | `exercise_muscle_pkey` | `CREATE UNIQUE INDEX exercise_muscle_pkey ON public.exercise_muscle USING btree (standard_exercise_id, muscle_id)` | `exercise_muscle_pkey` |
+
+### `exercise_source`
+
+근거 [V32](../../src/main/resources/db/migration/V32__expand_standard_exercise_catalog.sql)
+
+| 컬럼 | PostgreSQL 자료형 | NULL | 키 | 역할 |
+| --- | --- | --- | --- | --- |
+| `source_system` | `text` | NO | PK | EXERCISEDB_V1. |
+| `source_exercise_id` | `text` | NO | PK | 원본 운동 식별자. |
+| `standard_exercise_id` | `uuid` | NO | FK | `standard_exercise(id)` 참조. 한 표준 운동에 여러 원본을 연결할 수 있다. |
+| `original_name` | `text` | NO | — | 원본 영어 운동명. |
+| `original_gif_reference` | `text` | YES | — | 원본 GIF 주소 또는 참조 키. |
+
+원본 ID와 표준 운동 UUID는 독립적이다. `standard_exercise_id`의 조회 인덱스가 있으며, 참조된 표준 운동을 자동 삭제하지 않는다.
+
+### `exercise_gif_access`
+
+회원별 GIF 열람을 허용하는 행이다. `user_id`는 UUID PK이며 `users(id)`를 참조한다. 계정 삭제는 해당 허용 행도 삭제한다. `granted_at`은 `timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP`다. V35는 빈 테이블을 만들며 기존·신규 회원의 기본 상태는 허용 행 없음이다. [V35 SQL](../../src/main/resources/db/migration/V35__add_exercise_gif_access.sql) · [부여·회수 SQL](../../deploy/local/gif-access.sql)
 
 ### `manufacturer`
 
@@ -980,7 +1018,7 @@ V31은 기존 행을 재작성하거나 이름을 채우지 않는다. 이름을
 
 ### `session_exercises`
 
-세션 안에서 발생한 근력·유산소 항목의 식별자와 당시 이름. 근력에만 표준 운동을 연결한다.
+세션 안의 웨이트·유산소 항목 식별자와 당시 이름. 기존 미연결 유산소의 표준 운동 UUID는 NULL이다.
 
 근거 [V13](../../src/main/resources/db/migration/V13__add_workout_snapshots.sql) · [V17](../../src/main/resources/db/migration/V17__connect_standard_exercises_to_workouts.sql)
 
@@ -991,7 +1029,9 @@ V31은 기존 행을 재작성하거나 이름을 채우지 않는다. 이름을
 | `user_id` | `uuid` | NO | — | FK | 소유 계정 ID. |
 | `data_generation` | `bigint` | NO | — | FK | 소유 계정의 운동 데이터 세대. |
 | `kind` | `text` | NO | — | — | 유형 구분자. |
-| `standard_exercise_id` | `uuid` | YES | — | FK | 표준 근력 운동 ID. |
+| `standard_exercise_id` | `uuid` | YES | — | FK | 웨이트 또는 유산소의 표준 운동 UUID. |
+| `cardio_activity_id` | `uuid` | YES | — | FK | 신규 연결 유산소의 기존 기록 설정 ID. |
+| `cardio_kind` | `text` | YES | — | — | 새 유산소 선택 당시의 측정 종류. |
 | `name_at_addition` | `text` | YES | — | — | 세션에 추가할 때 보존한 이름. |
 
 | 종류 | 제약조건 | 정의 |
@@ -1000,7 +1040,7 @@ V31은 기존 행을 재작성하거나 이름을 채우지 않는다. 이름을
 | FK | `session_exercise_standard_exercise_fk` | `FOREIGN KEY (standard_exercise_id) REFERENCES standard_exercise(id)` · 삭제 `NO ACTION` |
 | FK | `session_exercises_user_id_data_generation_session_id_fkey` | `FOREIGN KEY (user_id, data_generation, session_id) REFERENCES workout_sessions(user_id, data_generation, id)` · 삭제 `NO ACTION` |
 | UNIQUE | `session_exercises_session_id_id_kind_key` | `UNIQUE (session_id, id, kind)` |
-| CHECK | `session_exercises_check` | `CHECK ((((kind = 'WEIGHT'::text) AND (standard_exercise_id IS NOT NULL)) OR ((kind = 'CARDIO'::text) AND (standard_exercise_id IS NULL) AND (name_at_addition IS NULL))))` |
+| CHECK | `session_exercises_check` | WEIGHT는 표준 ID 필수, 유산소 설정·종류는 NULL. CARDIO는 기존 미연결 형태이거나 표준 UUID·설정 ID·측정 종류·이름을 함께 보존한다. |
 | CHECK | `session_exercises_kind_check` | `CHECK ((kind = ANY (ARRAY['WEIGHT'::text, 'CARDIO'::text])))` |
 
 | 인덱스 | 정의 | 지원 제약조건 |
@@ -1538,7 +1578,11 @@ Flyway가 실행 이력을 관리한다.
 | V25~V29 | 분석 버전·epoch와 주간 확정, 디로딩 v1.7 기간·임시 계획·세션·기간 종료 및 분석 재개. |
 | V30 | 편집 가능한 다중 프리셋과 활성·순환 상태. 기존 적용 이력·계획·수행 기록은 같은 구조에 유지된다. |
 | V31 | 주간 일정 프리셋의 nullable 이름 컬럼과 비공백 제약. 기존 행과 적용 이력을 보존한다. |
+| V32 | 고정 UUID의 표준 근육 40개, 표준 운동 상세·독립 검수, 운동별 PRIMARY 순서, ExerciseDB 원본 참조. |
+| V33 | 표준 유산소 운동과 기록 설정 연결, 루틴과 세션의 유산소 표준 UUID 및 세션의 당시 측정 종류 보존. |
+| V34 | ExerciseDB V1 원본, 분석 근거, 검수 초안을 공개 카탈로그와 분리해 보관하는 빈 대기 테이블. |
+| V35 | `exercise_gif_access` 회원 UUID별 열람 허용 행과 부여 시각. `user_id`는 PK이며 `users.id` 삭제 시 허용 행만 함께 삭제한다. 신규·기존 회원에 허용 행을 생성하지 않는다. |
 
-JPA는 카탈로그, 설정, 루틴과 주요 세션·수행의 16개 테이블을 매핑한다. 다섯 세션 하위 엔티티의 일부 필드는 `nullable=false` 표기 없이 DB의 `NOT NULL` 제약을 따른다. 계정·OTP, 주간 일정, 통계 조회와 디로딩 분석·기간 저장소는 JDBC를 사용한다. 복합 FK, 부분 인덱스와 트리거는 Flyway 정의에서 관리한다. Hibernate는 `ddl-auto=validate`이며 Spring Session의 자체 초기화는 비활성화되어 있다. [세션 하위 엔티티](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutSnapshotEntities.java) · [런타임 설정](../../src/main/resources/application.yaml) · [마이그레이션 통합 테스트](../../src/test/java/com/overload/overload_server/database/PostgresMigrationTests.java) · [Flyway SQL 전체](../../src/main/resources/db/migration/)
+JPA는 카탈로그, 설정, 루틴과 주요 세션·수행의 17개 테이블을 매핑한다. 다섯 세션 하위 엔티티의 일부 필드는 `nullable=false` 표기 없이 DB의 `NOT NULL` 제약을 따른다. 계정·OTP, 주간 일정, 통계 조회와 디로딩 분석·기간 저장소는 JDBC를 사용한다. 복합 FK, 부분 인덱스와 트리거는 Flyway 정의에서 관리한다. Hibernate는 `ddl-auto=validate`이며 Spring Session의 자체 초기화는 비활성화되어 있다. [세션 하위 엔티티](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutSnapshotEntities.java) · [런타임 설정](../../src/main/resources/application.yaml) · [마이그레이션 통합 테스트](../../src/test/java/com/overload/overload_server/database/PostgresMigrationTests.java) · [Flyway SQL 전체](../../src/main/resources/db/migration/)
 
 이전 논리 모델과 카탈로그 도입안은 작성 시점의 설계 근거다. 최종 물리 구조는 위 테이블별 근거 migration을 따른다. [Task 006-A 논리 모델](../tasks/task-006-model-mapping-report.md) · [표준 운동 카탈로그 도입안](../tasks/standard-exercise-catalog-design-analysis.md)

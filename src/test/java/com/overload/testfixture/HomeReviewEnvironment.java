@@ -95,14 +95,16 @@ public final class HomeReviewEnvironment {
         String generation = settings.get("dataGeneration").asString();
         UUID bench=UUID.randomUUID(), row=UUID.randomUUID(), squat=UUID.randomUUID(), maker=UUID.randomUUID();
         // Catalog definitions are administration data; workout/routine/schedule facts below use HTTP only.
-        jdbc.update("INSERT INTO standard_exercise(id,name,joint_type) VALUES (?,'벤치 프레스','COMPOUND'),(?,'랫 풀다운','COMPOUND'),(?,'바벨 스쿼트','COMPOUND')",bench,row,squat);
+        jdbc.update("INSERT INTO standard_exercise(id,name,joint_type,muscle_targets_reviewed,splits_reviewed) VALUES (?,'벤치 프레스','COMPOUND',true,true),(?,'랫 풀다운','COMPOUND',true,true),(?,'바벨 스쿼트','COMPOUND',true,true)",bench,row,squat);
         jdbc.update("INSERT INTO manufacturer(id,name) VALUES (?,'검토용 플레이트 장비')",maker);
         var muscle=UUID.randomUUID(); jdbc.update("INSERT INTO muscle(id,group_code,name) VALUES (?,'CHEST','대흉근')",muscle);
-        jdbc.update("INSERT INTO exercise_muscle(standard_exercise_id,muscle_id,role) VALUES (?,?,'PRIMARY')",bench,muscle);
+        jdbc.update("INSERT INTO exercise_muscle(standard_exercise_id,muscle_id,role,primary_order) VALUES (?,?,'PRIMARY',1)",bench,muscle);
         UUID push=UUID.randomUUID(), pull=UUID.randomUUID(), mixed=UUID.randomUUID();
         createRoutine(client,origin,generation,push,"상체 PUSH",List.of(weight(bench,maker,"60",3,6,10),weight(row,null,"40",2,8,12)),List.of());
         createRoutine(client,origin,generation,pull,"하체 · 등 근력",List.of(weight(squat,maker,"80",4,6,8),weight(row,null,"45",3,8,12)),List.of());
         var cardio = new LinkedHashMap<String,Object>(); cardio.put("kind","TREADMILL");cardio.put("name","러닝머신");cardio.put("targetSeconds",1200);cardio.put("targetDistanceKm",null);cardio.put("intensity",Map.of("mode","SPEED","value","8"));cardio.put("inclinePercent",null);cardio.put("resistance",null);
+        cardio.put("activityId", CatalogFixtures.TREADMILL);
+        cardio.put("standardExerciseId", CatalogFixtures.reviewedCardio(jdbc, "러닝머신", CatalogFixtures.TREADMILL));
         createRoutine(client,origin,generation,mixed,"전신 근력과 유산소 · 긴 루틴명 확인용",List.of(weight(bench,maker,"55",2,8,12),weight(squat,maker,"60",3,8,10)),List.of(Map.of("id",UUID.randomUUID().toString(),"plan",cardio)));
         var assignments = new ArrayList<Map<String,Object>>();
         // Today is always planned, with at least one rest day; earlier Monday is a full API workout.

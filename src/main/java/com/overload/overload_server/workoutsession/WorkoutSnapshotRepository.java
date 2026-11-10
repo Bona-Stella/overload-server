@@ -11,8 +11,11 @@ import static com.overload.overload_server.workoutsession.WorkoutSnapshotData.*;
 public class WorkoutSnapshotRepository {
     @PersistenceContext private EntityManager em;
     private final JdbcTemplate jdbc;
-    WorkoutSnapshotRepository(JdbcTemplate jdbc) {
+    private final com.overload.overload_server.catalog.StandardCardioCatalog cardioCatalog;
+
+    WorkoutSnapshotRepository(JdbcTemplate jdbc, com.overload.overload_server.catalog.StandardCardioCatalog cardioCatalog) {
         this.jdbc = jdbc;
+        this.cardioCatalog = cardioCatalog;
     }
     UUID source(UUID owner, long generation, UUID session) {
         var rows = jdbc.query("SELECT source_routine_id FROM workout_sessions WHERE user_id=? AND data_generation=? AND id=?", (r, i) -> r.getObject(1, UUID.class), owner, generation, session);
@@ -49,8 +52,8 @@ public class WorkoutSnapshotRepository {
     void flush() {
         em.flush();
     }
-    void validateCardioCatalog(java.util.List<CardioPlan> plans){
-        for(var item:plans){var p=item.plan();if(p.has("activityId")&&!Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM cardio_activity_catalog WHERE id=? AND active AND kind=? AND name=?)",Boolean.class,UUID.fromString(p.get("activityId").asString()),p.get("kind").asString(),p.get("name").asString())))throw new WorkoutSessionFailure(WorkoutSessionFailure.Reason.INVALID_SNAPSHOT);}
+    boolean selectableCardio(com.overload.overload_server.routine.RoutineRequests.Plan plan) {
+        return cardioCatalog.selectable(plan);
     }
     void validateManufacturers(Collection<UUID> ids) {
         var selected = ids.stream().filter(Objects::nonNull).distinct().sorted().toList();
@@ -70,7 +73,12 @@ public class WorkoutSnapshotRepository {
     void initialize(WorkoutSession session) {
         var initial = InitialPlan.read(session.initialPlan);
         for (var p:initial.weightExercises())insert(new SessionExercise(session, new Exercise(p.sessionExerciseId(), "WEIGHT", p.standardExerciseId()), session.deload()?p.exerciseName():null));
-        for (var p:initial.cardioActivities())insert(new SessionExercise(session, new Exercise(p.sessionActivityId(), "CARDIO", null), null));
+        for (var p : initial.cardioActivities()) {
+            var plan = p.plan();
+            var item = new SessionExercise(session, new Exercise(p.sessionActivityId(), "CARDIO", plan.standardExerciseId()), null);
+            if (plan.standardExerciseId() != null) item.captureCardio(plan.activityId(), plan.kind(), plan.name());
+            insert(item);
+        }
     }
     List<ApprovalResult> results(UUID session, List<WeightApprovalRequest> requests) {
         var events = new HashMap<UUID, UUID>();

@@ -1,6 +1,7 @@
 package com.overload.overload_server.workoutsession;
 
 import com.overload.overload_server.OverloadServerApplication;
+import com.overload.overload_server.catalog.CatalogReviewService;
 import com.overload.overload_server.account.*;
 import com.overload.overload_server.routine.WeeklyScheduleRotation;
 import com.overload.testfixture.*;
@@ -18,6 +19,7 @@ import org.testcontainers.junit.jupiter.*;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import java.math.BigDecimal;
 import java.net.*;
 import java.net.http.*;
 import java.time.Duration;
@@ -39,7 +41,7 @@ class WorkoutSessionIntegrationTests {
     static ConfigurableApplicationContext app;
     static JdbcTemplate jdbc;
     Account owner; Browser browser; String csrf, email;
-    UUID routine, exercise, placement, cardio, session, device;
+    UUID routine, exercise, placement, cardio, session, device, cardioStandard;
 
     @BeforeAll static void startApp() {
         assertThat(POSTGRES.getMappedPort(5432)).isNotIn(5432, 5433);
@@ -53,6 +55,8 @@ class WorkoutSessionIntegrationTests {
                         "--GOOGLE_REAUTH_ENABLED=false", "--overload.workout.review.enabled=false",
                         "--overload.workout.expiry.enabled=false", "--spring.session.jdbc.cleanup-cron=-", "--logging.level.root=WARN", "--spring.main.banner-mode=off");
         jdbc = app.getBean(JdbcTemplate.class); MixedPersistenceAssertions.verify(app);
+        // Account creation anchors analysis history. Keep it before the scenario despite host/VM clock adjustments.
+        jdbc.execute("ALTER TABLE users ALTER COLUMN created_at SET DEFAULT CURRENT_TIMESTAMP - INTERVAL '5 minutes'");
     }
     @BeforeEach void prepare() throws Exception {
         WorkoutReadFixtures.observer = null;
@@ -62,7 +66,8 @@ class WorkoutSessionIntegrationTests {
         jdbc.update("DELETE FROM email_otp_rate_limits");
         email = UUID.randomUUID() + "@example.test";
         owner = app.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email(email), null);
-        exercise = CatalogFixtures.exercise(jdbc);
+        exercise = CatalogFixtures.reviewedExercise(jdbc);
+        cardioStandard = CatalogFixtures.reviewedCardio(jdbc, "run", CatalogFixtures.TREADMILL);
         routine = UUID.randomUUID(); placement = UUID.randomUUID(); cardio = UUID.randomUUID(); session = UUID.randomUUID(); device = UUID.randomUUID();
         browser = new Browser(); browser.login(email); csrf = browser.csrf();
         assertThat(browser.send("POST", "/api/v1/routines", json(routineBody()), csrf).statusCode()).isEqualTo(201);
@@ -743,7 +748,7 @@ class WorkoutSessionIntegrationTests {
         error(browser.get(path()), 404, "SESSION_NOT_FOUND");
         String generation = "9007199254740993";
         exercise = UUID.randomUUID(); routine = UUID.randomUUID(); placement = UUID.randomUUID(); cardio = UUID.randomUUID(); session = UUID.randomUUID();
-        exercise = CatalogFixtures.exercise(jdbc);
+        exercise = CatalogFixtures.reviewedExercise(jdbc);
         var source = routineBody(); source.put("dataGeneration", generation);
         assertThat(browser.send("POST", "/api/v1/routines", json(source), csrf).statusCode()).isEqualTo(201);
         var input = startBody(); input.put("dataGeneration", generation);
@@ -1647,9 +1652,10 @@ class WorkoutSessionIntegrationTests {
         assertThat(node(browser.get(path()+"/record-change-events")).get("events").get(0).get("changeContext").get("origin").get("writerEpoch").asString()).isEqualTo("0");
     }
 
-    @Test void startCopiesRoutineEquipmentOnceAndInactiveCatalogReferencesRemainUsable() throws Exception {
+    @ParameterizedTest @ValueSource(strings = {"is_active", "muscle_targets_reviewed"})
+    void startCopiesRoutineEquipmentOnceAndUnpublishedCatalogReferencesRemainUsable(String publicationColumn) throws Exception {
         UUID manufacturer=CatalogFixtures.manufacturer(jdbc);routineEquipment(manufacturer,"PLATE",0);
-        jdbc.update("UPDATE standard_exercise SET is_active=false WHERE id=?",exercise);
+        jdbc.update("UPDATE standard_exercise SET " + publicationColumn + "=false WHERE id=?", exercise);
         jdbc.update("UPDATE manufacturer SET is_active=false WHERE id=?",manufacturer);
         var result=node(start(startBody()));var initial=result.get("initialPlan");
         assertThat(initial.get("schemaVersion").asInt()).isEqualTo(2);
@@ -1665,6 +1671,10 @@ class WorkoutSessionIntegrationTests {
         var plan=new ArrayList<>(base.appliedPlan().weightExercises());plan.add(new WeightPlan(added,1,6,10,null,null));
         var attempted=new State(identities,new Plan(2,plan,base.appliedPlan().cardioActivities()),List.of(),List.of(),List.of(),List.of(),List.of());
         error(save(2,attempted),404,"EXERCISE_NOT_FOUND");assertThat(row()).isEqualTo(saved);
+        var completed = set(base, UUID.randomUUID(), 1, "60", 8, new Context("INITIAL_APPROVED", null));
+        node(finish(2, state(base, List.of(completed), List.of(), List.of(), List.of(), List.of())));
+        assertThat(jdbc.queryForObject("SELECT weight FROM performed_sets WHERE id=?", BigDecimal.class, completed.id()))
+                .isEqualByComparingTo("60");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions WHERE user_id=?",Integer.class,owner.id())).isZero();
     }
 
@@ -1773,8 +1783,88 @@ class WorkoutSessionIntegrationTests {
         assertThat(jdbc.queryForMap("SELECT initial_plan_snapshot::text,applied_plan_snapshot::text,completion_assessment_snapshot::text,last_snapshot_hash,last_workout_synced_at FROM workout_sessions WHERE id=?",session)).isEqualTo(sealed);
         assertThat(count("record_change_events")).isEqualTo(3);assertThat(eventCount()).isZero();
     }
+    @Test void savedCardioIdentitySurvivesRenameAndUnpublicationAndAggregatesByActivityCategory() throws Exception {
+        var outdoor = CatalogFixtures.reviewedCardio(jdbc, "야외 러닝", CatalogFixtures.OUTDOOR);
+        var addedId = UUID.randomUUID();
+        jdbc.update("UPDATE standard_exercise SET splits_reviewed=false,name='renamed before START' WHERE id=?", cardioStandard);
+        var base = initialState();
+        assertThat(base.appliedPlan().cardioActivities().getFirst().plan().get("name").asString()).isEqualTo("run");
+        var treadmillId = base.appliedPlan().cardioActivities().getFirst().sessionActivityId();
+        var outdoorPlan = cardioPlan();
+        outdoorPlan.put("kind", "OUTDOOR");
+        outdoorPlan.put("name", "야외 러닝");
+        outdoorPlan.put("activityId", CatalogFixtures.OUTDOOR);
+        outdoorPlan.put("standardExerciseId", outdoor);
+        var identities = new ArrayList<>(base.sessionExercises());
+        identities.add(new Exercise(addedId, "CARDIO", outdoor));
+        var plans = new ArrayList<>(base.appliedPlan().cardioActivities());
+        plans.add(new CardioPlan(addedId, JSON.valueToTree(outdoorPlan)));
+        var two = new State(identities, new Plan(2, base.appliedPlan().weightExercises(), plans),
+                List.of(), List.of(), List.of(), List.of(), List.of());
+        node(save(1, two));
+        jdbc.update("UPDATE standard_exercise SET is_active=false,name='새 이름' WHERE id IN (?,?)", cardioStandard, outdoor);
+        var oldActivity = jdbc.queryForObject("SELECT name FROM cardio_activity_catalog WHERE id=?", String.class, CatalogFixtures.TREADMILL);
+        jdbc.update("UPDATE cardio_activity_catalog SET active=false,name='새 활동명' WHERE id=?", CatalogFixtures.TREADMILL);
+        try {
+            assertThat(node(save(1, two)).get("duplicate").asBoolean()).isTrue();
+            assertThat(jdbc.queryForList("SELECT standard_exercise_id FROM session_exercises WHERE session_id=? AND kind='CARDIO'",
+                    UUID.class, session)).containsExactlyInAnyOrder(cardioStandard, outdoor);
+            var start = Instant.parse("2026-10-31T16:01:00Z");
+            var end = start.plusSeconds(60);
+            var completed = state(two, List.of(), List.of(
+                    new Cardio(UUID.randomUUID(), treadmillId, "COMPLETED", start, end,
+                            new CardioValue(60000L, 60000L, false, "0.1", null, new CardioMeasurement(null, "MANUAL"))),
+                    new Cardio(UUID.randomUUID(), addedId, "COMPLETED", start, end,
+                            new CardioValue(60000L, 60000L, false, "0.2", null, new CardioMeasurement(null, "MANUAL")))),
+                    List.of(), List.of(), List.of());
+            node(finish(2, completed));
+            var overview = node(browser.get("/api/v1/statistics/overview?fromDate=2026-11-01&toDateExclusive=2026-11-02"));
+            assertThat(overview.get("cardioByKind")).extracting(e -> e.get("kind").asString())
+                    .containsExactly("OUTDOOR", "TREADMILL");
+            var running = overview.get("cardioByCategory").get(0);
+            assertThat(running.get("category").asString()).isEqualTo("RUNNING");
+            assertThat(running.get("activeMs").asString()).isEqualTo("120000");
+            assertThat(running.get("distanceKm").asString()).isEqualTo("0.3");
+        } finally {
+            jdbc.update("UPDATE cardio_activity_catalog SET active=true,name=? WHERE id=?", oldActivity, CatalogFixtures.TREADMILL);
+        }
+    }
+
+    @Test void unpublishingWeightsBlocksNewSelectionButPreservesActiveAndClosedRecords() throws Exception {
+        var base = initialState();
+        var reviews = app.getBean(CatalogReviewService.class);
+        var review = reviews.get(exercise);
+        var current = review.content();
+        var unpublished = new CatalogReviewService.Content("변경된 표준명", current.aliases(), current.exerciseType(),
+                current.recordMethod(), current.equipmentDescription(), current.jointType(), current.instructionsKo(),
+                current.primary(), current.secondary(), current.pplSplit(), current.frontBackSplit(), false, current.splitsReviewed());
+        reviews.replace(exercise, new CatalogReviewService.Change(review.updatedAt(), unpublished, null));
+
+        var added = UUID.randomUUID();
+        var identities = new ArrayList<>(base.sessionExercises());
+        identities.add(new Exercise(added, "WEIGHT", exercise));
+        var weights = new ArrayList<>(base.appliedPlan().weightExercises());
+        weights.add(new WeightPlan(added, 1, 6, 10, null, null));
+        var newSelection = new State(identities, new Plan(2, weights, base.appliedPlan().cardioActivities()),
+                List.of(), List.of(), List.of(), List.of(), List.of());
+        error(save(1, newSelection), 404, "EXERCISE_NOT_FOUND");
+        var performed = confirmed(base, new int[]{8}, new Context("INITIAL_APPROVED", null));
+        node(save(1, performed));
+        node(finish(1, performed));
+        var sealed = closureFacts();
+        var first = performed.performedSets().getFirst();
+        node(patchRecords(List.of(new WorkoutRecordData.SetCorrection(first.id(), "60", 9)), List.of(), List.of(), List.of()));
+        var missing = set(base, UUID.randomUUID(), 2, "60", 8, new Context("INITIAL_APPROVED", null));
+        assertThat(node(recover(List.of(missing), List.of())).get("recoveredIds").size()).isEqualTo(1);
+        assertThat(closureFacts()).isEqualTo(sealed);
+        assertThat(jdbc.queryForObject("SELECT standard_exercise_id FROM session_exercises WHERE id=?", UUID.class,
+                first.sessionExerciseId())).isEqualTo(exercise);
+    }
+
     @Test void legacyCardioRequestsRemainExactAndTargetSpeedNeverBecomesActualSpeed() throws Exception {
+        jdbc.update("UPDATE routine_cardio_placements SET standard_exercise_id=NULL, activity_id=NULL WHERE id=?", cardio);
         var base=initialState();UUID activity=base.appliedPlan().cardioActivities().getFirst().sessionActivityId();var target=cardioPlan();target.put("intensity",Map.of("mode","SPEED","value","8"));
+        target.remove("standardExerciseId");target.remove("activityId");
         var applied=new State(base.sessionExercises(),new Plan(2,base.appliedPlan().weightExercises(),List.of(new CardioPlan(activity,JSON.valueToTree(target)))),List.of(),List.of(),List.of(),List.of(),List.of());
         var actual=new Cardio(UUID.randomUUID(),activity,"COMPLETED",Instant.parse("2026-10-31T16:01:00Z"),Instant.parse("2026-10-31T16:02:00Z"),new CardioValue(60000L,60000L,false,null,null));
         var value=state(applied,List.of(),List.of(actual),List.of(),List.of(),List.of());String frozen=json(saveBody(1,value));assertThat(frozen).doesNotContain("measurement");
@@ -1924,9 +2014,10 @@ class WorkoutSessionIntegrationTests {
                 "cardioPlacements", List.of(Map.of("mode", "EXISTING", "id", cardio, "plan", cardioPlan())), "weightApprovals", List.of()));
     }
     static Map<String,Object> equipment(Map<String,?> input) { var value=new LinkedHashMap<String,Object>(input); value.put("manufacturerId",null); value.put("loadType",null); return value; }
-    static Map<String, Object> cardioPlan() {
+    Map<String, Object> cardioPlan() {
         var result = new LinkedHashMap<String, Object>();
         result.put("kind", "TREADMILL"); result.put("name", "run"); result.put("targetSeconds", 600);
+        result.put("standardExerciseId", cardioStandard); result.put("activityId", CatalogFixtures.TREADMILL);
         for (String key : List.of("targetDistanceKm", "intensity", "inclinePercent", "resistance")) result.put(key, null);
         return result;
     }

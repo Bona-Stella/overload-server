@@ -74,9 +74,12 @@ class StatisticsIntegrationTests {
                     VALUES (?,?,?,?,?,?,'2026-11-01T16:00:00Z','TODAY_ONLY','TODAY_ONLY')
                     """,id,session,item,n,n==3?70:80,n==2?8:10);
         }
+        int primaryOrder = 0;
         for(String name:List.of("quads","glutes","secondary")) {
             UUID muscle=UUID.randomUUID();jdbc.update("INSERT INTO muscle(id,group_code,name) VALUES (?,'LEGS',?)",muscle,name);
-            jdbc.update("INSERT INTO exercise_muscle VALUES (?,?,?)",standard,muscle,name.equals("secondary")?"SECONDARY":"PRIMARY");
+            boolean secondary = name.equals("secondary");
+            jdbc.update("INSERT INTO exercise_muscle VALUES (?,?,?,?)", standard, muscle,
+                    secondary ? "SECONDARY" : "PRIMARY", secondary ? null : ++primaryOrder);
         }
         if(status.equals("FINISHED")) jdbc.update("UPDATE workout_sessions SET status='FINISHED',ended_at='2026-11-01T16:30:00Z',closed_at=now(),completion_assessment_snapshot='{\"schemaVersion\":2}' WHERE id=?",session);
         else if(status.equals("AUTO_CLOSED")) jdbc.update("UPDATE workout_sessions SET status='AUTO_CLOSED',closed_at=now() WHERE id=?",session);
@@ -95,6 +98,11 @@ class StatisticsIntegrationTests {
         assertThat(data.get("plannedWorkoutDays").isNull()).isTrue();assertThat(data.get("routineAchievementPercent").isNull()).isTrue();
         assertThat(data.get("muscles").size()).isEqualTo(3);assertThat(data.get("groups").size()).isEqualTo(2);
         for(var group:data.get("groups"))assertThat(group.get("weights").get("completedSets").asString()).isEqualTo("3");
+        assertThat(data.get("groupActuals")).isEqualTo(JSON.readTree("[{\"groupCode\":\"LEGS\",\"completedSets\":\"3\"}]"));
+        for (var muscle : data.get("muscles")) {
+            assertThat(muscle.get("contributionSets").asString()).isEqualTo(
+                    muscle.get("role").asString().equals("PRIMARY") ? "3.0" : "1.5");
+        }
         assertThat(data.get("days").get(6).get("date").asString()).isEqualTo("2026-11-01");
         assertThat(data.get("days").get(6).get("weights").get("volumeLoadKg").asString()).isEqualTo("2140");
         assertThat(success(browser.get("/api/v1/statistics/overview?fromDate=2026-11-02&toDateExclusive=2026-11-09")).get("statistics").get("summary").get("completedSets").asString()).isEqualTo("0");
@@ -107,6 +115,30 @@ class StatisticsIntegrationTests {
         assertThat(planned.get("statistics").get("planCoverage").asString()).isEqualTo("FULL_SCHEDULE_HISTORY");
         assertThat(jdbc.queryForMap("SELECT * FROM workout_sessions WHERE id=?",source.session())).isEqualTo(before);
     }
+    @Test void latestMappingChangesHistoricalContributionWithoutChangingCompletedFacts() throws Exception {
+        var source = seed(owner,"FINISHED",false,"2026-11-01T14:30:00Z","2026-11-01");
+        var standard = jdbc.queryForObject("SELECT standard_exercise_id FROM session_exercises WHERE session_id=?", UUID.class, source.session());
+        var sets = jdbc.queryForList("SELECT * FROM performed_sets WHERE session_id=? ORDER BY ordinal", source.session());
+        var original = success(browser.get(PATH)).get("statistics");
+        var primary = jdbc.queryForObject("SELECT muscle_id FROM exercise_muscle WHERE standard_exercise_id=? AND primary_order=1", UUID.class, standard);
+        UUID core = UUID.randomUUID();
+        jdbc.update("INSERT INTO muscle(id,group_code,name) VALUES (?,'CORE','new assist')", core);
+        var reviews = app.getBean(com.overload.overload_server.catalog.CatalogReviewService.class);
+        var review = reviews.get(standard);
+        var content = review.content();
+        var edited = new com.overload.overload_server.catalog.CatalogReviewService.Content(content.name(), content.aliases(),
+                content.exerciseType(), content.recordMethod(), content.equipmentDescription(), content.jointType(), content.instructionsKo(),
+                List.of(primary), List.of(core), content.pplSplit(), content.frontBackSplit(), true, content.splitsReviewed());
+        reviews.replace(standard, new com.overload.overload_server.catalog.CatalogReviewService.Change(review.updatedAt(), edited, null));
+        var updated = success(browser.get(PATH)).get("statistics");
+        assertThat(updated.get("summary")).isEqualTo(original.get("summary"));
+        assertThat(updated.get("muscles")).extracting(m -> m.get("contributionSets").asString()).containsExactlyInAnyOrder("3.0","1.5");
+        assertThat(updated.get("groupActuals")).isEqualTo(JSON.readTree("""
+                [{"groupCode":"CORE","completedSets":"3"},{"groupCode":"LEGS","completedSets":"3"}]
+                """));
+        assertThat(jdbc.queryForList("SELECT * FROM performed_sets WHERE session_id=? ORDER BY ordinal", source.session())).isEqualTo(sets);
+    }
+
     @Test void scopeExcludesOtherOwnersActiveAndDeletedSessionsAndReadsCorrectionsAndMissingFactRecovery() throws Exception {
         UUID other=UUID.randomUUID();jdbc.update("INSERT INTO users(id) VALUES (?)",other);
         seed(other,"AUTO_CLOSED",false,"2026-11-01T14:30:00Z","2026-11-01");
@@ -118,13 +150,17 @@ class StatisticsIntegrationTests {
         var data=success(browser.get(PATH)).get("statistics");
         assertThat(data.get("summary").get("completedSets").asString()).isEqualTo("2");
         assertThat(data.get("summary").get("volumeLoadKg").asString()).isEqualTo("1429");
+        assertThat(data.get("groupActuals").get(0).get("completedSets").asString()).isEqualTo("2");
         assertThat(data.get("recentSessions").size()).isEqualTo(1);
         // Simulates a newly recovered missing UUID, never resurrection of the deleted UUID.
         jdbc.update("""
                 INSERT INTO performed_sets(id,session_id,session_exercise_id,ordinal,weight,reps,completed_at,context_kind,approval_state_at_recording)
                 SELECT ?,session_id,session_exercise_id,4,10,5,completed_at,'TODAY_ONLY','TODAY_ONLY' FROM performed_sets WHERE id=?
                 """,UUID.randomUUID(),source.sets().get(0));
-        assertThat(success(browser.get(PATH)).get("statistics").get("summary").get("volumeLoadKg").asString()).isEqualTo("1479");
+        var recovered = success(browser.get(PATH)).get("statistics");
+        assertThat(recovered.get("summary").get("volumeLoadKg").asString()).isEqualTo("1479");
+        assertThat(recovered.get("muscles")).extracting(m -> m.get("contributionSets").asString())
+                .containsExactlyInAnyOrder("3.0","3.0","1.5");
         jdbc.update("UPDATE workout_sessions SET deleted_at=now() WHERE id=?",source.session());
         assertThat(success(browser.get(PATH)).get("statistics").get("summary").get("completedSets").asString()).isEqualTo("0");
     }
@@ -176,7 +212,7 @@ class StatisticsIntegrationTests {
         assertThat(result.unknownPlanDays()).isEqualTo(7);assertThat(result.statistics().plannedWorkoutDays()).isNull();
     }
     JsonNode routine(int setCount) throws Exception {
-        return routine(setCount,CatalogFixtures.exercise(jdbc));
+        return routine(setCount,CatalogFixtures.reviewedExercise(jdbc));
     }
     JsonNode routine(int setCount,UUID standard) throws Exception {
         UUID id=UUID.randomUUID();var weights=new ArrayList<Map<String,Object>>();
@@ -778,7 +814,7 @@ class StatisticsIntegrationTests {
         assertThat(success(browser.get(growth()+"?period=all&timeZone=UTC&q=historical")).get("exercises").isEmpty()).isTrue();
     }
     @Test void growthNeverJoinsTwoRoutinesSharingOneStandardExercise() throws Exception {
-        growthClock();UUID standard=CatalogFixtures.exercise(jdbc);var a=routine(1,standard);var b=routine(1,standard);
+        growthClock();UUID standard=CatalogFixtures.reviewedExercise(jdbc);var a=routine(1,standard);var b=routine(1,standard);
         a=approve(a,0,"85","2026-11-10T06:00:00Z");EmailOtpFixtures.CLOCK.advance(Duration.ofMinutes(1));b=approve(b,0,"100","2026-11-11T06:00:00Z");
         var root=growth()+"/"+standard;assertThat(success(browser.get(root+"?period=all&timeZone=UTC")).get("placements").size()).isEqualTo(2);
         for(var r:List.of(a,b)){var page=success(browser.get(root+"/placements/"+r.get("weightPlacements").get(0).get("id").asString()+"?period=all&timeZone=UTC"));

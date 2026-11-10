@@ -67,7 +67,7 @@ CardioPlan의 모든 필드:
 
 ## 장비 선택과 보존
 
-LoadType은 PLATE/STACK/DUMBBELL/BODYWEIGHT 또는 JSON null만 허용한다. manufacturerId/loadType은 NEW·EXISTING·RESTORE 모두 필수 nullable 키다. 표준 UUID는 공용 카탈로그를 참조하며 개인 정의 UUID를 받지 않는다. NEW는 활성 표준 운동만 선택할 수 있다. 비활성 표준을 참조하는 기존 배치의 편집·RESTORE·START는 허용한다.
+LoadType은 PLATE/STACK/DUMBBELL/BODYWEIGHT 또는 JSON null만 허용한다. manufacturerId/loadType은 NEW·EXISTING·RESTORE 모두 필수 nullable 키다. 표준 UUID는 공용 카탈로그를 참조하며 개인 정의 UUID를 받지 않는다. NEW는 활성 상태이며 근육 타겟·분할 검수를 모두 완료한 SETS_REPS 표준 운동을 선택할 수 있다. 이미 저장된 배치는 표준 운동의 활성·검수 상태가 이후 바뀌어도 편집·RESTORE·START할 수 있다.
 
 제조사 신규 선택은 활성 카탈로그 ID만 허용한다. 현재 배치에 보존된 제조사 ID는 비활성화 후에도 동일 값 저장·복원을 허용한다. 없는/새로 선택한 비활성 제조사는400 INVALID_REQUEST다. 장비 변경은 배치 UUID·최초/승인 중량을 유지하며 승인 사건을 생성하지 않는다. 실제 변경만 routine.version을1회 올리고 동일 값 재저장은 기존 no-op이다. 표준 운동 변경은 제거+NEW를 사용한다. RESTORE는 저장한 장비를 기본값으로 명시 전송한다.
 
@@ -149,7 +149,8 @@ V11 구현 당시 검증 대상은 격리 Testcontainers PostgreSQL뿐이었다.
 - 기존 루틴 CRUD endpoint, 사용자 소유권, dataGeneration, expectedVersion, CSRF와 트랜잭션을 유지한다.
 - 생성/수정 요청에 nullable `tag`를 추가한다. 허용값은 PUSH/PULL/LEGS/FRONT/BACK/FULL/UPPER/LOWER/CARDIO/MIXED 하나다. 생성 생략은 null, 수정 생략은 기존값 보존, 명시 null은 해제다. 잘못된 값은400이며 추정/기본 태그를 부여하지 않는다.
 - 목록/상세에 `tag`, 기존 저장 시각 `createdAt`을 응답한다. 목록은 created_at DESC, id DESC이며 수정일로 정렬하지 않는다. 과거 저장된 계획 이력에 필드를 백필하지 않는다.
-- 유산소 Plan은 optional `activityId`로 `/api/v1/cardio-activities`의 active ID를 참조한다. 제공할 때 kind/name이 카탈로그와 일치해야 한다. 미제공 과거 계획은 기존 7필드 JSON을 그대로 유지한다. null ID는 허용하지 않으며 생략한다.
+- V33 이후 신규 유산소 배치는 선택 API에서 받은 `standardExerciseId` 및 `activityId`를 Plan에 함께 전송한다. 서버가 현재 공개 상태, CARDIO 기록 방식, 활성 설정, 측정 종류와 표준 운동명을 검증한다. 기존 배치 편집·복원은 저장된 식별과 당시 이름을 유지한다. 새 종목을 선택하려면 기존 배치를 제거하고 새 ID로 추가한다.
+- 기존 Plan의 표준 UUID와 활동 ID는 없을 수 있다. 없던 키는 응답에서 생략하며 저장된 기존 계획에 ID를 추정해 채우지 않는다.
 - 카탈로그는 RUNNING/WALKING/CYCLING과8개 세부 종목 관계를 저장한다. 기존 배치ID/세션ID는 독립적이다. 기존 종목을 이름으로 매핑하거나 과거 기록·snapshot/hash를 다시 쓰지 않는다.
 - V23은 routines.tag와 routine_cardio_placements.activity_id의 nullable 추가 및 독립 catalog 테이블/관계만 추가한다. V1~V22 이력은 변경하지 않는다. 현재 적용은 격리 보존 검토 DB만이며 개인/운영 DB에는 적용하지 않는다.
 - 루틴과 Weekly Schedule은 별도 API다. UI는 루틴 성공/일정 실패를 알리고 고정 요청·expectedVersion·현재 assignments로 일정만 확인/재시도한다. 다른 버전의 일정을 자동 병합하지 않는다. G2의 저장 즉시 적용과 ROUTINE-03 교체 확인을 사용한다.

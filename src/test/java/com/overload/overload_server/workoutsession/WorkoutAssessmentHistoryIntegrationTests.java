@@ -60,7 +60,7 @@ class WorkoutAssessmentHistoryIntegrationTests {
         owner=app.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email(UUID.randomUUID()+"@example.test"),null).id();
         routine=UUID.randomUUID();
         app.getBean(RoutineService.class).create(owner,new RoutineRequests.Create(routine,0,"history test",List.of(
-                new RoutineRequests.Weight(RoutineRequests.Mode.NEW,UUID.randomUUID(),CatalogFixtures.exercise(jdbc),null,null,3,6,10,new BigDecimal("60"))),List.of()));
+                new RoutineRequests.Weight(RoutineRequests.Mode.NEW,UUID.randomUUID(),CatalogFixtures.reviewedExercise(jdbc),null,null,3,6,10,new BigDecimal("60"))),List.of()));
     }
     @AfterEach void clearObserver() { WorkoutReadFixtures.observer=null; }
     @AfterAll static void stopApp() { if(app!=null)app.close(); }
@@ -158,8 +158,8 @@ class WorkoutAssessmentHistoryIntegrationTests {
     @Test void fullPastPlansEmptySessionsAndScopeStillControlComparison() {
         var otherRoutine=start(at.minusSeconds(3600));finish(otherRoutine,state(otherRoutine,true));
         routine=UUID.randomUUID();app.getBean(RoutineService.class).create(owner,new RoutineRequests.Create(routine,0,"two exercises",List.of(
-                new RoutineRequests.Weight(RoutineRequests.Mode.NEW,UUID.randomUUID(),CatalogFixtures.exercise(jdbc),null,null,3,6,10,new BigDecimal("60")),
-                new RoutineRequests.Weight(RoutineRequests.Mode.NEW,UUID.randomUUID(),CatalogFixtures.exercise(jdbc),null,null,3,6,10,new BigDecimal("60"))),List.of()));
+                new RoutineRequests.Weight(RoutineRequests.Mode.NEW,UUID.randomUUID(),CatalogFixtures.reviewedExercise(jdbc),null,null,3,6,10,new BigDecimal("60")),
+                new RoutineRequests.Weight(RoutineRequests.Mode.NEW,UUID.randomUUID(),CatalogFixtures.reviewedExercise(jdbc),null,null,3,6,10,new BigDecimal("60"))),List.of()));
         var empty=start(at);var base=empty.snapshot().state();finish(empty,new State(base.sessionExercises(),base.appliedPlan(),List.of(),List.of(),List.of(),List.of(),List.of()));
         var incomplete=start(at.plusSeconds(3600));var full=allExercises(incomplete,false);
         var high=full.performedSets().subList(0,3).stream().map(s->new SetValue(s.id(),s.sessionExerciseId(),s.ordinal(),s.weightKg(),20,s.completedAt(),s.weightContext(),s.manufacturerId(),s.loadType())).toList();

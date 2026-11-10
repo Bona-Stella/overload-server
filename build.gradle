@@ -57,3 +57,11 @@ tasks.register('integrationTest', Test) {
 tasks.named('check') {
 	dependsOn tasks.named('integrationTest')
 }
+
+tasks.register('exerciseDbIntake', JavaExec) {
+	description = 'Validates the ExerciseDB V1 file. --store-isolated verifies writes in a new disposable PostgreSQL.'
+	group = 'verification'
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'com.overload.overload_server.catalog.ExerciseDbIntakeCommand'
+	javaLauncher = javaToolchains.launcherFor(java.toolchain)
+}

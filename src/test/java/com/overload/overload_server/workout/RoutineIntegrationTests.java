@@ -2,6 +2,7 @@ package com.overload.overload_server.workout;
 
 import com.overload.overload_server.OverloadServerApplication;
 import com.overload.overload_server.account.*;
+import com.overload.overload_server.catalog.CatalogReviewService;
 import com.overload.testfixture.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -52,7 +53,8 @@ class RoutineIntegrationTests {
 		jdbc.update("DELETE FROM email_otp_rate_limits");
 		String email = UUID.randomUUID() + "@example.test";
 		owner = app.getBean(AccountProvisioningService.class).provision(VerifiedIdentity.email(email), null);
-		exercise = CatalogFixtures.exercise(jdbc);
+		exercise = CatalogFixtures.reviewedExercise(jdbc);
+		cardioStandard = CatalogFixtures.reviewedCardio(jdbc, "러닝머신", CatalogFixtures.TREADMILL);
 		routine = UUID.randomUUID(); first = UUID.randomUUID(); second = UUID.randomUUID(); cardio = UUID.randomUUID(); otherCardio = UUID.randomUUID();
 		browser = new Browser(); browser.login(email); csrf = browser.csrf();
 	}
@@ -69,11 +71,43 @@ class RoutineIntegrationTests {
    var catalog=node(browser.get("/api/v1/cardio-activities"));assertThat(catalog.get("activities").size()).isEqualTo(8);
    EmailOtpFixtures.CLOCK.advance(Duration.ofSeconds(1));
    var newer=createBody();var next=UUID.randomUUID();newer.put("id",next);newer.put("tag","CARDIO");newer.put("weightPlacements",List.of());
-   var p=new LinkedHashMap<String,Object>();p.put("kind","TREADMILL");p.put("name","러닝머신");p.put("targetSeconds",600);p.put("targetDistanceKm",null);p.put("intensity",null);p.put("inclinePercent",null);p.put("resistance",null);p.put("activityId","ca000000-0000-4000-8000-000000000001");
+   var p=new LinkedHashMap<String,Object>();p.put("kind","TREADMILL");p.put("name","러닝머신");p.put("targetSeconds",600);p.put("targetDistanceKm",null);p.put("intensity",null);p.put("inclinePercent",null);p.put("resistance",null);p.put("activityId",CatalogFixtures.TREADMILL);p.put("standardExerciseId",cardioStandard);
    newer.put("cardioPlacements",List.of(Map.of("id",UUID.randomUUID(),"plan",p)));assertThat(browser.send("POST","/api/v1/routines",json(newer),csrf).statusCode()).isEqualTo(201);
    assertThat(node(browser.get("/api/v1/routines")).get("routines").get(0).get("id").asString()).isEqualTo(next.toString());
    p.put("name","mismatch");newer.put("id",UUID.randomUUID());newer.put("cardioPlacements",List.of(Map.of("id",UUID.randomUUID(),"plan",p)));assertThat(browser.send("POST","/api/v1/routines",json(newer),csrf).statusCode()).isEqualTo(400);
  }
+
+	@Test void unpublishingCardioBlocksNewSelectionButPreservesTheSavedPlacement() throws Exception {
+		assertThat(create().statusCode()).isEqualTo(201);
+		var original = jdbc.queryForMap("SELECT standard_exercise_id,activity_id,kind,name FROM routine_cardio_placements WHERE id=?", cardio);
+		var reviews = app.getBean(CatalogReviewService.class);
+		var review = reviews.get(cardioStandard);
+		var current = review.content();
+		var edited = new CatalogReviewService.Content("새 표준명", current.aliases(), current.exerciseType(), current.recordMethod(),
+				current.equipmentDescription(), current.jointType(), current.instructionsKo(), current.primary(), current.secondary(),
+				current.pplSplit(), current.frontBackSplit(), false, current.splitsReviewed());
+		reviews.replace(cardioStandard, new CatalogReviewService.Change(review.updatedAt(), edited, null));
+		assertThat(browser.get("/api/v1/standard-exercises/" + cardioStandard).statusCode()).isEqualTo(404);
+		assertThat(node(browser.get("/api/v1/standard-exercises/catalog")).get("exercises"))
+				.noneMatch(row -> row.get("id").asString().equals(cardioStandard.toString()));
+		assertThat(node(browser.get("/api/v1/standard-exercises/cardio-choices")).get("activities"))
+				.noneMatch(row -> row.get("id").asString().equals(cardioStandard.toString()));
+		var edit = updateBody(0);
+		edit.put("name", "기존 루틴 편집");
+		assertThat(put(edit).statusCode()).isEqualTo(200);
+		assertThat(jdbc.queryForMap("SELECT standard_exercise_id,activity_id,kind,name FROM routine_cardio_placements WHERE id=?", cardio))
+				.isEqualTo(original);
+
+		var next = createBody();
+		next.put("id", UUID.randomUUID());
+		next.put("weightPlacements", List.of());
+		next.put("cardioPlacements", List.of(cardio(UUID.randomUUID(), null)));
+		error(browser.send("POST", "/api/v1/routines", json(next), csrf), 400, "INVALID_REQUEST");
+		var unlinked = new LinkedHashMap<>(Map.<String, Object>of("kind", "TREADMILL", "name", "러닝머신", "targetSeconds", 60));
+		for (var key : List.of("targetDistanceKm", "intensity", "inclinePercent", "resistance")) unlinked.put(key, null);
+		next.put("cardioPlacements", List.of(Map.of("id", UUID.randomUUID(), "plan", unlinked)));
+		error(browser.send("POST", "/api/v1/routines", json(next), csrf), 400, "INVALID_REQUEST");
+	}
 
 	@Test void emptyAccountHasNoRoutinesAndMixedCreateAllowsDuplicateNamesAndRepeatedExercise() throws Exception {
 		assertThat(node(browser.get("/api/v1/routines")).get("routines").size()).isZero();
@@ -247,6 +281,24 @@ class RoutineIntegrationTests {
 		input = updateBody(0); input.put("weightPlacements", List.of(inactive));
 		error(put(input), 404, "EXERCISE_NOT_FOUND");
 	}
+	@Test void existingPlacementRemainsUsableButNewPlacementRequiresReviewedSupportedExercise() throws Exception {
+		create();
+		jdbc.update("UPDATE standard_exercise SET splits_reviewed=false WHERE id=?", exercise);
+		assertThat(put(updateBodyWithCount(0, 4)).statusCode()).isEqualTo(200);
+		var input = updateBody(1);
+		var added = newWeight(UUID.randomUUID(), "1");
+		added.put("mode", "NEW");
+		input.put("weightPlacements", List.of(weight(first, "EXISTING", 4), weight(second, "EXISTING", 3), added));
+		var before = snapshot();
+		error(put(input), 404, "EXERCISE_NOT_FOUND");
+		assertThat(snapshot()).isEqualTo(before);
+
+		jdbc.update("UPDATE standard_exercise SET splits_reviewed=true,record_method='HOLD_DURATION' WHERE id=?", exercise);
+		error(put(input), 404, "EXERCISE_NOT_FOUND");
+		assertThat(snapshot()).isEqualTo(before);
+		assertThat(node(browser.get(path())).get("weightPlacements").get(0).get("standardExerciseId").asString())
+				.isEqualTo(exercise.toString());
+	}
 	@Test void largeGenerationIsExactAndOldGenerationCannotWrite() throws Exception {
 		jdbc.update("DELETE FROM exercise_definitions WHERE user_id=?", owner.id()); jdbc.update("DELETE FROM user_workout_settings WHERE user_id=?", owner.id());
 		long generation = 9007199254740993L;
@@ -378,8 +430,10 @@ class RoutineIntegrationTests {
 	Map<String, Object> newWeight(UUID id, String initial) { return equipment(new LinkedHashMap<>(Map.of("id", id, "standardExerciseId", exercise, "setCount", 3, "minReps", 6, "maxReps", 10, "initialWeightKg", initial))); }
 	static Map<String, Object> weight(UUID id, String mode, int count) { return equipment(new LinkedHashMap<>(Map.of("mode", mode, "id", id, "setCount", count, "minReps", 6, "maxReps", 10))); }
 	static Map<String,Object> equipment(Map<String,Object> value) { value.put("manufacturerId", null); value.put("loadType", null); return value; }
-	static Map<String, Object> cardio(UUID id, String mode) {
+	private UUID cardioStandard;
+	Map<String, Object> cardio(UUID id, String mode) {
 		var plan = new LinkedHashMap<String, Object>(); plan.put("kind", "TREADMILL"); plan.put("name", "러닝머신"); plan.put("targetSeconds", 600);
+		plan.put("standardExerciseId", cardioStandard); plan.put("activityId", CatalogFixtures.TREADMILL);
 		plan.put("targetDistanceKm", "0.001"); plan.put("intensity", Map.of("mode", "SPEED", "value", "6.5")); plan.put("inclinePercent", "0"); plan.put("resistance", null);
 		var result = new LinkedHashMap<String, Object>(); result.put("id", id); result.put("plan", plan); if (mode != null) result.put("mode", mode); return result;
 	}

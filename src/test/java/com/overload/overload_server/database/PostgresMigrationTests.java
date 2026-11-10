@@ -58,16 +58,25 @@ class PostgresMigrationTests {
 					SELECT table_name FROM information_schema.tables
 					WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name
 					""", String.class)).containsExactly("auth_identities", "cardio_activity_catalog", "cardio_results", "daily_training_assessments", "deload_analysis_versions", "deload_periods", "deload_temporary_plans", "deload_weekly_assessments", "email_otp_challenges", "email_otp_limits",
-					"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_definitions", "exercise_muscle",
+					"email_otp_login_claims", "email_otp_rate_limits", "exercise_alias", "exercise_db_v1_candidate", "exercise_definitions", "exercise_gif_access", "exercise_muscle", "exercise_source",
 					"flyway_schema_history", "google_identity_change_versions", "manufacturer", "muscle", "performed_sets", "progress_change_events", "reauth_email_candidates", "record_change_events", "routine_cardio_placements", "routine_plan_history", "routine_weight_placements", "routines", "session_exercises", "session_weight_approval_requests", "spring_session", "spring_session_attributes", "standard_exercise", "user_reauthentication_emails", "user_workout_settings", "users", "weekly_schedule_presets", "weekly_schedule_state", "weekly_schedule_versions", "workout_calendar_control", "workout_sessions");
 			assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();
-			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("31");
+			assertThat(flyway.info().current().getVersion().toString()).isEqualTo("35");
+			assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_gif_access", Integer.class)).isZero();
 			assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();
 			assertThat(flyway.getConfiguration().isBaselineOnMigrate()).isFalse();
 			flyway.validate();
 			history = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
-			assertThat(history).hasSize(31);
-			assertThat(history.getLast()).containsEntry("version", "31")
+			assertThat(history).hasSize(35);
+			assertThat(history.getLast()).containsEntry("version", "35")
+					.containsEntry("script", "V35__add_exercise_gif_access.sql").containsEntry("success", true);
+			assertThat(history.get(33)).containsEntry("version", "34")
+					.containsEntry("script", "V34__stage_exercisedb_v1_candidates.sql").containsEntry("success", true);
+			assertThat(history.get(32)).containsEntry("version", "33")
+					.containsEntry("script", "V33__link_standard_cardio_exercises.sql").containsEntry("success", true);
+			assertThat(history.get(31)).containsEntry("version", "32")
+					.containsEntry("script", "V32__expand_standard_exercise_catalog.sql").containsEntry("success", true);
+			assertThat(history.get(30)).containsEntry("version", "31")
 					.containsEntry("script", "V31__add_weekly_schedule_preset_name.sql").containsEntry("success", true);
 			assertThat(history.get(29)).containsEntry("version", "30")
 					.containsEntry("script", "V30__create_weekly_schedule_presets.sql").containsEntry("success", true);
@@ -389,7 +398,7 @@ class PostgresMigrationTests {
 		var checksums = java.util.Arrays.stream(v2.info().applied()).map(info -> info.getChecksum()).toList();
 		try (var context = startApplication(WebApplicationType.NONE)) {
 			var latest = context.getBean(Flyway.class);
-			assertThat(latest.info().current().getVersion().toString()).isEqualTo("31");
+			assertThat(latest.info().current().getVersion().toString()).isEqualTo("35");
 			assertThat(java.util.Arrays.stream(latest.info().applied()).limit(2).map(info -> info.getChecksum()).toList())
 					.isEqualTo(checksums);
 			assertThat(latest.migrate().migrationsExecuted).isZero();
@@ -431,6 +440,139 @@ class PostgresMigrationTests {
 					.isEqualTo("지속되는 일정");
 			assertThat(context.getBean(Flyway.class).migrate().migrationsExecuted).isZero();
 		}
+	}
+
+	@Test
+	void v32SeedsStableMusclesAndPreservesExistingCatalogIdentityAndRoles() {
+		var dataSource = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+				postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+		Flyway.configure().dataSource(dataSource).target("31").load().migrate();
+		var jdbc = new JdbcTemplate(dataSource);
+		UUID exercise = new UUID(0, 1), first = new UUID(0, 2), second = new UUID(0, 3), secondary = new UUID(0, 4);
+		UUID manufacturer = new UUID(0, 5);
+		jdbc.update("INSERT INTO standard_exercise(id,name,joint_type) VALUES (?,'기존 운동','COMPOUND')", exercise);
+		jdbc.update("INSERT INTO exercise_alias VALUES (?,'Old lift','old lift')", exercise);
+		jdbc.update("INSERT INTO manufacturer(id,name) VALUES (?,'기존 제조사')", manufacturer);
+		jdbc.update("INSERT INTO muscle(id,group_code,name) VALUES (?,'BACK','기존1'),(?,'BACK','기존2'),(?,'BACK','기존3')",
+				first, second, secondary);
+		jdbc.update("INSERT INTO exercise_muscle VALUES (?,?,'PRIMARY'),(?,?,'SECONDARY'),(?,?,'PRIMARY')",
+				exercise, second, exercise, secondary, exercise, first);
+		var oldExercise = jdbc.queryForMap("SELECT * FROM standard_exercise WHERE id=?", exercise);
+		var oldChecksums = jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history ORDER BY installed_rank");
+
+		var latest = Flyway.configure().dataSource(dataSource).target("32").load();
+		assertThat(latest.migrate().migrationsExecuted).isEqualTo(1);
+		latest.validate();
+		assertThat(latest.migrate().migrationsExecuted).isZero();
+		assertThat(jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history WHERE installed_rank<=31 ORDER BY installed_rank"))
+				.isEqualTo(oldChecksums);
+		assertThat(jdbc.queryForMap("SELECT * FROM standard_exercise WHERE id=?", exercise))
+				.containsAllEntriesOf(oldExercise).containsEntry("exercise_type", "WEIGHT").containsEntry("record_method", "SETS_REPS")
+				.containsEntry("muscle_targets_reviewed", false).containsEntry("splits_reviewed", false);
+		assertThat(jdbc.queryForObject("SELECT alias FROM exercise_alias WHERE standard_exercise_id=?", String.class, exercise))
+				.isEqualTo("Old lift");
+		assertThat(jdbc.queryForObject("SELECT name FROM manufacturer WHERE id=?", String.class, manufacturer)).isEqualTo("기존 제조사");
+		assertThat(jdbc.queryForList("SELECT primary_order FROM exercise_muscle WHERE standard_exercise_id=? ORDER BY muscle_id",
+				Integer.class, exercise)).containsExactly(1, 2, null);
+		assertThat(jdbc.queryForList("SELECT role FROM exercise_muscle WHERE standard_exercise_id=? ORDER BY muscle_id",
+				String.class, exercise)).containsExactly("PRIMARY", "PRIMARY", "SECONDARY");
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_source", Integer.class)).isZero();
+
+		var expectedNames = java.util.Map.of(
+                "CHEST", List.of("대흉근 상부", "대흉근 중부", "대흉근 하부", "소흉근"),
+                "BACK", List.of("광배근", "능형근", "상부승모근", "중부승모근", "하부승모근", "척추기립근", "대원근"),
+                "SHOULDERS", List.of("전면삼각근", "측면삼각근", "후면삼각근", "극상근", "극하근", "소원근", "견갑하근", "전거근"),
+                "ARMS", List.of("상완이두근", "상완근", "상완요골근", "상완삼두근 장두", "상완삼두근 외측두", "상완삼두근 내측두", "전완굴근군", "전완신근군"),
+                "LEGS", List.of("대퇴사두근", "햄스트링", "대둔근", "중둔근", "소둔근", "내전근군", "비복근", "가자미근", "전경골근", "고관절 굴곡근군(장요근 중심)"),
+                "CORE", List.of("복직근", "복사근군", "복횡근"));
+		var seedRows = jdbc.queryForList("SELECT id, group_code, name FROM muscle WHERE id>? ORDER BY id", secondary);
+		assertThat(seedRows).hasSize(40);
+		for (var group : expectedNames.entrySet()) {
+			assertThat(seedRows.stream().filter(row -> row.get("group_code").equals(group.getKey())).map(row -> row.get("name")))
+					.containsExactlyElementsOf(group.getValue());
+		}
+		for (int index = 0; index < seedRows.size(); index++) {
+			var expectedId = UUID.fromString("d3200000-0000-4000-8000-%012d".formatted(index + 1));
+			assertThat(seedRows.get(index)).containsEntry("id", expectedId);
+		}
+		assertThat(jdbc.queryForMap("SELECT default_ppl_split,default_front_back_split FROM muscle WHERE name='대흉근 상부'"))
+				.containsEntry("default_ppl_split", "PUSH").containsEntry("default_front_back_split", "FRONT");
+		assertThat(jdbc.queryForMap("SELECT default_ppl_split,default_front_back_split FROM muscle WHERE name='고관절 굴곡근군(장요근 중심)'"))
+				.containsEntry("default_ppl_split", "LEGS").containsEntry("default_front_back_split", null);
+		assertThat(jdbc.queryForMap("SELECT default_ppl_split,default_front_back_split FROM muscle WHERE name='극하근'"))
+				.containsEntry("default_ppl_split", null).containsEntry("default_front_back_split", null);
+	}
+
+	@Test
+	void v33PreservesLegacyCardioSnapshotsAndAllowsNewLinkedIdentities() {
+		var dataSource = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+				postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+		Flyway.configure().dataSource(dataSource).target("32").load().migrate();
+		var jdbc = new JdbcTemplate(dataSource);
+		UUID user = UUID.randomUUID(), routine = UUID.randomUUID(), placement = UUID.randomUUID();
+		UUID session = UUID.randomUUID(), exercise = UUID.randomUUID(), device = UUID.randomUUID();
+		jdbc.update("INSERT INTO users(id) VALUES (?)", user);
+		jdbc.update("INSERT INTO routines(id,user_id,data_generation,name,created_at,updated_at) VALUES (?,?,0,'routine',now(),now())", routine,user);
+		jdbc.update("""
+				INSERT INTO routine_cardio_placements(id,user_id,data_generation,routine_id,position,kind,name,target_seconds,activity_id,created_at,updated_at)
+				VALUES (?,?,0,?,0,'TREADMILL','old treadmill',600,?,now(),now())
+				""", placement,user,routine,com.overload.testfixture.CatalogFixtures.TREADMILL);
+		jdbc.update("""
+				INSERT INTO workout_sessions(id,user_id,data_generation,source_routine_id,started_at,workout_date,started_time_zone,
+				    started_device_id,editor_device_id,initial_plan_snapshot,applied_plan_snapshot,last_workout_synced_at,created_at,updated_at)
+				VALUES (?,?,0,?,'2026-11-01T10:00:00Z','2026-11-01','UTC',?,?,
+				        '{"schemaVersion":2,"weightExercises":[],"cardioActivities":[]}',
+				        '{"schemaVersion":2,"weightExercises":[],"cardioActivities":[]}',now(),now(),now())
+				""", session,user,routine,device,device);
+		jdbc.update("INSERT INTO session_exercises(id,session_id,user_id,data_generation,kind) VALUES (?,?,?,0,'CARDIO')", exercise,session,user);
+		jdbc.update("UPDATE workout_sessions SET local_revision=1,last_snapshot_hash=?,last_snapshot_saved_at=now() WHERE id=?",
+				"a".repeat(64), session);
+		var before = jdbc.queryForMap("SELECT initial_plan_snapshot,applied_plan_snapshot,last_snapshot_hash FROM workout_sessions WHERE id=?",session);
+		var oldPlacement = jdbc.queryForMap("SELECT * FROM routine_cardio_placements WHERE id=?",placement);
+		var flyway = Flyway.configure().dataSource(dataSource).target("33").load();
+		assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
+		flyway.validate();
+		assertThat(jdbc.queryForMap("SELECT initial_plan_snapshot,applied_plan_snapshot,last_snapshot_hash FROM workout_sessions WHERE id=?",session)).isEqualTo(before);
+		assertThat(jdbc.queryForMap("SELECT * FROM routine_cardio_placements WHERE id=?",placement))
+				.containsAllEntriesOf(oldPlacement).containsEntry("standard_exercise_id", null);
+		assertThat(jdbc.queryForMap("SELECT standard_exercise_id,cardio_activity_id,cardio_kind FROM session_exercises WHERE id=?",exercise))
+				.containsEntry("standard_exercise_id",null).containsEntry("cardio_activity_id",null).containsEntry("cardio_kind",null);
+		var standard = com.overload.testfixture.CatalogFixtures.reviewedCardio(jdbc,"treadmill",com.overload.testfixture.CatalogFixtures.TREADMILL);
+		var second = com.overload.testfixture.CatalogFixtures.reviewedCardio(jdbc,"interval",com.overload.testfixture.CatalogFixtures.TREADMILL);
+		assertThat(jdbc.queryForList("SELECT id FROM standard_exercise WHERE cardio_activity_id=?",UUID.class,
+				com.overload.testfixture.CatalogFixtures.TREADMILL)).containsExactlyInAnyOrder(standard,second);
+		assertThatThrownBy(() -> jdbc.update("UPDATE session_exercises SET standard_exercise_id=? WHERE id=?", standard, exercise))
+				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+		jdbc.update("""
+				INSERT INTO session_exercises(id,session_id,user_id,data_generation,kind,standard_exercise_id,cardio_activity_id,cardio_kind,name_at_addition)
+				VALUES (?,?,?,0,'CARDIO',?,?,'TREADMILL','treadmill')
+				""", UUID.randomUUID(),session,user,standard,com.overload.testfixture.CatalogFixtures.TREADMILL);
+	}
+
+	@Test
+	void v34AddsAnEmptyReviewQueueAndPreservesExistingSourceLinks() {
+		var dataSource = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+				postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+		Flyway.configure().dataSource(dataSource).target("33").load().migrate();
+		var jdbc = new JdbcTemplate(dataSource);
+		UUID exercise = UUID.randomUUID();
+		jdbc.update("INSERT INTO standard_exercise(id,name,muscle_targets_reviewed,splits_reviewed) VALUES (?,'검수 완료',true,true)", exercise);
+		jdbc.update("INSERT INTO exercise_source VALUES ('EXERCISEDB_V1','Case123',?,'Press','private-key')", exercise);
+		var original = jdbc.queryForMap("SELECT * FROM standard_exercise WHERE id=?", exercise);
+		var links = jdbc.queryForList("SELECT * FROM exercise_source");
+		var history = jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history ORDER BY installed_rank");
+		var latest = Flyway.configure().dataSource(dataSource).target("34").load();
+		assertThat(latest.migrate().migrationsExecuted).isOne();
+		latest.validate();
+		assertThat(jdbc.queryForMap("SELECT * FROM standard_exercise WHERE id=?", exercise)).isEqualTo(original);
+		assertThat(jdbc.queryForList("SELECT * FROM exercise_source")).isEqualTo(links);
+		assertThat(jdbc.queryForList("SELECT version,checksum FROM flyway_schema_history WHERE installed_rank<=33 ORDER BY installed_rank"))
+				.isEqualTo(history);
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_db_v1_candidate", Integer.class)).isZero();
+		assertThatThrownBy(() -> jdbc.update("""
+				INSERT INTO exercise_db_v1_candidate(source_exercise_id,source_file_sha256,source_position,original,findings)
+				VALUES ('Case123',?,1,'{"exerciseId":"case123"}','{}')
+				""", "a".repeat(64))).isInstanceOf(DataIntegrityViolationException.class);
 	}
 
 	@Test

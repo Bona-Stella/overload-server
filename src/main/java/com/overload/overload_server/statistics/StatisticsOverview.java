@@ -5,7 +5,9 @@ import java.time.LocalDate;
 import java.util.*;
 
 public record StatisticsOverview(StatisticsResponse statistics, String effectiveWorkoutDays, int unknownPlanDays,
-                                 int unverifiableDays, List<PlannedDay> plannedDays,List<CardioTotal> cardioByKind) {
+                                 int unverifiableDays, List<PlannedDay> plannedDays,List<CardioTotal> cardioByKind,
+                                 List<CardioCategoryTotal> cardioByCategory) {
+    public record CardioCategoryTotal(String category, String activeMs, String distanceKm, String recordsWithoutDistance) { }
     public record CardioTotal(String kind,String activeMs,String distanceKm,String manualDistanceKm,String calculatedDistanceKm,String unknownSourceDistanceKm,
             String manualRecords,String calculatedRecords,String unknownSourceRecords,String recordsWithoutDistance) { }
     public record PlannedDay(LocalDate date,String status,String scheduleVersion,RoutineResponses.Detail plan,

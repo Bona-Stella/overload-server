@@ -17,10 +17,10 @@
   <img src="https://img.shields.io/badge/Spring%20Boot-4.1.2-6DB33F?style=flat-square&amp;logo=springboot&amp;logoColor=white" alt="Spring Boot">
   <img src="https://img.shields.io/badge/Gradle-9.8.2-02303A?style=flat-square&amp;logo=gradle&amp;logoColor=white" alt="Gradle">
   <img src="https://img.shields.io/badge/PostgreSQL-18.6-4169E1?style=flat-square&amp;logo=postgresql&amp;logoColor=white" alt="PostgreSQL 18.6">
-  <img src="https://img.shields.io/badge/Status-Initial_Setup-6B7280?style=flat-square" alt="Status">
+  <img src="https://img.shields.io/badge/Status-V35_Isolated_Verification-6B7280?style=flat-square" alt="Status">
 </div>
 
-> **개인 개발 DB의 마지막 확인 기록:** 2026-11-02 승인된 `127.0.0.1:5433/overload_dev`의 V15에 V16·V17을 적용하고 개발용 카탈로그·소량의 계정/운동 자료를 등록했습니다. 당시 OTP·루틴·장비·오프라인·종료/복구 확인은 [4단계 보고서](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)를 따릅니다. [이전 V15 재구성](docs/tasks/task-009-dev-v15-rebuild-report.md)은 그보다 앞선 기록입니다. V18~V22 미적용 표기 역시 마지막 보고 기준이며6A에서는 개인 DB의 현재 상태를 조회하지 않았습니다. 최신 조합 검증과 다른 DB·후속 변경 승인은 별도로 구분합니다.
+> **DB 적용 범위** — 코드의 목표는 V35이며 최종 검증은 일회용 PostgreSQL에서 수행합니다. 개인 개발 DB의 마지막 적용 기록은 2026-11-02의 V17, 보존 검토 DB의 마지막 직접 확인 기록은 V24입니다. 이후 실제 DB 버전은 이번 작업에서 조회하지 않았습니다. [개인 개발 적용 기록](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md) · [격리·보존 환경 안내](docs/engineering/test-environment.md)
 
 ---
 
@@ -35,6 +35,8 @@
 서버 작업은 [Backend AGENTS.md](AGENTS.md#3-required-engineering-documents)와 [Backend 개발 현황](docs/engineering/backend.md#11-현재-개발-현황)에서 시작합니다. UI·PWA를 맡는 `overload-pwa`와 연동할 때는 양쪽 진입점과 해당 API·테스트 환경을 확인합니다. 새 ChatGPT 채팅에 제공할 최소 자료는 [Frontend README의 공통 시작 안내](../overload-pwa/README.md#새-채팅에서-시작하기)에 있습니다. 아래 기능 체크리스트는 초기 개발 목표입니다.
 
 이메일 OTP 실발송은 기본 비활성입니다. [이메일 OTP 설정과 승인 조건](docs/engineering/email-otp.md)
+
+표준 운동 DB 확장 1~4-C의 현재 구현, 개발자 관리 방식, 로컬 GIF 검증, 사용자 UI 연결 범위는 [표준 운동 인수인계](docs/engineering/standard-exercise-handoff.md)에 정리되어 있습니다. ExerciseDB 원본 1,500건은 검수 대기 자료이며 실제 등록·공개는 별도 결정입니다.
 
 ---
 
@@ -123,7 +125,7 @@ Java 및 Spring Boot 기반의 REST API 서버를 개발합니다.
 | RDBMS | PostgreSQL | 18.6 (로컬 개발·테스트) |
 | DB Migration | Flyway | 12.4.0 (Boot BOM 관리) |
 | Container | Docker | 로컬 PostgreSQL / 테스트 컨테이너 |
-| Local Environment | Docker Compose | `compose.yaml` |
+| Local Environment | Docker Compose | 개발 DB `compose.yaml`, 격리 GIF 검증 `deploy/local/compose.yml` |
 
 ### Testing & Documentation
 
@@ -231,7 +233,8 @@ Base URL:
 
 | Method | Endpoint | Description |
 |:---|:---|:---|
-| GET | `/api/v1/standard-exercises/search-data`, `/api/v1/manufacturers` | 표준 카탈로그·제조사 |
+| GET | `/api/v1/standard-exercises/catalog`, `/api/v1/standard-exercises/{exerciseId}` | 공개 표준 운동 목록·UUID 상세 |
+| GET | `/api/v1/standard-exercises/search-data`, `/api/v1/standard-exercises/cardio-choices`, `/api/v1/manufacturers` | 신규 웨이트·유산소 선택, 제조사 |
 | GET / PATCH | `/api/v1/workout-settings` | 사용자별 휴식 설정 |
 | GET / POST | `/api/v1/routines` | 루틴 목록·생성 |
 | GET / PUT / DELETE | `/api/v1/routines/{id}` | 루틴 상세·수정·논리 삭제 |
@@ -298,7 +301,9 @@ $env:JAVA_HOME = 'C:\path\to\jdk-25'
 다른 프로필은 표준 `SPRING_DATASOURCE_URL`·`SPRING_DATASOURCE_USERNAME`·`SPRING_DATASOURCE_PASSWORD`로 설정합니다.
 DB 없이 실행하는 앱 구성은 아닙니다. JPA는 기존 운동 종목·설정에 적용하며 Hibernate는 Flyway 스키마를 검증만 합니다.
 인증·계정·Spring Session JDBC는 유지합니다. 기본 HTTP 포트는 `8080`입니다.
-인증·계정 API, 운동 종목·휴식 설정 GET, 일반 온라인 종목 생성·이름 변경·휴식 설정 변경을 제공합니다. 프론트엔드 조회 연동은 별도 작업입니다.
+인증·계정 API, 공개 운동 조회, 루틴·세션 및 휴식 설정을 제공합니다. 표준 운동 등록과 검수는 개발자 내부 절차를 사용합니다.
+
+보호 GIF는 별도의 [로컬 Nginx 검증 절차](docs/engineering/standard-exercise-handoff.md#로컬-gif-제공)를 따릅니다. 실제 GIF 제공은 기본 비활성이고, 이 로컬 구성은 개인 서버의 Nginx·Cloudflare 설정과 분리합니다.
 
 ### Health Check API (구현 완료)
 
@@ -322,7 +327,7 @@ curl.exe -i -X POST http://localhost:8080/api/v1/health
 
 ### 테스트 및 빌드
 
-PWA 브라우저에서 실제 API를 검증할 때는 [테스트 환경 안내](docs/engineering/test-environment.md)에서 보존 검토 환경과 일회용 V31 fixture의 실행 조건을 확인합니다.
+PWA 브라우저에서 실제 API를 검증할 때는 [테스트 환경 안내](docs/engineering/test-environment.md#v35-자동-테스트와-일회용-브라우저-fixture)에서 보존 검토 환경과 일회용 V35 fixture의 실행 조건을 확인합니다.
 
 ```powershell
 .\gradlew.bat --no-daemon test
@@ -335,8 +340,7 @@ PWA 브라우저에서 실제 API를 검증할 때는 [테스트 환경 안내](
 `--offline`은 Gradle 캐시가 준비된 경우에만 사용합니다.
 
 `test`는 DB 없이 컨텍스트 배선·Health MVC 계약, 신원 입력 계약과 운영 초기값·휴식 경계를 검증합니다.
-`integrationTest`는 일회성 PostgreSQL에서 V1→V10 마이그레이션·재시작·Health,
-계정 원자적 생성·동시 요청·전체 롤백·소유권/세대 제약을 검증합니다.
+`integrationTest`는 일회용 PostgreSQL에서 V1~V35 적용과 전환, 계정·세션, 루틴·유산소, 통계·디로딩, 원본 검수 대기 및 합성 GIF의 Nginx 접근 제어를 검증합니다.
 V3 세션 테이블·실제 HTTP/HTTPS 쿠키·CSRF·90일 절대 만료·10분 재인증 경계도 검증합니다.
 보안 응답과 프론트의 토큰 조회·갱신 계약은 [보안·세션 문서](docs/engineering/security-session.md)를 참고합니다.
 이메일 OTP 상태·제한·실패 복구·Resend 설정과 실발송 승인 조건은 [이메일 OTP 문서](docs/engineering/email-otp.md)를 따릅니다.
@@ -349,9 +353,12 @@ Google 클라이언트 준비·정확한 localhost 콜백·활성화·세션 상
 휴식 설정 변경은 일반 Controller·Service·DTO와 기존 JPA 트랜잭션을 사용합니다. 개인 운동 생성·이름 변경 구현과 GET은 제거됐으며 [온라인 계약](docs/api/workout-online-write.md)의 차단 정책만 유지합니다. 웨이트·유산소 루틴 CRUD·배치 논리 제거/명시 복원·명시적 중량 승인은 [루틴 관리 계약](docs/api/routine-management.md)을 따릅니다. V11 루틴 스키마의 개인 DB 적용은 아래 V15·V17 적용 당시 기록과 구분합니다.
 세션 [START·조회·takeover·snapshot·승인 해결·FINISH·자동 종료 및 종료 후 정정·복구](docs/api/workout-sessions.md)는 V12~V15를 사용합니다. InitialPlan은 불변 JSONB 하나에 보존하고 ACTIVE는 세대와 무관하게 사용자당 하나입니다. 수행은 관계형 저장하며 승인 충돌이 유효 수행 저장을 막지 않습니다. 명시 종료는 최초 평가·AppliedPlan을 봉인하고 AUTO_CLOSED는 마지막 서버 기록만 보존합니다. 종료 후 정정·명시 복구·논리 삭제와 현재 평가는 봉인 사실과 분리하며, 확인 불가 복구 승인 주장은 UNVERIFIED로 보존합니다.
 **V12~V15 격리 검증 후, 2026-11-01 개인 개발 DB의 승인된 V15 신규 구성도 완료했습니다.** [재구성 보고서](docs/tasks/task-009-dev-v15-rebuild-report.md)를 따릅니다. 앱 시작 시 대기 migration이 자동 적용되므로 다른 DB·후속 파괴적 작업에는 별도 승인이 필요합니다.
-현재는 V17 표준 UUID·장비 계약과 Frontend/IndexedDB3·설치형 PWA를 연결했고 [실제 개발 환경 검증](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)도 완료했습니다. 조회·takeover·중복·무변경 snapshot·승인 해결은 운동 동기화 시각을 연장하지 않습니다. 기존 인증·휴식 기본값은 유지하며 개인 운동 가입 seed는 중단했습니다.
+V17 표준 UUID·장비 계약과 Frontend/IndexedDB3·설치형 PWA의 초기 연결은 [당시 개발 환경 검증](docs/tasks/standard-exercise-catalog-dev-phase-4-report.md)에 있습니다. 조회·takeover·중복·무변경 snapshot·승인 해결은 운동 동기화 시각을 연장하지 않습니다. 현재 카탈로그와 디로딩 연결 범위는 [표준 운동 인수인계](docs/engineering/standard-exercise-handoff.md)를 따릅니다.
 
-통계·추적/디로딩의 [0·1단계 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)는 당시 기록입니다. 통계 대시보드와2B~2E는 이후 구현됐으며 디로딩 도메인 연결과 정확한 운영 카탈로그 분류는 미완료입니다. V18~V22는 코드·격리 검증과 개인 DB 적용을 구분합니다. 개인 DB의 마지막 기록은V17 적용/V18~V22 미적용이며6A에서는 접속·재확인하지 않았습니다. 새 앱을 해당 DB에 연결하면 대기 migration이 실행될 수 있습니다.
+<details>
+<summary>초기 통계·디로딩 및 마이그레이션의 당시 기록</summary>
+
+통계·추적/디로딩의 [0·1단계 보고서](docs/tasks/statistics-deload-phase-0-1-report.md)와 아래 단계별 적용 범위는 당시 기록입니다. 새 앱을 기존 DB에 연결하면 대기 migration이 실행될 수 있으므로 연결 대상과 승인 범위를 먼저 확인합니다.
 
 [통계·추적 2E](docs/tasks/statistics-tracking-phase-2e-report.md)에서 맨몸 운동의 명시적 추가 중량 기록·정정·오프라인 보존과 실제 반복 기반 총중량 계산을 연결했습니다. 기존 숫자 중량이나 체중을 추가 부하로 해석하지 않고, 근거가 없으면 세트·반복만 표시합니다. 승인 평가와 근육 다중 매핑/대분류 중복 제거를 유지합니다. [실제 DB/API 계약](docs/api/bodyweight-additional-load.md)을 따르며 개인 DB V18~V22는 미적용입니다. 운영 분류·디로딩3단계·실기기 검증은 남아 있습니다.
 
@@ -365,6 +372,8 @@ Google 클라이언트 준비·정확한 localhost 콜백·활성화·세션 상
 V1~V9 Flyway 이력은 변경하지 않았습니다. 정식 V10은 폐기 stamp·receipt/feed 구조만 제거하며 기존 데이터·version/deleted_at을 보존합니다.
 V10 전체 회귀·실제 V8 백업의 격리 복원/업그레이드·승인된 개인 로컬 DB V8→V9→V10 적용 결과는 [V10 최종 보고서](docs/tasks/task-009-v10-local-application-report.md)를 참고하세요.
 삭제 목록·DB 의존성과 검증 결과는 [1차 구조 정리 보고서](docs/tasks/task-009-phase-1-cleanup-report.md)를 참고하세요.
+
+</details>
 
 ---
 

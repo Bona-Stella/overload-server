@@ -24,7 +24,14 @@ public class DeloadTemporaryPlans {
     private record Period(UUID id,String status,long version,LocalDate start,String zone,UUID last,String hash,String source) { }
     private record Item(UUID id,long version,LocalDate date,Instant deleted,Content content,String initial) { }
     private final JdbcTemplate jdbc;private final DeloadPeriodRepository periods;private final Clock clock;
-    DeloadTemporaryPlans(JdbcTemplate jdbc,DeloadPeriodRepository periods,ObjectProvider<Clock> clocks){this.jdbc=jdbc;this.periods=periods;clock=clocks.getIfAvailable(Clock::systemUTC);}
+    private final com.overload.overload_server.catalog.StandardCardioCatalog cardioCatalog;
+    DeloadTemporaryPlans(JdbcTemplate jdbc, DeloadPeriodRepository periods, ObjectProvider<Clock> clocks,
+                         com.overload.overload_server.catalog.StandardCardioCatalog cardioCatalog) {
+        this.jdbc = jdbc;
+        this.periods = periods;
+        this.cardioCatalog = cardioCatalog;
+        clock = clocks.getIfAvailable(Clock::systemUTC);
+    }
     public boolean hasActivity(UUID owner,long generation,UUID period) {
         return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM workout_sessions WHERE user_id=? AND data_generation=? AND deload_period_id=? AND first_deload_activity_at IS NOT NULL)",Boolean.class,owner,generation,period));
     }
@@ -36,7 +43,7 @@ public class DeloadTemporaryPlans {
         var period=period(owner,generation,ids.getFirst());active(period);var item=item(period.id(),plan);unstarted(item);var today=today(period);
         if(item.version()!=expected)throw DeloadPeriodFailure.conflict("DELOAD_PLAN_VERSION_CONFLICT");
         if(!zone.equals(period.zone())||!date.equals(today)||!date.equals(item.date())||started.isBefore(period.start().atStartOfDay(ZoneId.of(zone)).toInstant())||date.isAfter(period.start().plusDays(9)))throw DeloadPeriodFailure.conflict("DELOAD_DATE_CONFLICT");
-        var content=validateCatalog(item.content());
+        var content=validateWeights(item.content(), item.content().weights());
         return new Executable(period.id(),plan,Long.toString(item.version()),item.date(),zone,content,DeloadPeriodRepository.JSON.readTree(item.initial()));
     }
     @Transactional(transactionManager="workoutTransactionManager",isolation=Isolation.READ_COMMITTED,readOnly=false)
@@ -44,8 +51,18 @@ public class DeloadTemporaryPlans {
         var p=lock(owner,input.generation(),id);String hash=DeloadPeriodService.hash(Arrays.asList("EDIT",input));if(retry(p,input.version(),input.request(),hash))return view(owner,input.generation());
         var item=item(id,input.plan());unstarted(item);var r=input.content();
         var weights=r.weightPlacements().stream().map(w->new RoutineResponses.Weight(w.id(),w.standardExerciseId(),"",w.manufacturerId(),w.loadType(),w.setCount(),w.minReps(),w.maxReps(),w.initialWeightKg().toPlainString(),null,null)).toList();
-        var cardio=r.cardioPlacements().stream().map(c->{var v=c.plan();return new RoutineResponses.Cardio(c.id(),new RoutineResponses.Plan(v.kind(),v.name(),v.targetSeconds(),decimal(v.targetDistanceKm()),v.intensityMode()==null?null:new RoutineResponses.Intensity(v.intensityMode(),decimal(v.intensityValue())),decimal(v.inclinePercent()),decimal(v.resistance()),v.activityId()),null);}).toList();
-        var content=validateCatalog(new Content(r.name(),weights,cardio));
+        var cardio=r.cardioPlacements().stream().map(c->{var v=c.plan();return new RoutineResponses.Cardio(c.id(),new RoutineResponses.Plan(v.kind(),v.name(),v.targetSeconds(),decimal(v.targetDistanceKm()),v.intensityMode()==null?null:new RoutineResponses.Intensity(v.intensityMode(),decimal(v.intensityValue())),decimal(v.inclinePercent()),decimal(v.resistance()),v.activityId(),v.standardExerciseId()),null);}).toList();
+        var existingCardio = new HashMap<UUID, RoutineResponses.Plan>();
+        for (var prior : item.content().cardio()) existingCardio.put(prior.id(), prior.plan());
+        for (int i = 0; i < cardio.size(); i++) {
+            var candidate = cardio.get(i);
+            var prior = existingCardio.get(candidate.id());
+            if (prior == null ? !cardioCatalog.selectable(r.cardioPlacements().get(i).plan())
+                    : !candidate.plan().sameCardioIdentity(prior)) {
+                throw DeloadPeriodFailure.conflict("DELOAD_EXERCISE_UNAVAILABLE");
+            }
+        }
+        var content=validateWeights(new Content(r.name(),weights,cardio), item.content().weights());
         jdbc.update("UPDATE deload_temporary_plans SET current_plan=?::jsonb,version=version+1 WHERE id=?",DeloadPeriodRepository.JSON.writeValueAsString(content),item.id());finish(p,input.request(),hash);return view(owner,input.generation());
     }
     @Transactional(transactionManager="workoutTransactionManager",isolation=Isolation.READ_COMMITTED,readOnly=false)
@@ -87,19 +104,31 @@ public class DeloadTemporaryPlans {
     private void finish(Period p,UUID request,String hash){jdbc.update("UPDATE deload_periods SET version=version+1,last_change_id=?,last_change_hash=?,updated_at=greatest(updated_at,?) WHERE id=?",request,hash,Timestamp.from(clock.instant()),p.id());}
     private Object view(UUID owner,long generation){return new DeloadPeriodService.Current(owner,Long.toString(generation),periods.active(owner,generation).orElseThrow());}
     private static String decimal(java.math.BigDecimal n){return n==null?null:n.stripTrailingZeros().toPlainString();}
-    private Content validateCatalog(Content value) {
-        var ids=value.weights().stream().map(RoutineResponses.Weight::standardExerciseId).distinct().sorted().toList();var names=new HashMap<UUID,String>();
-        if(!ids.isEmpty())jdbc.query("SELECT id,name FROM standard_exercise WHERE id IN("+marks(ids.size())+") AND is_active ORDER BY id FOR SHARE",(org.springframework.jdbc.core.RowCallbackHandler)r->names.put(r.getObject(1,UUID.class),r.getString(2)),ids.toArray());
-        if(names.size()!=ids.size())throw DeloadPeriodFailure.conflict("DELOAD_EXERCISE_UNAVAILABLE");
+    private record CatalogWeight(String name, boolean selectable) { }
+
+    private Content validateWeights(Content value, List<RoutineResponses.Weight> existingWeights) {
+        var existing = new HashMap<UUID, UUID>();
+        for (var weight : existingWeights) existing.put(weight.id(), weight.standardExerciseId());
+        var ids = value.weights().stream().map(RoutineResponses.Weight::standardExerciseId).distinct().sorted().toList();
+        var catalogWeights = new HashMap<UUID, CatalogWeight>();
+        if (!ids.isEmpty()) {
+            jdbc.query("""
+                    SELECT id, name, is_active AND muscle_targets_reviewed AND splits_reviewed AND record_method='SETS_REPS'
+                    FROM standard_exercise WHERE id IN (%s) ORDER BY id FOR SHARE
+                    """.formatted(marks(ids.size())), (org.springframework.jdbc.core.RowCallbackHandler) row ->
+                    catalogWeights.put(row.getObject(1, UUID.class), new CatalogWeight(row.getString(2), row.getBoolean(3))), ids.toArray());
+        }
         var manufacturers=value.weights().stream().map(RoutineResponses.Weight::manufacturerId).filter(Objects::nonNull).distinct().toList();
         if(!manufacturers.isEmpty()&&jdbc.queryForList("SELECT id FROM manufacturer WHERE id IN("+marks(manufacturers.size())+")",UUID.class,manufacturers.toArray()).size()!=manufacturers.size())throw DeloadPeriodFailure.invalid();
         var weights=new ArrayList<RoutineResponses.Weight>();
         for(var w:value.weights()) {
-            weights.add(new RoutineResponses.Weight(w.id(),w.standardExerciseId(),names.get(w.standardExerciseId()),w.manufacturerId(),w.loadType(),w.setCount(),w.minReps(),w.maxReps(),w.initialWeightKg(),null,null));
+            var definition = catalogWeights.get(w.standardExerciseId());
+            boolean preserved = w.standardExerciseId().equals(existing.get(w.id()));
+            if (definition == null || (!preserved && !definition.selectable())) {
+                throw DeloadPeriodFailure.conflict("DELOAD_EXERCISE_UNAVAILABLE");
+            }
+            weights.add(new RoutineResponses.Weight(w.id(),w.standardExerciseId(),definition.name(),w.manufacturerId(),w.loadType(),w.setCount(),w.minReps(),w.maxReps(),w.initialWeightKg(),null,null));
         }
-        var activities=value.cardio().stream().map(c->c.plan().activityId()).filter(Objects::nonNull).distinct().sorted().toList();var catalog=new HashMap<UUID,List<String>>();
-        if(!activities.isEmpty())jdbc.query("SELECT id,kind,name FROM cardio_activity_catalog WHERE id IN("+marks(activities.size())+") AND active ORDER BY id FOR SHARE",(org.springframework.jdbc.core.RowCallbackHandler)r->catalog.put(r.getObject(1,UUID.class),List.of(r.getString(2),r.getString(3))),activities.toArray());
-        for(var c:value.cardio())if(c.plan().activityId()!=null&&!List.of(c.plan().kind(),c.plan().name()).equals(catalog.get(c.plan().activityId())))throw DeloadPeriodFailure.conflict("DELOAD_EXERCISE_UNAVAILABLE");
         return new Content(value.label(),List.copyOf(weights),value.cardio());
     }
     private static String marks(int count){return String.join(",",Collections.nCopies(count,"?"));}

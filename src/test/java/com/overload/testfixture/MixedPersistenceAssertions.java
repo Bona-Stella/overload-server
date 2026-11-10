@@ -31,7 +31,8 @@ public final class MixedPersistenceAssertions {
 		assertThat(factory.getMetamodel().getEntities()).extracting(entity -> entity.getJavaType().getName())
 				.containsExactlyInAnyOrder(UserWorkoutSettings.class.getName(), com.overload.overload_server.routine.Routine.class.getName(), com.overload.overload_server.routine.RoutineWeightPlacement.class.getName(), com.overload.overload_server.routine.RoutineCardioPlacement.class.getName(), com.overload.overload_server.routine.ProgressChangeEvent.class.getName(), com.overload.overload_server.workoutsession.WorkoutSession.class.getName(), "com.overload.overload_server.workoutsession.SessionExercise", "com.overload.overload_server.workoutsession.PerformedSet", "com.overload.overload_server.workoutsession.CardioResult", "com.overload.overload_server.workoutsession.WeightApprovalRequest", "com.overload.overload_server.workoutsession.RecordChangeEvent",
                         "com.overload.overload_server.catalog.StandardExercise", "com.overload.overload_server.catalog.ExerciseAlias",
-                        "com.overload.overload_server.catalog.Muscle", "com.overload.overload_server.catalog.ExerciseMuscle", "com.overload.overload_server.catalog.Manufacturer");
+                        "com.overload.overload_server.catalog.Muscle", "com.overload.overload_server.catalog.ExerciseMuscle", "com.overload.overload_server.catalog.Manufacturer",
+                        "com.overload.overload_server.catalog.ExerciseSource");
 		assertThat(app.getEnvironment().getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
 		assertThat(app.getEnvironment().getProperty("spring.jpa.open-in-view")).isEqualTo("false");
 		assertThat(app.getEnvironment().getPropertySources()).noneMatch(source -> source.getName().contains(".env"));

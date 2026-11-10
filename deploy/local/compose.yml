@@ -1,0 +1,21 @@
+name: overload-local-gif
+
+services:
+  nginx:
+    image: nginx@sha256:15e96e59aa3b0aada3a121296e3bce117721f42d88f5f64217ef4b18f458c6ab
+    entrypoint: ["/bin/sh", "-c", "sh /opt/validate-gif-config.sh && exec /docker-entrypoint.sh nginx -g 'daemon off;'"]
+    ports:
+      - "127.0.0.1:${OVERLOAD_GIF_NGINX_PORT:-8081}:8080"
+    environment:
+      OVERLOAD_GIF_BACKEND_UPSTREAM: ${OVERLOAD_GIF_BACKEND_UPSTREAM:-host.docker.internal:8080}
+      OVERLOAD_GIF_PROXY_TOKEN: ${OVERLOAD_GIF_PROXY_TOKEN:?Set the local GIF proxy token}
+      NGINX_ENVSUBST_FILTER: '^OVERLOAD_GIF_(BACKEND_UPSTREAM|PROXY_TOKEN)$'
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx/15-validate-gif-config.sh:/opt/validate-gif-config.sh:ro
+      - type: bind
+        source: ${OVERLOAD_GIF_DIR:?Set an absolute local GIF directory}
+        target: /var/lib/overload-gifs
+        read_only: true
+        bind:
+          create_host_path: false

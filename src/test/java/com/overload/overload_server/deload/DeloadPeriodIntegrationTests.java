@@ -1,6 +1,9 @@
 package com.overload.overload_server.deload;
 
 import com.overload.overload_server.OverloadServerApplication;
+import com.overload.overload_server.catalog.CatalogReviewService;
+import com.overload.overload_server.catalog.StandardExercise.FrontBackSplit;
+import com.overload.overload_server.catalog.StandardExercise.PplSplit;
 import com.overload.overload_server.routine.RoutineResponses;
 import com.overload.overload_server.workoutsession.*;
 import org.junit.jupiter.api.*;
@@ -120,8 +123,8 @@ class DeloadPeriodIntegrationTests {
     UUID planRoutine() {
         var muscle=UUID.randomUUID();var standard=UUID.randomUUID();
         jdbc.update("INSERT INTO muscle(id,group_code,name,is_active) VALUES (?,'CHEST','대흉근',true)",muscle);
-        jdbc.update("INSERT INTO standard_exercise(id,name,is_active,joint_type) VALUES (?,'fixture bench',true,'COMPOUND')",standard);
-        jdbc.update("INSERT INTO exercise_muscle(standard_exercise_id,muscle_id,role) VALUES (?,?,'PRIMARY')",standard,muscle);
+        jdbc.update("INSERT INTO standard_exercise(id,name,is_active,joint_type,muscle_targets_reviewed,splits_reviewed) VALUES (?,'fixture bench',true,'COMPOUND',true,true)",standard);
+        jdbc.update("INSERT INTO exercise_muscle(standard_exercise_id,muscle_id,role,primary_order) VALUES (?,?,'PRIMARY',1)",standard,muscle);
         UUID id=UUID.randomUUID();var w=new RoutineRequests.Weight(RoutineRequests.Mode.NEW,UUID.randomUUID(),standard,null,"PLATE",3,6,10,new BigDecimal("60"));
         app.getBean(RoutineService.class).create(owner,new RoutineRequests.Create(id,0,"immutable source",List.of(w),List.of()));return id;
     }
@@ -348,6 +351,48 @@ class DeloadPeriodIntegrationTests {
         rotation().runBatch();
         assertThat(weekly().get("activePresetId").asString()).isEqualTo(b.toString());
         assertThat(journalSize()).isEqualTo(2);
+    }
+
+    @Test void currentSplitAndPrimaryChangesStaleThePreviewButNeverRewriteStartedPlans() {
+        weight(2,1,1);
+        UUID routine = planRoutine();
+        schedule(routine,1,3,5);
+        UUID standard = jdbc.queryForObject("SELECT standard_exercise_id FROM routine_weight_placements WHERE routine_id=?", UUID.class, routine);
+        var choice = new Choice(Method.TWO,Split.EQUAL,List.of());
+        var old = preview(choice);
+        var reviews = app.getBean(CatalogReviewService.class);
+        var original = reviews.get(standard);
+        var split = editClassification(reviews, original, PplSplit.PUSH, FrontBackSplit.FRONT, original.content().primary());
+        conflict(() -> service().start(owner,request(old)), "DELOAD_PREVIEW_STALE");
+
+        var current = preview(choice);
+        var replacement = UUID.randomUUID();
+        jdbc.update("INSERT INTO muscle(id,group_code,name) VALUES (?,'BACK','arbitrary target')", replacement);
+        var remapped = editClassification(reviews, split, PplSplit.PUSH, FrontBackSplit.FRONT, List.of(replacement));
+        conflict(() -> service().start(owner,request(current)), "DELOAD_PREVIEW_STALE");
+
+        var started = start(choice).period();
+        var sealed = jdbc.queryForMap("SELECT source_snapshot,source_hash FROM deload_periods WHERE id=?", started.id());
+        var plans = jdbc.queryForList("SELECT * FROM deload_temporary_plans WHERE period_id=? ORDER BY position", started.id());
+        assertThat(started.source().classifications()).singleElement().satisfies(c -> {
+            assertThat(c.pplSplit()).isEqualTo("PUSH");
+            assertThat(c.frontBackSplit()).isEqualTo("FRONT");
+            assertThat(c.primary()).extracting(Muscle::id).containsExactly(replacement);
+        });
+        editClassification(reviews, remapped, PplSplit.PULL, FrontBackSplit.BACK, original.content().primary());
+
+        assertThat(jdbc.queryForMap("SELECT source_snapshot,source_hash FROM deload_periods WHERE id=?", started.id())).isEqualTo(sealed);
+        assertThat(jdbc.queryForList("SELECT * FROM deload_temporary_plans WHERE period_id=? ORDER BY position", started.id())).isEqualTo(plans);
+        assertThat(service().current(owner).period().plans()).isEqualTo(started.plans());
+    }
+
+    private static CatalogReviewService.Review editClassification(CatalogReviewService reviews, CatalogReviewService.Review review,
+            PplSplit ppl, FrontBackSplit frontBack, List<UUID> primary) {
+        var current = review.content();
+        var edited = new CatalogReviewService.Content(current.name(), current.aliases(), current.exerciseType(), current.recordMethod(),
+                current.equipmentDescription(), current.jointType(), current.instructionsKo(), primary, current.secondary(),
+                ppl, frontBack, current.muscleTargetsReviewed(), true);
+        return reviews.replace(review.id(), new CatalogReviewService.Change(review.updatedAt(), edited, null));
     }
 
     @Test void explicitSourceSurvivesReorderingButEditOrDeletionInvalidatesStart() throws Exception {

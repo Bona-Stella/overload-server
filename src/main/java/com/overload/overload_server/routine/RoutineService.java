@@ -118,15 +118,19 @@ public class RoutineService {
 		}
 		for (int i = 0; i < cardio.size(); i++) {
 			var input = cardio.get(i); var old = cardioById.get(input.id());
-			if(input.plan().activityId()!=null&&!repository.validCardio(input.plan()))throw new RoutineFailure(INVALID_REQUEST);
 			placement(input.mode(), old == null, old != null && old.deletedAt != null);
+            if (old == null) {
+                if (!repository.selectableCardio(input.plan())) throw new RoutineFailure(INVALID_REQUEST);
+            } else if (!input.plan().sameCardioIdentity(old.plan())) {
+                throw new RoutineFailure(INVALID_REQUEST);
+            }
 			if (input.mode() == RoutineRequests.Mode.NEW) { available(input.id()); changedCardio.add(input.id()); }
 			else if (old.differs(input, i)) changedCardio.add(input.id());
 		}
 		var exercises = repository.exercises(routine.userId, routine.dataGeneration, definitions, true);
 		if (definitions.stream().anyMatch(id -> !exercises.containsKey(id))) throw new RoutineFailure(EXERCISE_NOT_FOUND);
 		for (var input : weights) {
-			if (input.mode() == RoutineRequests.Mode.NEW && !exercises.get(input.standardExerciseId()).isActive()) throw new RoutineFailure(EXERCISE_NOT_FOUND);
+			if (input.mode() == RoutineRequests.Mode.NEW && !exercises.get(input.standardExerciseId()).isSelectableForSetsReps()) throw new RoutineFailure(EXERCISE_NOT_FOUND);
 			var old = weightById.get(input.id());
 			if (input.manufacturerId() != null && !repository.manufacturerAvailable(input.manufacturerId(), old != null && input.manufacturerId().equals(old.manufacturerId))) throw new RoutineFailure(INVALID_REQUEST);
 		}

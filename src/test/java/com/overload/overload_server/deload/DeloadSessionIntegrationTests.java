@@ -117,10 +117,11 @@ class DeloadSessionIntegrationTests {
     UUID planRoutine() {
         var muscle=UUID.randomUUID();var standard=UUID.randomUUID();
         jdbc.update("INSERT INTO muscle(id,group_code,name,is_active) VALUES (?,'CHEST','대흉근',true)",muscle);
-        jdbc.update("INSERT INTO standard_exercise(id,name,is_active,joint_type) VALUES (?,'fixture bench',true,'COMPOUND')",standard);
-        jdbc.update("INSERT INTO exercise_muscle(standard_exercise_id,muscle_id,role) VALUES (?,?,'PRIMARY')",standard,muscle);
+        jdbc.update("INSERT INTO standard_exercise(id,name,is_active,joint_type,muscle_targets_reviewed,splits_reviewed) VALUES (?,'fixture bench',true,'COMPOUND',true,true)",standard);
+        jdbc.update("INSERT INTO exercise_muscle(standard_exercise_id,muscle_id,role,primary_order) VALUES (?,?,'PRIMARY',1)",standard,muscle);
         UUID id=UUID.randomUUID();var w=new RoutineRequests.Weight(RoutineRequests.Mode.NEW,UUID.randomUUID(),standard,null,"PLATE",3,6,10,new BigDecimal("60"));
-        app.getBean(RoutineService.class).create(owner,new RoutineRequests.Create(id,0,"immutable source",List.of(w),List.of(new RoutineRequests.Cardio(RoutineRequests.Mode.NEW,UUID.randomUUID(),new RoutineRequests.Plan("TREADMILL","run",2100,null,"SPEED",new BigDecimal("8"),null,null)))));return id;
+        var cardioStandard = CatalogFixtures.reviewedCardio(jdbc, "run", CatalogFixtures.TREADMILL);
+        app.getBean(RoutineService.class).create(owner,new RoutineRequests.Create(id,0,"immutable source",List.of(w),List.of(new RoutineRequests.Cardio(RoutineRequests.Mode.NEW,UUID.randomUUID(),new RoutineRequests.Plan("TREADMILL","run",2100,null,"SPEED",new BigDecimal("8"),null,null,CatalogFixtures.TREADMILL,cardioStandard)))));return id;
     }
     void schedule(UUID id,int... days) {
         var assignments=new ArrayList<WeeklySchedule.Assignment>();for(int d:days)assignments.add(new WeeklySchedule.Assignment(d,id));
@@ -161,6 +162,12 @@ class DeloadSessionIntegrationTests {
         var assessment=ok(browser.get("/api/v1/workout-sessions/"+s.get("id").asString()+"/assessment"));assertThat(assessment.get("currentAssessment").get("state").asString()).isEqualTo("EXCLUDED");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM progress_change_events WHERE session_id=?",Integer.class,UUID.fromString(s.get("id").asString()))).isZero();assertThat(current().hasActivity()).isTrue();assertThat(original).isNotEmpty();
         assertThat(ok(browser.get("/api/v1/workout-sessions/deload/"+current().id())).get("sessions").size()).isEqualTo(1);
+        var statistics = ok(browser.get("/api/v1/statistics/overview?fromDate=2026-11-08&toDateExclusive=2026-11-09")).get("statistics");
+        assertThat(statistics.get("groupActuals").get(0).get("completedSets").asString()).isEqualTo("1");
+        assertThat(statistics.get("muscles").get(0).get("contributionSets").asString()).isEqualTo("1.0");
+        var cardio = s.get("initialPlan").get("cardioActivities").get(0);
+        assertThat(cardio.get("plan").get("standardExerciseId").asString()).isNotBlank();
+        assertThat(cardio.get("plan").get("activityId").asString()).isEqualTo(CatalogFixtures.TREADMILL.toString());
     }
     @Test void deletedSetAndSessionCannotErasePermanentActivityAndRecoveryCannotApprove()throws Exception {
         begin(7);var s=session(todayPlan());var state=withSets(s,1);finish(s,1,state);var currentSession=detail(s);var id=UUID.fromString(s.get("id").asString());
@@ -200,6 +207,29 @@ class DeloadSessionIntegrationTests {
     }
     Map<String,Object> editBody(DeloadPeriodRepository.SavedPlan plan,String weight) {
         var body=command();var content=plan.current();body.put("name","edited temporary");var items=new ArrayList<Map<String,Object>>();for(var w:content.weights()){var m=new LinkedHashMap<String,Object>();m.put("id",w.id());m.put("standardExerciseId",w.standardExerciseId());m.put("manufacturerId",w.manufacturerId());m.put("loadType",w.loadType());m.put("setCount",4);m.put("minReps",7);m.put("maxReps",11);m.put("initialWeightKg",weight);items.add(m);}body.put("weightPlacements",items);body.put("cardioPlacements",content.cardio().stream().map(c->Map.of("id",c.id(),"plan",c.plan())).toList());return body;
+    }
+    @Test void temporaryPlanRetainsStoredWeightButRejectsNewUnreviewedPlacement() throws Exception {
+        var period = begin(7);
+        var plan = todayPlan();
+        var existing = plan.current().weights().getFirst();
+        jdbc.update("UPDATE standard_exercise SET muscle_targets_reviewed=false WHERE id=?", existing.standardExerciseId());
+        var path = PATH + "/" + period.id() + "/plans/" + plan.id();
+        var body = editBody(plan, "57");
+        @SuppressWarnings("unchecked")
+        var placements = (List<Map<String, Object>>) body.get("weightPlacements");
+        var extra = new LinkedHashMap<>(placements.getFirst());
+        extra.put("id", UUID.randomUUID());
+        placements.add(extra);
+        var response = browser.send("PUT", path, JSON.writeValueAsString(body), browser.csrf());
+        assertThat(response.statusCode()).isEqualTo(409);
+        assertThat(JSON.readTree(response.body()).get("code").asString()).isEqualTo("DELOAD_EXERCISE_UNAVAILABLE");
+        assertThat(todayPlan()).isEqualTo(plan);
+
+        ok(browser.send("PUT", path, JSON.writeValueAsString(editBody(plan, "57")), browser.csrf()));
+        jdbc.update("UPDATE standard_exercise SET is_active=false WHERE id=?", existing.standardExerciseId());
+        var started = session(todayPlan());
+        assertThat(started.get("initialPlan").get("weightExercises").get(0).get("standardExerciseId").asString())
+                .isEqualTo(existing.standardExerciseId().toString());
     }
     @Test void editingCurrentGoalsNeverReappliesReductionOrChangesInitialSource()throws Exception {
         var period=begin(7);var p=todayPlan();var source=p.plan();var body=editBody(p,"57");var path=PATH+"/"+period.id()+"/plans/"+p.id();var first=ok(browser.send("PUT",path,JSON.writeValueAsString(body),browser.csrf()));assertThat(ok(browser.send("PUT",path,JSON.writeValueAsString(body),browser.csrf()))).isEqualTo(first);

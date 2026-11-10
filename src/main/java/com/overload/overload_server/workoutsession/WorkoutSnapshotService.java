@@ -119,30 +119,45 @@ public class WorkoutSnapshotService {
                 input.snapshot().appliedPlan().weightExercises().stream().map(WeightPlan::manufacturerId),
                 input.snapshot().performedSets().stream().map(SetValue::manufacturerId)).toList());
         var items = index(data.exercises(id), e -> e.id);
+        var oldPlan = JSON.readValue(session.appliedPlan, Plan.class);
+        var previousCardio = index(oldPlan.cardioActivities(), CardioPlan::sessionActivityId);
+        var plannedCardio = index(input.snapshot().appliedPlan().cardioActivities(), CardioPlan::sessionActivityId);
+        var initial = index(InitialPlan.read(session.initialPlan).cardioActivities(), InitialPlan.Cardio::sessionActivityId);
         for (var item:input.snapshot().sessionExercises()) {
             var old = items.get(item.id());
             if (old!=null) {
                 if (!old.value().equals(item))throw failure(IMMUTABLE_RECORD_CONTEXT);
+                if (item.kind().equals("CARDIO") && plannedCardio.containsKey(item.id())) {
+                    var plan = cardioIdentity(plannedCardio.get(item.id()));
+                    if (!matchesStoredCardio(old, plan, previousCardio.get(item.id()), initial.get(item.id()))) {
+                        throw failure(IMMUTABLE_RECORD_CONTEXT);
+                    }
+                }
             }
             else {
                 available("session_exercises", item.id());
                 String name = null;
                 if (item.kind().equals("WEIGHT")) {
                     var definition = definitions.get(item.standardExerciseId());
-                    if (definition==null||!definition.isActive())throw failure(EXERCISE_NOT_FOUND);
+                    if (definition==null||!definition.isSelectableForSetsReps())throw failure(EXERCISE_NOT_FOUND);
                     name = definition.getName();
                 }
                 var added = new SessionExercise(session, item, name);
+                if (item.kind().equals("CARDIO")) {
+                    var plan = cardioIdentity(plannedCardio.get(item.id()));
+                    if (!Objects.equals(plan.standardExerciseId(), item.standardExerciseId()) || !data.selectableCardio(plan)) {
+                        throw failure(INVALID_SNAPSHOT);
+                    }
+                    added.captureCardio(plan.activityId(), plan.kind(), plan.name());
+                }
                 data.insert(added);
                 items.put(added.id, added);
             }
         }
-        data.validateCardioCatalog(input.snapshot().appliedPlan().cardioActivities());
         validatePlan(input.snapshot().appliedPlan(), items);
         var approvals = index(data.approvals(id), r -> r.id);
         var applied = approvals(session, input.snapshot().approvalRequests(), items, approvals, scope, false);
         boolean changed = facts(session, input.snapshot(), items, approvals);
-        var oldPlan = JSON.readValue(session.appliedPlan, Plan.class);
         if (!oldPlan.equals(input.snapshot().appliedPlan())) {
             session.appliedPlan = json(input.snapshot().appliedPlan());
             changed = true;
@@ -157,6 +172,27 @@ public class WorkoutSnapshotService {
         if (changed)session.lastWorkoutSyncedAt = now;
         data.flush();
         return false;
+    }
+
+    private static com.overload.overload_server.routine.RoutineRequests.Plan cardioIdentity(CardioPlan item) {
+        if (item == null) throw failure(INVALID_SNAPSHOT);
+        return com.overload.overload_server.routine.RoutineRequests.readCanonicalCardioPlan(item.plan());
+    }
+
+    private static boolean matchesStoredCardio(SessionExercise stored, com.overload.overload_server.routine.RoutineRequests.Plan plan,
+                                               CardioPlan previous, InitialPlan.Cardio initial) {
+        if (!Objects.equals(stored.standardExerciseId, plan.standardExerciseId())) return false;
+        if (stored.standardExerciseId != null) {
+            return Objects.equals(stored.cardioActivityId, plan.activityId())
+                    && Objects.equals(stored.cardioKind, plan.kind()) && Objects.equals(stored.nameAtAddition, plan.name());
+        }
+        if (previous != null) return plan.sameCardioIdentity(cardioIdentity(previous));
+        if (initial != null) {
+            var original = initial.plan();
+            return Objects.equals(original.activityId(), plan.activityId())
+                    && (plan.activityId() == null || (original.name().equals(plan.name()) && original.kind().equals(plan.kind())));
+        }
+        return plan.activityId() == null;
     }
 
     Resolution resolve(UUID owner, UUID id, Resolve input) {
