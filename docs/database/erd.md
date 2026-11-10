@@ -1,6 +1,6 @@
 # Overload ERD
 
-이 관계도는 [Flyway V1~V30](../../src/main/resources/db/migration/)을 새 PostgreSQL 18.6에 적용한 뒤 읽은 목표 스키마다. 실제 개발 DB의 적용 버전은 별도 확인이 필요하다. 컬럼 전체, 제약조건 이름, 인덱스와 보존 규칙은 [DB 설계서](schema.md)를 참고한다.
+이 관계도는 격리 PostgreSQL 18.6에서 확인한 V30 구조에 [V31 이름 컬럼](../../src/main/resources/db/migration/V31__add_weekly_schedule_preset_name.sql)을 반영한 목표 스키마다. 실제 개발 DB의 적용 버전은 별도 확인이 필요하다. 컬럼 전체, 제약조건 이름, 인덱스와 보존 규칙은 [DB 설계서](schema.md)를 참고한다.
 
 - 상세 관계도의 선은 PostgreSQL FK이며, 관계 이름은 자식의 FK 컬럼 순서다. 상위 개요는 이 중 대표 관계를 표시한다.
 - 부모 쪽 `||`는 자식 행의 참조가 필수이고 `|o`는 일부 FK 컬럼이 NULL일 수 있음을 뜻한다. 자식 쪽 `o|`는 FK가 자식의 PK 또는 UNIQUE 조합을 포함해 부모당 최대 한 행이라는 뜻이며, `o{`는 최대 여러 행을 뜻한다. 부분 인덱스나 특정 상태로 제한된 유일성은 [설계서](schema.md)에서 확인한다.
@@ -207,6 +207,7 @@ erDiagram
         uuid user_id PK, FK
         bigint data_generation PK, FK
         uuid id PK
+        varchar(100) name "nullable"
     }
     weekly_schedule_state {
         uuid user_id PK, FK

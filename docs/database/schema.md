@@ -2,15 +2,15 @@
 
 ## 기준과 범위
 
-현행 Backend의 목표 스키마는 [Flyway V1~V30](../../src/main/resources/db/migration/)의 누적 결과다. 2026-11-09에 빈 일회용 PostgreSQL 18.6에 적용한 뒤 `public` 카탈로그에서 아래 구조를 확인했다. 반복 실행 migration은 없다. 실제 개발·개인·운영 DB의 적용 버전은 이번 조사에서 확인하지 않았다. 기존 격리 환경의 V24→V30 전환 검증 기록은 [Backend 개발 규칙](../engineering/backend.md#125-다중-주간-일정-프리셋)에서 확인할 수 있다.
+현행 Backend의 목표 스키마는 [Flyway V1~V31](../../src/main/resources/db/migration/)의 누적 결과다. 2026-11-09에 빈 일회용 PostgreSQL 18.6에서 V30의 `public` 카탈로그를 확인했다. V31 차이는 추가 DDL과 새 DB 적용·V30→V31 격리 전환 테스트를 대조했다. 반복 실행 migration은 없다. 실제 개발·개인·운영 DB의 적용 버전은 이번 조사에서 확인하지 않았다. [격리 검증 기록](../engineering/backend.md#125-다중-주간-일정-프리셋)
 
 [ERD](erd.md)는 관계를, 이 문서는 컬럼과 제약조건 및 보존 규칙을 설명한다. 스키마 변경의 실행 기준은 Flyway migration이며 클라이언트 요청·응답은 [API 계약](../api/)을 따른다. DB 제약보다 좁은 쓰기 조건은 서버 코드와 함께 읽는다.
 
-| 항목 | V30 |
+| 항목 | V31 목표 |
 | --- | ---: |
 | 기본 테이블 | 40 (Overload 37, Spring Session 2, Flyway 1) |
-| 컬럼 / NOT NULL | 378 / 281 |
-| PK / FK / UNIQUE / CHECK | 40 / 55 / 23 / 176 |
+| 컬럼 / NOT NULL | 379 / 281 |
+| PK / FK / UNIQUE / CHECK | 40 / 55 / 23 / 177 |
 | 인덱스 | 90 (제약조건 지원 63, 기타 27) |
 | 사용자 트리거 / 뷰 | 22 / 1 |
 
@@ -729,9 +729,9 @@ V30에서 편집 가능한 프리셋과 현재 설정을 분리했다. 실제 �
 
 ### `weekly_schedule_presets`
 
-요일별 루틴 배정과 표시 순서, 자동 순환 포함 여부를 가진 사용자·세대별 프리셋.
+요일별 루틴 배정과 표시 순서, 자동 순환 포함 여부, 선택적 저장 이름을 가진 사용자·세대별 프리셋.
 
-근거 [V30](../../src/main/resources/db/migration/V30__create_weekly_schedule_presets.sql)
+근거 [V30](../../src/main/resources/db/migration/V30__create_weekly_schedule_presets.sql) · [V31](../../src/main/resources/db/migration/V31__add_weekly_schedule_preset_name.sql)
 
 | 컬럼 | PostgreSQL 자료형 | NULL | 기본값 / 생성식 | 키 | 역할 |
 | --- | --- | --- | --- | --- | --- |
@@ -742,6 +742,7 @@ V30에서 편집 가능한 프리셋과 현재 설정을 분리했다. 실제 �
 | `rotation_included` | `boolean` | NO | `false` | — | 자동 순환 후보 포함 여부. |
 | `preset_version` | `bigint` | NO | `0` | — | 프리셋 편집 버전. |
 | `assignments` | `jsonb` | NO | `'[]'::jsonb` | — | 요일과 루틴 ID 배정 배열(JSON). |
+| `name` | `character varying(100)` | YES | — | 선택적 저장 이름. 이름의 유일성 제약은 없다. |
 
 | 종류 | 제약조건 | 정의 |
 | --- | --- | --- |
@@ -751,6 +752,9 @@ V30에서 편집 가능한 프리셋과 현재 설정을 분리했다. 실제 �
 | CHECK | `weekly_schedule_presets_assignments_check` | `CHECK ( CASE WHEN (jsonb_typeof(assignments) = 'array'::text) THEN (jsonb_array_length(assignments) <= 7) ELSE false END)` |
 | CHECK | `weekly_schedule_presets_display_order_check` | `CHECK (((display_order >= 1) AND (display_order <= 4)))` |
 | CHECK | `weekly_schedule_presets_preset_version_check` | `CHECK ((preset_version >= 0))` |
+| CHECK | `weekly_schedule_presets_name_check` | `CHECK (name !~ '^[[:space:]]*$')` · NULL 허용 |
+
+V31은 기존 행을 재작성하거나 이름을 채우지 않는다. 이름을 저장하지 않은 행의 표시 이름은 서버 조회 시 표시 순번으로 생성한다. 이름이 바뀌면 해당 `preset_version`만 증가한다. 정규화와 버전 검증은 [이름 변경 API](../api/weekly-schedule.md#v31-프리셋-이름-변경)를 따른다.
 
 | 인덱스 | 정의 | 지원 제약조건 |
 | --- | --- | --- |
@@ -1533,6 +1537,7 @@ Flyway가 실행 이력을 관리한다.
 | V19~V24 | 적용 일정·루틴 계획 이력, 최초 일정과 변경의 즉시 적용, 실제 유산소 측정·맨몸 부하·유산소 카탈로그·일별 판단. |
 | V25~V29 | 분석 버전·epoch와 주간 확정, 디로딩 v1.7 기간·임시 계획·세션·기간 종료 및 분석 재개. |
 | V30 | 편집 가능한 다중 프리셋과 활성·순환 상태. 기존 적용 이력·계획·수행 기록은 같은 구조에 유지된다. |
+| V31 | 주간 일정 프리셋의 nullable 이름 컬럼과 비공백 제약. 기존 행과 적용 이력을 보존한다. |
 
 JPA는 카탈로그, 설정, 루틴과 주요 세션·수행의 16개 테이블을 매핑한다. 다섯 세션 하위 엔티티의 일부 필드는 `nullable=false` 표기 없이 DB의 `NOT NULL` 제약을 따른다. 계정·OTP, 주간 일정, 통계 조회와 디로딩 분석·기간 저장소는 JDBC를 사용한다. 복합 FK, 부분 인덱스와 트리거는 Flyway 정의에서 관리한다. Hibernate는 `ddl-auto=validate`이며 Spring Session의 자체 초기화는 비활성화되어 있다. [세션 하위 엔티티](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutSnapshotEntities.java) · [런타임 설정](../../src/main/resources/application.yaml) · [마이그레이션 통합 테스트](../../src/test/java/com/overload/overload_server/database/PostgresMigrationTests.java) · [Flyway SQL 전체](../../src/main/resources/db/migration/)
 

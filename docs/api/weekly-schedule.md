@@ -1,6 +1,6 @@
 # 다중 주간 일정 프리셋과 적용 이력
 
-Backend는 V30 저장·가입 초기화, 프리셋 관리·수동 적용, 자동 순환·복구 및 G5 원본 선택·정지·복귀를 제공한다. [최종 감사·격리 회귀](../engineering/backend.md#125-다중-주간-일정-프리셋)를 완료했다. PWA 신규 API 연결과 실제 DB 적용은 후속이다.
+Backend는 V30의 다중 프리셋·수동 적용·자동 순환과 V31의 이름 변경을 제공한다. HOME·ROUTINE PWA 연동과 격리 검증은 [개발 현황](../engineering/backend.md#11-현재-개발-현황)을 참고한다. 개인 개발 DB의 적용 버전과 보존 DB의 전환은 별도다.
 
 <a id="2단계-api-계약"></a>
 
@@ -13,6 +13,7 @@ Backend는 V30 저장·가입 초기화, 프리셋 관리·수동 적용, 자동
 | `GET` | 200 | 없음 | 읽기 전용 스냅샷을 표시 순번으로 반환 |
 | `POST /presets` | 201 | `{dataGeneration, expectedStateVersion}` | 마지막에 순환 제외인 빈 프리셋 추가 |
 | `PUT /presets/{id}/assignments` | 200 | `{dataGeneration, expectedStateVersion, expectedPresetVersion, assignments, timeZone?}` | 전체 요일 배정을 한 번에 교체 |
+| `PUT /presets/{id}/name` | 200 | `{dataGeneration, expectedStateVersion, expectedPresetVersion, name}` | 프리셋 이름 변경 (V31) |
 | `PUT /active` | 200 | `{dataGeneration, expectedStateVersion, presetId, timeZone?}` | 자동 순환 OFF에서 지정 프리셋을 수동 활성화 |
 | `PUT /rotation` | 200 | `{dataGeneration, expectedStateVersion, autoEnabled, presets, timeZone?}` | 순환 상태·포함 여부·전체 순서를 한 번에 저장 |
 | `DELETE /presets/{id}` | 200 | `{dataGeneration, expectedStateVersion, expectedPresetVersion}` | 비활성 프리셋 삭제 후 표시 순번을 연속으로 정리 |
@@ -37,7 +38,8 @@ Backend는 V30 저장·가입 초기화, 프리셋 관리·수동 적용, 자동
       "displayOrder": 1,
       "presetVersion": "0",
       "rotationIncluded": false,
-      "assignments": []
+      "assignments": [],
+      "name": "01 주간 일정"
     }
   ]
 }
@@ -46,7 +48,7 @@ Backend는 V30 저장·가입 초기화, 프리셋 관리·수동 적용, 자동
 - 생성은 최대 4개다. 활성 프리셋과 마지막 프리셋의 삭제를 거절한다. 삭제 후 표시 순번만 당기고 남은 ID와 내용 버전은 유지한다.
 - 최초 실제 적용은 활성 프리셋 저장, 수동 활성화 또는 순환을 처음 켤 때 첫 포함 프리셋 적용에서 이루어진다. 빈 배정도 적용할 수 있다. 적용 전 두 `applied*` 필드는 null이다. GET·생성·비활성 편집은 적용 이력, 달력 기준, G3 날짜를 만들지 않는다.
 - `timeZone`은 IANA 시간대다. 달력 또는 G4에 고정된 시간대가 있으면 응답에 제공하고, 적용 시 생략할 수 있다. 미확정 상태에서 최초 실제 적용하려면 입력해야 한다. 비활성 편집은 시간대를 확정하지 않는다.
-- `stateVersion`은 생성·삭제·활성 ID 변경·최초 실제 적용·순환 구성과 전환 기준 변경 때 증가한다. 같은 명령에서 활성 ID 변경과 최초 적용이 겹치면 한 번 증가한다. `presetVersion`은 그 프리셋의 배정이 바뀔 때 증가한다. 활성 프리셋의 실제 배정 변경은 적용 이력도 추가한다. 비활성 편집은 개별 프리셋에만 영향을 준다.
+- `stateVersion`은 생성·삭제·활성 ID 변경·최초 실제 적용·순환 구성과 전환 기준 변경 때 증가한다. 같은 명령에서 활성 ID 변경과 최초 적용이 겹치면 한 번 증가한다. `presetVersion`은 그 프리셋의 배정이나 이름이 바뀔 때 증가한다. 활성 프리셋의 실제 배정 변경은 적용 이력도 추가한다. 비활성 편집은 개별 프리셋에만 영향을 준다.
 - 최초 적용 이후 같은 배정의 다른 프리셋을 활성화하면 ID와 상태 버전이 바뀌고, 기존 적용 버전과 시각을 유지한다. 같은 프리셋을 같은 내용으로 다시 저장·활성화하면 무변경이다. 버전은 무변경 여부를 판정하기 전에 확인하며, 충돌 시 재조회해서 다시 편집한다.
 - 일반 ACTIVE 운동 중에는 최초 적용, 실제 배정 변경 및 수동 활성 ID 변경을 거절한다. G5 ACTIVE 기간과 완료 당일에는 프리셋 쓰기 전체를 제한하며 조회는 허용한다. 완료 다음 고정 로컬 날짜 또는 무수행 취소 직후에는 변경할 수 있다.
 
@@ -62,6 +64,24 @@ Backend는 V30 저장·가입 초기화, 프리셋 관리·수동 적용, 자동
 | 503 | `WORKOUT_DATA_UNAVAILABLE` |
 
 도메인 오류는 `{"code":"…"}` 형식이다. ON 상태에서 수동 적용은 `AUTO_ROTATION_ENABLED`다. ON을 설정하거나 유지하는 구성이 포함 2개를 충족하지 못하면 `ROTATION_REQUIRES_TWO_PRESETS`다.
+
+### V31 프리셋 이름 변경
+
+`PUT /api/v1/weekly-schedule/presets/11111111-1111-4111-8111-111111111111/name`의 요청 예시다.
+
+```json
+{
+  "dataGeneration": "0",
+  "expectedStateVersion": "0",
+  "expectedPresetVersion": "0",
+  "name": "전신 훈련"
+}
+```
+
+- 이름은 문자열로 받는다. 앞뒤 유니코드 공백과 BOM 문자를 제거한 뒤 빈 값, 유니코드 코드 포인트 100개 초과, ISO 제어 문자, UTF-8로 인코딩할 수 없는 값은 `400 INVALID_REQUEST`로 거절한다. 서로 다른 프리셋에 같은 이름을 쓸 수 있다.
+- 세션 쿠키와 CSRF를 확인한다. 사용자 행 잠금 안에서 데이터 세대·일반 쓰기 제한·상태 버전·프리셋 소유 범위와 버전을 확인한다. 유효한 상태 버전으로 요청한 다른 계정·삭제·미존재 프리셋은 `404 PRESET_NOT_FOUND`다. 오래된 상태·프리셋 버전은 각각 `409 SCHEDULE_STATE_VERSION_CONFLICT`와 `409 PRESET_VERSION_CONFLICT`다. 디로딩 ACTIVE 기간과 완료 당일에는 `409 DELOAD_ACTIVE_PERIOD`다.
+- 유효한 버전으로 현재 표시 이름과 동일한 이름을 저장하면 무변경이다. 이름이 바뀌면 해당 `presetVersion`만 증가한다. 위 예시가 성공하면 전체 상태의 해당 항목에 `"name": "전신 훈련"`과 `"presetVersion": "1"`이 반환된다.
+- 저장 이름이 없는 행은 서버가 현재 표시 순번으로 `01 주간 일정`과 같은 이름을 만들어 응답한다. 순서가 바뀌면 기본 표시 이름도 바뀌고, 저장 이름은 프리셋 ID에 남는다. 이름 변경은 활성 프리셋, 요일 배정, 자동 순환 ON/OFF·순서·포함 여부·다음 전환 시각, 적용 이력과 운동 기록을 유지한다.
 
 ## 적용 이력과 트랜잭션
 

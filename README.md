@@ -322,7 +322,7 @@ curl.exe -i -X POST http://localhost:8080/api/v1/health
 
 ### 테스트 및 빌드
 
-PWA 브라우저에서 실제 API를 검증할 때는 [테스트 환경 안내](docs/engineering/test-environment.md)에서 보존 검토 환경과 일회용 V30 fixture의 실행 조건을 확인합니다.
+PWA 브라우저에서 실제 API를 검증할 때는 [테스트 환경 안내](docs/engineering/test-environment.md)에서 보존 검토 환경과 일회용 V31 fixture의 실행 조건을 확인합니다.
 
 ```powershell
 .\gradlew.bat --no-daemon test
@@ -403,7 +403,7 @@ V10 전체 회귀·실제 V8 백업의 격리 복원/업그레이드·승인된 
 ## 📚 참고 문서
 
 - 개발은 [AGENTS.md 3절](AGENTS.md#3-required-engineering-documents)에서 작업별 정책과 계약을 찾고 [Backend 개발 규칙](docs/engineering/backend.md)을 적용합니다.
-- DB 구조를 조사할 때는 [현행 ERD](docs/database/erd.md)에서 관계를, [DB 설계서](docs/database/schema.md)에서 V30의 테이블·컬럼·제약조건과 보존 규칙을 확인합니다.
+- DB 구조를 조사할 때는 [현행 ERD](docs/database/erd.md)에서 관계를, [DB 설계서](docs/database/schema.md)에서 V31 목표 스키마의 테이블·컬럼·제약조건과 보존 규칙을 확인합니다.
 - 현재 구현·후속 단계·마지막 격리 회귀와 실제 DB 확인 범위는 [Backend 개발 현황](docs/engineering/backend.md#11-현재-개발-현황)을 확인합니다.
 - 변경 이유와 과거 검증은 [두 저장소 문서 감사 기록](../overload-pwa/docs/tasks/documentation-audit-2026-11-09.md)에서 찾습니다.
 
