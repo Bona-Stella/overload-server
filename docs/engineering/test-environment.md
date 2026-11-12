@@ -18,7 +18,7 @@ UI 구현·Mock 시연·사용자 승인 순서는 [Frontend 기본 UI 개발 �
 
 ## Mock 미리보기
 
-PWA 루트에서 Node.js 24, 설치된 의존성, 빈 포트를 확인한 뒤 `npm run dev -- --host 127.0.0.1`로 개발 서버를 실행한다. 기본 포트는 3000이다. 예를 들어 `/routine-preview`의 합성 루틴과 빈 목록, `/ui-foundation`의 T01 공통 표현을 확인할 수 있다. 대상 화면의 기존 미리보기나 별도 fixture를 사용하고 개인 앱과 분리된 브라우저 프로필에서 연다. `/demo`는 기기에 데이터를 저장하는 별도 개발 데모이므로 화면 검토 전용 Mock에는 `/routine-preview`와 같이 실제 저장 경로를 호출하지 않는 진입점을 사용한다. [Vite 설정](../../../overload-pwa/vite.config.ts) · [미리보기 분기](../../../overload-pwa/src/main.tsx) · [루틴 Mock 예시](../../../overload-pwa/src/review/RoutinePreview.tsx)
+기존 Mock 검토 서버가 있으면 같은 주소를 사용한다. 새로 실행해야 하면 PWA 루트에서 Node.js 24, 설치된 의존성과 대상 포트를 확인한다. `/routine-preview`는 `npm run dev -- --mode ui-review`의 4173번 포트에서 사용한다. 같은 사설 LAN의 iPhone에 제공할 때는 PC의 실제 사설 IPv4를 `OVERLOAD_MOCK_LAN_IP`에 지정한다. `/ui-foundation`은 일반 Vite 개발 모드의 T01 미리보기이며 loopback에서 검토할 때 `npm run dev -- --host 127.0.0.1`의 3000번 포트를 사용한다. 검토는 개인 앱과 분리된 브라우저 프로필에서 진행한다. `/demo`는 기기에 데이터를 저장하는 별도 개발 데모다. [Vite 설정](../../../overload-pwa/vite.config.ts) · [미리보기 분기](../../../overload-pwa/src/main.tsx) · [검토 환경 유지 절차](../../../overload-pwa/docs/engineering/frontend.md#환경-재사용과-마감)
 
 ## 보존된 검토 서버 확인과 재개
 
@@ -78,6 +78,8 @@ COMMIT;
 2026-11-10 종료 확인 당시 Mock Vite 4173과 실제 V31 Vite 4175, V31 Spring 5505·제어 5957·전용 PostgreSQL 32784를 정리했다. V30의 Vite 4174와 Spring 2755는 앞서 실행 기한이 끝났다. 통합 테스트가 끝난 뒤 검토 포트 해제와 일회용 테스트 컨테이너 정리를 확인했다. 개인 개발 DB·보존 DB·다른 프로젝트 서비스에는 조치하지 않았다. 위 포트는 종료 이력이며 활성 접속 주소로 사용하지 않는다.
 
 ## 종료와 보존
+
+사용자 UI 검토 환경은 피드백과 최종 승인이 끝날 때까지 유지한다. 승인 후 범위에 필요한 검증을 마치면 아래의 환경별 절차로 안전하게 종료한다. 일회용 자동 검증 실행은 검증이 끝날 때 정리한다. [Frontend 마감 절차](../../../overload-pwa/docs/engineering/frontend.md#181-기본-ui-개발-절차)
 
 - **Mock 및 일회용 실행.** 소유한 Vite를 실행 터미널에서 `Ctrl+C`로 종료한다. 일회용 Backend도 해당 터미널에서 정상 종료한다. 홈 fixture는 해당 `build/verification-v22/<run-id>/stop` 파일의 내용이 자신의 run ID와 일치할 때 정상 종료할 수 있다. JVM의 종료 루틴과 Testcontainers가 자신이 만든 임시 PostgreSQL을 정리한다. 종료 후 해당 run의 PID·포트·컨테이너만 확인한다. 브라우저 저장소 정리는 전용 프로필에 한정한다.
 - **보존된 검토 실행.** 수동 재개한 동일 run을 확인하고 PWA 루트에서 `pwsh -NoProfile -File scripts/home-review-resume.ps1 -Action Stop`을 사용한다. 이 경로는 프런트와 Spring을 닫은 뒤 보존 DB를 정지한다. 다시 `-Action Status`로 컨테이너·볼륨·덤프가 남아 있는지 확인한다. 구형 `home-review.ps1 -Action Stop`, 기존 볼륨 삭제·prune·덮어쓰기 복원은 피한다. 추가 검토 데이터의 백업이 승인되면 새 파일로 보존한다. [보존 및 장애 복원 기록](../../../overload-pwa/docs/tasks/ui-v09-t02a-closeout.md)
