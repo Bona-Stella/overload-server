@@ -58,9 +58,13 @@ V32~V35와 ExerciseDB 원본 가져오기는 일회용 PostgreSQL에서 검증�
 - 실제 서버의 HTTPS·동일 출처 세션 쿠키 동작을 검증한다. Cloudflare가 `/media/exercises/` 요청을 캐시하지 않도록 명시적인 캐시 우회 규칙을 적용하고 회원 권한 회수 직후 새 요청이 차단되는지 확인한다.
 - 실제 DB 마이그레이션과 데이터 공개, 실제 GIF 배포는 별도 승인 범위다. 관리자 기능은 현행 후속 작업에 포함하지 않는다.
 
+## 실제 운동 데이터 검토
+
+더미 데이터 대신 실제 운동 데이터로 화면을 확인할 때는 승인된 31종목 검토 자료를 사용한다. 전용 V35 검토 DB에 계정, 월~토 루틴·활성 일정과 회원별 GIF 권한을 복원할 수 있다. 개인 개발·보존·운영 DB에는 적용하지 않는다. 원본 운동 정보와 요일별 적용값은 DB 밖의 JSON에 보관한다. [검토 시작·종료 및 초기화 후 복원](../dev-data/overload-31-catalog/README.md#실제-운동-데이터로-검토)
+
 ## 다음 작업인 사용자 UI 연결
 
 1. 기존 설정의 공개 카탈로그 검색과 웨이트·유산소 신규 선택은 연동되어 있다. 상세 화면은 표준 UUID로 `GET /api/v1/standard-exercises/{exerciseId}`를 호출할 수 있다. 호출 허용 목록·응답 타입과 검증, 조회 가능 여부와 `selectableForRoutine`을 구분한 UI 처리는 다음 단계에서 연결한다.
-2. 상세 응답의 `instructionSteps`, 순서 있는 PRIMARY, SECONDARY, 장비·분할·기록 방식을 사용한다. 기존 목록은 `instructionsKo` 문자열을 제공한다. 데이터 제공 예시와 오류는 현행 계약을 따른다. [운동 상세 API](../api/standard-exercise-catalog.md#get-apiv1standard-exercisesexerciseid)
+2. 표준 상세 UI는 `instructionSteps`, 순서 있는 PRIMARY, SECONDARY와 분할값을 사용한다. 기존 목록은 `instructionsKo` 문자열을 제공한다. 상세 DTO의 기구 설명과 기록 방식은 표준 운동 정보이며 제조사·부하 방식 선택은 루틴 배치와 세션에 속한다. 데이터 제공 예시와 오류는 현행 계약을 따른다. [운동 상세 API](../api/standard-exercise-catalog.md#get-apiv1standard-exercisesexerciseid)
 3. 현재 상세 응답에는 원본 ID나 GIF URL이 없으며 표준 UUID로 보호 GIF 경로를 찾는 공개 계약도 없다. 상세 텍스트 UI는 연결할 수 있다. GIF를 화면에 붙이기 전에 권리와 대표 경로 전달 계약을 확정한다. 표준 UUID로 원본 ID를 만들거나 외부 원본 URL을 화면에 넣지 않는다. 같은 출처의 요청과 권한·파일 미제공 UI 처리는 그 계약에 맞춘다.
 4. Overview의 `cardioByCategory`는 Backend 응답에 있고 현행 PWA 통계 화면은 `cardioByKind`를 사용한다. 이번 통합 문서 정리 이후 UI를 검토·승인하고 기존 개발 절차에 따라 실제 API를 연결한다. [프런트엔드 개발 절차](../../../overload-pwa/docs/engineering/frontend.md#181-기본-ui-개발-절차)

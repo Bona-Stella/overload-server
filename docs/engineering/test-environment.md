@@ -10,6 +10,7 @@ UI 구현·Mock 시연·사용자 승인 순서는 [Frontend 기본 UI 개발 �
 | 보존된 홈·루틴 검토 환경 | 실제 Spring Boot·Vite·PostgreSQL과 검토 계정 데이터의 역사적 통합 환경이다. named volume과 PC 덤프를 보존한다. 마지막 DB 직접 확인은 V24였으며 최신 API 연동에는 버전 호환성 확인이 필요하다. |
 | 일회용 PostgreSQL 자동 테스트 | JDK 25, Gradle Wrapper와 Docker Desktop Linux 엔진이 필요하다. `integrationTest`는 `postgres` 태그와 Testcontainers PostgreSQL 18.6을 사용한다. 빈 DB V1~V35 적용, 기존 스키마 전환, 서버 API와 합성 GIF의 Nginx 접근 제어를 검증한다. |
 | 일회용 V35 브라우저 검증 | Backend test-classpath 진입점이 전용 DB, 실제 Spring API, 합성 계정·표본을 준비한다. 최신 PWA 프로덕션 빌드를 loopback에서 사용한다. |
+| 승인 운동 데이터 검토 | 사용자와 합의한 운동 31종과 주간 루틴을 JSON에서 전용 V35 DB로 복원한다. 더미 데이터 대신 실제 운동 구성으로 검토할 때 사용한다. [시작·종료와 복원](../dev-data/overload-31-catalog/README.md#실제-운동-데이터로-검토) |
 | 로컬 개발 DB / 개인 데이터 | Compose의 PostgreSQL 18.6은 기본 loopback 5433과 전용 named volume을 사용한다. 개인 기록의 실제 위치와 적용 이력을 별도로 확인한다. 통합 작업에는 테스트 전용으로 확인된 대상만 사용한다. |
 | 운영 | 별도의 HTTPS 배포 및 운영 계정·DB다. 테스트 seed, 미리보기, 테스트 인증, 실험적 DB 적용은 격리 환경에서만 수행한다. |
 

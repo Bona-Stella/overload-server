@@ -1,6 +1,8 @@
 package com.overload.overload_server.catalog;
 
 import com.overload.overload_server.OverloadServerApplication;
+import com.overload.overload_server.workoutsession.InitialPlan;
+import com.overload.overload_server.workoutsession.WorkoutSnapshotData;
 import com.overload.testfixture.*;
 import jakarta.persistence.EntityManagerFactory;
 import org.flywaydb.core.Flyway;
@@ -24,6 +26,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import java.net.*;
 import java.net.http.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.*;
 import java.time.*;
 import java.util.*;
@@ -608,6 +612,222 @@ class CatalogIntegrationTests {
         assertThat(created.sources()).hasSize(1);
         assertThat(intake.get("case123").standardExerciseId()).isNull();
         error(browser.get(detailPath(id(2))), 404, "EXERCISE_NOT_FOUND");
+    }
+
+    @Test void selectedCatalogPlanIsRepeatableAndKeepsUserDataAndPublicationSeparate() throws Exception {
+        UUID owner = jdbc.queryForObject("SELECT id FROM users LIMIT 1", UUID.class);
+        UUID routine = UUID.randomUUID(), placement = UUID.randomUUID(), session = UUID.randomUUID(), item = UUID.randomUUID();
+        jdbc.update("INSERT INTO routines(id,user_id,data_generation,name,created_at,updated_at) VALUES (?,?,0,'keep',now(),now())", routine, owner);
+        jdbc.update("INSERT INTO exercise_gif_access(user_id) VALUES (?)", owner);
+        manufacturer(1, "파나타", true);
+        try {
+            exercise(2, "기존 운동", true);
+            jdbc.update("""
+                    INSERT INTO routine_weight_placements(id,user_id,data_generation,routine_id,standard_exercise_id,
+                        position,set_count,min_reps,max_reps,initial_weight,approved_weight,created_at,updated_at,manufacturer_id,load_type)
+                    VALUES (?,?,0,?,?,0,3,6,10,60,60,now(),now(),?,'STACK')
+                    """, placement, owner, routine, id(2), id(1));
+            var initial = new InitialPlan(2, routine, "keep", "0",
+                    List.of(new InitialPlan.Weight(item, placement, id(2), "기존 운동", id(1), "STACK", 3, 6, 10, "60", "60")),
+                    List.of());
+            var applied = new WorkoutSnapshotData.Plan(2,
+                    List.of(new WorkoutSnapshotData.WeightPlan(item, 3, 6, 10, id(1), "STACK")), List.of());
+            jdbc.update("""
+                    INSERT INTO workout_sessions(id,user_id,data_generation,source_routine_id,started_at,workout_date,
+                        started_time_zone,started_device_id,editor_device_id,initial_plan_snapshot,applied_plan_snapshot,
+                        last_workout_synced_at,created_at,updated_at)
+                    VALUES (?,?,0,?,now(),CURRENT_DATE,'Asia/Seoul',?,?,?::jsonb,?::jsonb,now(),now(),now())
+                    """, session, owner, routine, id(10), id(10), JSON.writeValueAsString(initial), JSON.writeValueAsString(applied));
+            jdbc.update("INSERT INTO session_exercises(id,session_id,user_id,data_generation,kind,standard_exercise_id) VALUES (?,?,?,0,'WEIGHT',?)",
+                    item, session, owner, id(2));
+            jdbc.update("""
+                    INSERT INTO performed_sets(id,session_id,session_exercise_id,ordinal,weight,reps,completed_at,context_kind,
+                        approval_state_at_recording,manufacturer_id,load_type)
+                    VALUES (?,?,?,1,60,10,now(),'TODAY_ONLY','TODAY_ONLY',?,'STACK')
+                    """, id(3), session, item, id(1));
+            var before = protectedRows();
+            assertThat(runSelectedCatalog("{}", false)).hasSize(31);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM standard_exercise", Integer.class)).isEqualTo(1);
+
+            var first = runSelectedCatalog("{}", true);
+            assertThat(first).hasSize(31).allMatch(row -> Boolean.TRUE.equals(row.get("inserted")));
+            assertThat(first).filteredOn(row -> "COMPOUND".equals(row.get("joint_type"))).hasSize(15);
+            assertThat(first).filteredOn(row -> "ISOLATION".equals(row.get("joint_type"))).hasSize(14);
+            var byKey = first.stream().collect(java.util.stream.Collectors.toMap(row -> (String) row.get("key"), row -> row));
+            assertThat(byKey.get("legs_machine_crunch"))
+                    .containsEntry("name", "머신 업도미널 크런치").containsEntry("joint_type", "ISOLATION");
+            for (String key : List.of("legs_machine_crunch", "legs_captains_chair_leg_raise")) {
+                assertThat(byKey.get(key)).containsEntry("joint_type", "ISOLATION")
+                        .containsEntry("ppl_split", "LEGS").containsEntry("front_back_split", "FRONT");
+            }
+            assertThat(reviews().get((UUID) byKey.get("legs_machine_crunch").get("standard_exercise_id")).content().aliases())
+                    .contains("머신 크런치");
+            for (String key : List.of("push_standing_machine_lateral_raise", "push_machine_dips_press", "push_dumbbell_lateral_raise")) {
+                assertThat(byKey.get(key)).containsEntry("front_back_split", "FRONT");
+            }
+            assertThat(byKey.get("legs_rogers_hip_press")).containsEntry("joint_type", "COMPOUND")
+                    .containsEntry("front_back_split", "BACK");
+            assertThat(byKey.get("push_hammer_shoulder_press")).containsEntry("placement_load_type", "STACK");
+            assertThat(byKey.get("push_arsenal_shoulder_press")).containsEntry("placement_load_type", "PLATE");
+            assertThat(byKey.get("legs_pendulum_squat"))
+                    .containsEntry("manufacturer", "Arsenal Strength")
+                    .containsEntry("manufacturer_id", byKey.get("push_arsenal_shoulder_press").get("manufacturer_id"))
+                    .containsEntry("placement_load_type", "PLATE");
+            for (String key : List.of("cardio_treadmill_running", "cardio_outdoor_running")) {
+                assertThat(byKey.get(key)).containsEntry("joint_type", null)
+                        .containsEntry("ppl_split", null).containsEntry("front_back_split", null);
+            }
+            var second = runSelectedCatalog("{}", true);
+            assertThat(second).hasSize(31).allMatch(row -> Boolean.FALSE.equals(row.get("inserted")));
+            assertThat(second).extracting(row -> row.get("standard_exercise_id"))
+                    .containsExactlyElementsOf(first.stream().map(row -> row.get("standard_exercise_id")).toList());
+            assertThat(protectedRows()).isEqualTo(before);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM manufacturer", Integer.class)).isEqualTo(7);
+            assertThat(first.stream().filter(row -> row.get("manufacturer") != null && row.get("manufacturer").equals("Panatta")))
+                    .allMatch(row -> row.get("manufacturer_id").equals(id(1)));
+            var shoulderPresses = first.stream().filter(row -> row.get("name").equals("머신 숄더 프레스")).toList();
+            assertThat(shoulderPresses).hasSize(2).extracting(row -> row.get("standard_exercise_id")).doesNotHaveDuplicates();
+            assertThat(shoulderPresses).extracting(row -> row.get("manufacturer_id")).doesNotHaveDuplicates();
+            assertThat(first.stream().filter(row -> row.get("cardio_activity_id") != null)
+                    .map(row -> row.get("cardio_activity_id"))).containsExactlyInAnyOrder(CatalogFixtures.TREADMILL,
+                    UUID.fromString("ca000000-0000-4000-8000-000000000002"));
+            assertThat(jdbc.queryForList("SELECT source_exercise_id FROM exercise_source", String.class)).containsExactly("nZZZy9m");
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM exercise_db_v1_candidate", Integer.class)).isZero();
+            assertThat(jdbc.queryForObject("""
+                    SELECT count(*) FROM standard_exercise
+                    WHERE id <> ? AND (muscle_targets_reviewed OR splits_reviewed OR representative_gif_key IS NOT NULL)
+                    """, Integer.class, id(2))).isZero();
+
+            UUID highRowId = first.stream().filter(row -> "nZZZy9m".equals(row.get("source_id")))
+                    .map(row -> (UUID) row.get("standard_exercise_id")).findFirst().orElseThrow();
+            assertThat(reviews().get(highRowId).content().primary()).containsExactly(muscle(6), muscle(8));
+            error(browser.get(detailPath(highRowId)), 404, "EXERCISE_NOT_FOUND");
+            // Exercise the public detail contract using a disposable fixture state.
+            jdbc.update("UPDATE standard_exercise SET muscle_targets_reviewed=true,splits_reviewed=true WHERE id=?", highRowId);
+            var response = browser.get(detailPath(highRowId));
+            var detail = success(response);
+            var payload = JSON.readTree(Files.readString(SELECTED_CATALOG.resolve("catalog.json")));
+            var highRow = payload.get("exercises").valueStream().filter(row -> row.get("key").asString().equals("pull_machine_high_row"))
+                    .findFirst().orElseThrow();
+            assertThat(detail.get("instructionSteps")).isEqualTo(highRow.get("steps"));
+            assertThat(detail.get("jointType").asString()).isEqualTo("COMPOUND");
+            assertThat(response.body()).doesNotContain("nZZZy9m", "static.exercisedb.dev");
+        } finally {
+            jdbc.update("DELETE FROM performed_sets WHERE session_id=?", session);
+            jdbc.update("DELETE FROM session_exercises WHERE session_id=?", session);
+            jdbc.update("DELETE FROM workout_sessions WHERE id=?", session);
+            jdbc.update("DELETE FROM routine_weight_placements WHERE id=?", placement);
+            jdbc.update("DELETE FROM exercise_gif_access WHERE user_id=?", owner);
+            jdbc.update("DELETE FROM routines WHERE id=?", routine);
+        }
+    }
+
+    @Test void selectedCatalogRequiresExplicitIdentityAndRejectsReassigningItsSingleSource() throws Exception {
+        exercise(1, "하이로우", true);
+        jdbc.update("UPDATE standard_exercise SET id=? WHERE id=?", UUID.fromString("d1700000-0000-4000-8000-000000000004"), id(1));
+        UUID existing = UUID.fromString("d1700000-0000-4000-8000-000000000004");
+        assertThatThrownBy(() -> runSelectedCatalog("{}", true))
+                .isInstanceOf(SQLException.class).hasMessageContaining("Verify existing exercise identity");
+        var old = reviews().get(existing);
+        var reuse = "{\"pull_machine_high_row\":\"" + existing + "\"}";
+        var resolved = runSelectedCatalog(reuse, true);
+        assertThat(resolved.stream().filter(row -> "nZZZy9m".equals(row.get("source_id"))))
+                .singleElement().satisfies(row -> assertThat(row.get("standard_exercise_id")).isEqualTo(existing));
+        assertThat(reviews().get(existing).content()).isEqualTo(old.content());
+        assertThatThrownBy(() -> runSelectedCatalog(reuse, true, true))
+                .isInstanceOf(SQLException.class).hasMessageContaining("Review approval requires matching catalog content");
+        assertThatThrownBy(() -> runSelectedCatalog("{\"pull_machine_high_row\":null}", true))
+                .isInstanceOf(SQLException.class).hasMessageContaining("already has a different link");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM standard_exercise", Integer.class)).isEqualTo(31);
+    }
+
+    @Test void selectedCatalogApprovalEnablesRoutineCreationWithoutSelectingRepresentativeGif() throws Exception {
+        var first = runSelectedCatalog("{}", true, true);
+        assertThat(first).hasSize(31).allMatch(row ->
+                Boolean.TRUE.equals(row.get("muscle_targets_reviewed")) && Boolean.TRUE.equals(row.get("splits_reviewed")));
+        assertThat(success(browser.get(SEARCH)).get("exercises")).hasSize(29);
+        assertThat(success(browser.get("/api/v1/standard-exercises/cardio-choices")).get("activities")).hasSize(2);
+        var repeated = runSelectedCatalog("{}", true, true);
+        assertThat(repeated).hasSize(31).allMatch(row -> Boolean.FALSE.equals(row.get("inserted")));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM standard_exercise WHERE representative_gif_key IS NOT NULL",
+                Integer.class)).isZero();
+
+        var treadmill = first.stream().filter(row -> "cardio_treadmill_running".equals(row.get("key")))
+                .findFirst().orElseThrow();
+        var outdoor = first.stream().filter(row -> "cardio_outdoor_running".equals(row.get("key")))
+                .findFirst().orElseThrow();
+        UUID routine = UUID.randomUUID();
+        var payload = """
+                {"id":"%s","dataGeneration":"0","name":"등록 검증","weightPlacements":[],"cardioPlacements":[
+                  {"id":"%s","plan":{"kind":"TREADMILL","name":"트레드밀 러닝","targetSeconds":2100,
+                    "targetDistanceKm":"5","intensity":{"mode":"SPEED","value":"8.5"},"inclinePercent":null,
+                    "resistance":null,"activityId":"%s","standardExerciseId":"%s"}},
+                  {"id":"%s","plan":{"kind":"TREADMILL","name":"트레드밀 러닝","targetSeconds":1200,
+                    "targetDistanceKm":"3","intensity":null,"inclinePercent":null,
+                    "resistance":null,"activityId":"%s","standardExerciseId":"%s"}},
+                  {"id":"%s","plan":{"kind":"OUTDOOR","name":"야외 러닝","targetSeconds":2100,
+                    "targetDistanceKm":null,"intensity":{"mode":"PACE","value":"7.5"},"inclinePercent":null,
+                    "resistance":null,"activityId":"%s","standardExerciseId":"%s"}},
+                  {"id":"%s","plan":{"kind":"TREADMILL","name":"트레드밀 러닝","targetSeconds":1200,
+                    "targetDistanceKm":"3","intensity":null,"inclinePercent":null,
+                    "resistance":null,"activityId":"%s","standardExerciseId":"%s"}}
+                ]}
+                """.formatted(routine,
+                UUID.randomUUID(), treadmill.get("cardio_activity_id"), treadmill.get("standard_exercise_id"),
+                UUID.randomUUID(), treadmill.get("cardio_activity_id"), treadmill.get("standard_exercise_id"),
+                UUID.randomUUID(), outdoor.get("cardio_activity_id"), outdoor.get("standard_exercise_id"),
+                UUID.randomUUID(), treadmill.get("cardio_activity_id"), treadmill.get("standard_exercise_id"));
+        try {
+            var response = browser.send("POST", "/api/v1/routines", payload, browser.csrf());
+            assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+            assertThat(jdbc.queryForList("SELECT target_seconds FROM routine_cardio_placements WHERE routine_id=? ORDER BY position",
+                    Integer.class, routine)).containsExactly(2100, 1200, 2100, 1200);
+        } finally {
+            jdbc.update("DELETE FROM routine_cardio_placements WHERE routine_id=?", routine);
+            jdbc.update("DELETE FROM routine_plan_history WHERE routine_id=?", routine);
+            jdbc.update("DELETE FROM routines WHERE id=?", routine);
+        }
+    }
+
+    private static final Path SELECTED_CATALOG = Path.of("docs/dev-data/overload-31-catalog");
+
+    private static List<Map<String, Object>> runSelectedCatalog(String reuse, boolean commit) throws Exception {
+        return runSelectedCatalog(reuse, commit, false);
+    }
+
+    private static List<Map<String, Object>> runSelectedCatalog(String reuse, boolean commit, boolean approve) throws Exception {
+        var payload = Files.readString(SELECTED_CATALOG.resolve("catalog.json"));
+        var script = Files.readString(SELECTED_CATALOG.resolve("catalog-plan.sql"))
+                .replace("/* CATALOG_JSON */", "'" + payload.replace("'", "''") + "'::jsonb")
+                .replace("/* REUSE_JSON */", "'" + reuse.replace("'", "''") + "'::jsonb")
+                .replace("/* APPROVE */", Boolean.toString(approve));
+        var result = new ArrayList<Map<String, Object>>();
+        try (var connection = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+             var statement = connection.createStatement()) {
+            connection.setAutoCommit(false);
+            boolean hasResult = statement.execute(script);
+            while (!hasResult && statement.getUpdateCount() != -1) hasResult = statement.getMoreResults();
+            assertThat(hasResult).isTrue();
+            try (var rows = statement.getResultSet()) {
+                var fields = rows.getMetaData();
+                while (rows.next()) {
+                    var row = new HashMap<String, Object>();
+                    for (int i = 1; i <= fields.getColumnCount(); i++) row.put(fields.getColumnLabel(i), rows.getObject(i));
+                    result.add(row);
+                }
+            }
+            if (commit) connection.commit();
+            else connection.rollback();
+        }
+        return result;
+    }
+
+    private static List<String> protectedRows() {
+        return List.of("routines", "routine_weight_placements", "routine_cardio_placements",
+                "workout_sessions", "session_exercises", "performed_sets", "exercise_gif_access")
+                .stream().map(table -> jdbc.queryForObject(
+                        "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t))::text, '[]') FROM " + table + " t", String.class))
+                .toList();
     }
 
     private static ExerciseDbV1.Batch intakeBatch() {

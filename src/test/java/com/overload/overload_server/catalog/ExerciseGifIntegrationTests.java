@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ExerciseGifIntegrationTests {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final byte[] GIF = Base64.getDecoder().decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
-    private static final String REPRESENTATIVE = "TestGif";
+    private static final String REPRESENTATIVE = "nZZZy9m"; // Synthetic bytes in this fixture.
     private static final String MEDIA = "/media/exercises/v1/";
     private static final String REQUEST = MEDIA + REPRESENTATIVE + ".gif";
     private static final String AUTH = ExerciseGifAuthorizationController.PATH;
@@ -83,7 +83,7 @@ class ExerciseGifIntegrationTests {
                     member.assertGif(origin, MEDIA + "Other01.gif", 403);
                     assertThat(member.send(origin, "GET", REQUEST, null, badHeader).body()).isEqualTo(GIF);
                     member.assertGif(origin, MEDIA + "Ghost01.gif", 403);
-                    member.assertGif(origin, MEDIA + "testgif.gif", 403);
+                    member.assertGif(origin, MEDIA + "nzzzy9m.gif", 403);
                     assertThat(member.send(backend, "GET", AUTH, null, badHeader).statusCode()).isEqualTo(403);
                     assertThat(member.send(backend, "GET", AUTH, null, Map.of()).statusCode()).isEqualTo(403);
                     assertThat(member.send(backend, "GET", AUTH, null, authHeaders(token, "Other01")).statusCode()).isEqualTo(404);
@@ -91,7 +91,7 @@ class ExerciseGifIntegrationTests {
                     assertThat(member.send(origin, "GET", "/__gif_authorize", null, authHeaders(token, REPRESENTATIVE)).statusCode()).isEqualTo(403);
                     for (String path : List.of("/__gif_denied", AUTH, "/%69nternal/media/exercise-gif/authorize",
                             MEDIA, "/private.txt", MEDIA + "../v1/" + REPRESENTATIVE + ".gif",
-                            MEDIA + "%2e%2e/v1/" + REPRESENTATIVE + ".gif", MEDIA + "%54estGif.gif",
+                            MEDIA + "%2e%2e/v1/" + REPRESENTATIVE + ".gif", MEDIA + "%6eZZZy9m.gif",
                             "/media//exercises/v1/" + REPRESENTATIVE + ".gif", REQUEST + "?v=1", MEDIA + "private.txt")) {
                         assertThat(member.send(origin, "GET", path, null, authHeaders(token, REPRESENTATIVE)).statusCode())
                                 .as(path).isEqualTo(404);

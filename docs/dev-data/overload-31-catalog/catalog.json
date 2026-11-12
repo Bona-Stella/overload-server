@@ -1,0 +1,1193 @@
+{
+  "manufacturers": [
+    {
+      "name": "Panatta",
+      "names": [
+        "Panatta",
+        "파나타"
+      ],
+      "id": "4b6f70fe-a9a1-81ea-8c11-a25f4d4cf091"
+    },
+    {
+      "name": "Hammer Strength",
+      "names": [
+        "Hammer Strength",
+        "해머스트렝스",
+        "해머 스트렝스"
+      ],
+      "id": "ee75ad76-d80e-84c4-8c1e-6409aa87a15b"
+    },
+    {
+      "name": "Arsenal Strength",
+      "names": [
+        "Arsenal Strength",
+        "아스널 스트렝스",
+        "아스날 스트렝스"
+      ],
+      "id": "a6568b7a-d768-8a5d-8c7f-277a8ea1b94b"
+    },
+    {
+      "name": "Technogym",
+      "names": [
+        "Technogym",
+        "테크노짐"
+      ],
+      "id": "035247a4-40f1-81db-8388-38d0d550b7b9"
+    },
+    {
+      "name": "NewTech",
+      "names": [
+        "NewTech",
+        "뉴텍"
+      ],
+      "id": "1336a061-4998-8c1e-8e8e-431b344b0b34"
+    },
+    {
+      "name": "Rogers",
+      "names": [
+        "Rogers",
+        "로저스"
+      ],
+      "id": "2810adee-4078-83d6-8c74-03b30d56da15"
+    },
+    {
+      "name": "Health One",
+      "names": [
+        "Health One",
+        "헬스원"
+      ],
+      "id": "8e387c17-8da4-86d2-8918-e0e8f0dbeaaf"
+    }
+  ],
+  "exercises": [
+    {
+      "key": "pull_convergent_lat_pulldown",
+      "id": "3cd1e160-1eab-8d1c-8dfc-add040a039a4",
+      "name": "컨버전트 랫풀다운",
+      "english": "Convergent Lat Pulldown",
+      "aliases": [
+        "컨버전트 랫 풀다운",
+        "랫풀다운",
+        "Lat Pulldown",
+        "Panatta Convergent Lat Pulldown"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "STACK",
+      "manufacturer": "Panatta",
+      "machine": "Convergent Lat Pulldown",
+      "ppl": "PULL",
+      "frontBack": "BACK",
+      "primary": [
+        "광배근"
+      ],
+      "secondary": [
+        "대원근",
+        "상완이두근"
+      ],
+      "steps": [
+        "좌석과 허벅지 고정 패드를 조절해 하체가 들리지 않도록 앉습니다.",
+        "손바닥이 앞쪽을 향하도록 오버핸드 그립으로 손잡이를 잡습니다.",
+        "가슴을 자연스럽게 펴고 몸통을 안정적으로 유지합니다.",
+        "팔꿈치를 아래로 내리며 머신의 궤적에 따라 손잡이를 당깁니다.",
+        "등 근육의 수축을 느낀 뒤 천천히 팔을 뻗어 시작 자세로 돌아갑니다."
+      ],
+      "equipment": "스택형 머신. 오버핸드 그립을 사용합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "pull_dy_row",
+      "id": "47c986a7-a7e6-897e-8692-4afaee5e788f",
+      "name": "D.Y. 로우",
+      "english": "Iso-Lateral D.Y. Row",
+      "aliases": [
+        "DY 로우",
+        "D Y 로우",
+        "아이소래터럴 D.Y. 로우",
+        "Hammer Strength D.Y. Row"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "Hammer Strength",
+      "machine": "Iso-Lateral D.Y. Row",
+      "ppl": "PULL",
+      "frontBack": "BACK",
+      "primary": [
+        "광배근",
+        "능형근"
+      ],
+      "secondary": [
+        "중부승모근",
+        "상완이두근"
+      ],
+      "steps": [
+        "좌석을 조절하고 가슴을 지지 패드에 안정적으로 댑니다.",
+        "손바닥이 위쪽을 향하는 언더핸드 그립으로 손잡이를 잡습니다.",
+        "몸통이 패드에서 과하게 떨어지지 않도록 유지하며 팔꿈치를 뒤로 당깁니다.",
+        "등의 수축을 느낀 후 손잡이를 통제하며 천천히 시작 위치로 되돌립니다."
+      ],
+      "equipment": "원판형 머신. 언더핸드 그립을 사용합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "pull_multi_row",
+      "id": "47f25354-b992-84ae-8a7d-ca2cb27a6075",
+      "name": "멀티 로우",
+      "english": "Multi Row",
+      "aliases": [
+        "멀티로우",
+        "ISO Multi Row",
+        "Arsenal Strength Multi Row"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "Arsenal Strength",
+      "machine": "Multi Row / Reloaded ISO Multi Row (후보)",
+      "ppl": "PULL",
+      "frontBack": "BACK",
+      "primary": [
+        "광배근",
+        "능형근"
+      ],
+      "secondary": [
+        "중부승모근",
+        "상완이두근"
+      ],
+      "steps": [
+        "좌석과 가슴 지지 패드를 조절해 상체가 안정적으로 지지되게 합니다.",
+        "가운데 손잡이를 양손의 손바닥이 마주 보는 뉴트럴 그립으로 잡습니다.",
+        "가슴을 패드에 유지하면서 팔꿈치를 뒤쪽으로 당깁니다.",
+        "등 근육이 수축하는 위치에서 잠시 멈춘 뒤 천천히 팔을 펴 시작 자세로 돌아갑니다."
+      ],
+      "equipment": "원판형 머신. 가운데 뉴트럴 손잡이를 사용합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "pull_machine_pullover",
+      "id": "78205b20-c816-8ed4-8b33-71192d75c735",
+      "name": "머신 풀오버",
+      "english": "Machine Pullover",
+      "aliases": [
+        "풀오버 머신",
+        "Technogym Pullover",
+        "테크노짐 풀오버"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "Technogym",
+      "machine": "Pullover",
+      "ppl": "PULL",
+      "frontBack": "BACK",
+      "primary": [
+        "광배근"
+      ],
+      "secondary": [
+        "대원근"
+      ],
+      "steps": [
+        "머신에 앉아 상완 또는 팔꿈치 부근이 운동 패드에 닿도록 자세를 잡습니다.",
+        "몸통을 안정적으로 지지하고 팔을 패드에 유지합니다.",
+        "상완으로 패드를 아래쪽으로 눌러 광배근을 수축합니다.",
+        "반동 없이 천천히 패드를 위로 되돌려 시작 자세로 돌아갑니다."
+      ],
+      "equipment": "원판형 머신. 상완 패드를 눌러 수행합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "pull_cable_face_pull",
+      "id": "006c0c92-33ea-8ee3-8abb-17530ec23fd9",
+      "name": "케이블 페이스 풀",
+      "english": "Cable Face Pull",
+      "aliases": [
+        "페이스풀",
+        "페이스 풀",
+        "케이블 페이스풀",
+        "Cable Facepull"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "STACK",
+      "manufacturer": "NewTech",
+      "machine": "Cable Face Pull",
+      "ppl": "PULL",
+      "frontBack": "BACK",
+      "primary": [
+        "후면삼각근"
+      ],
+      "secondary": [
+        "중부승모근",
+        "능형근"
+      ],
+      "steps": [
+        "케이블에 로프 손잡이를 연결하고 얼굴 높이에 맞게 조절합니다.",
+        "로프 양끝을 잡고 한 걸음 물러나 안정적인 자세를 취합니다.",
+        "팔꿈치를 바깥쪽으로 벌리며 로프를 얼굴 쪽으로 당깁니다.",
+        "어깨와 상부 등을 통제한 상태에서 천천히 팔을 뻗어 돌아갑니다."
+      ],
+      "equipment": "로프를 사용하는 스택형 케이블 머신입니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "pull_incline_dumbbell_curl",
+      "id": "5c4e9704-0e72-8b99-83f8-bd52b2f5a2e8",
+      "name": "인클라인 덤벨 컬",
+      "english": "Incline Dumbbell Curl",
+      "aliases": [
+        "인클라인덤벨컬",
+        "인클라인 바이셉스 컬",
+        "Incline DB Curl"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "DUMBBELL",
+      "manufacturer": null,
+      "machine": "Dumbbell + incline bench",
+      "ppl": "PULL",
+      "frontBack": "FRONT",
+      "primary": [
+        "상완이두근"
+      ],
+      "secondary": [
+        "상완근"
+      ],
+      "steps": [
+        "인클라인 벤치에 등을 기대고 양손에 덤벨을 듭니다.",
+        "상완을 몸통 옆에서 크게 움직이지 않고 팔꿈치를 굽혀 덤벨을 올립니다.",
+        "이두근의 수축을 느낀 뒤 천천히 팔꿈치를 펴 시작 자세로 돌아갑니다.",
+        "상체를 흔들거나 어깨를 앞으로 내미는 반동 없이 반복합니다."
+      ],
+      "equipment": null,
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "pull_machine_high_row",
+      "id": "2d04629b-b651-811b-8e66-3d56102988a8",
+      "name": "머신 하이 로우",
+      "english": "High Row",
+      "aliases": [
+        "하이 로우",
+        "하이로우",
+        "Hammer Strength High Row",
+        "Iso-Lateral High Row",
+        "가슴 지지 하이 로우"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "Hammer Strength",
+      "machine": "High Row / Iso-Lateral High Row (후보)",
+      "ppl": "PULL",
+      "frontBack": "BACK",
+      "primary": [
+        "능형근",
+        "중부승모근"
+      ],
+      "secondary": [
+        "광배근",
+        "후면삼각근",
+        "상완이두근"
+      ],
+      "steps": [
+        "좌석과 지지 패드를 조절하여 가슴과 허벅지를 안정적으로 고정합니다.",
+        "약 30~45도 기울어진 오버핸드 계열 손잡이를 잡습니다.",
+        "상체가 패드에서 과하게 떨어지지 않게 유지하면서 팔꿈치를 아래·뒤쪽으로 당깁니다.",
+        "등 근육을 수축한 뒤 반동 없이 천천히 손잡이를 시작 위치로 되돌립니다."
+      ],
+      "equipment": "원판형 머신. 가슴 패드와 허벅지 고정 패드, 경사진 오버핸드 손잡이를 사용합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": "nZZZy9m",
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "pull_circular_row",
+      "id": "01e72a10-6bb8-8a8e-884c-002b1f39277d",
+      "name": "서큘러 로우",
+      "english": "Circular Row",
+      "aliases": [
+        "서큘러로우",
+        "Panatta Circular Row",
+        "Fit Evo Circular Row"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "STACK",
+      "manufacturer": "Panatta",
+      "machine": "Fit Evo Circular Row (모델 유력/미확정)",
+      "ppl": "PULL",
+      "frontBack": "BACK",
+      "primary": [
+        "광배근"
+      ],
+      "secondary": [
+        "능형근",
+        "중부승모근",
+        "상완이두근"
+      ],
+      "steps": [
+        "머신에 앉아 좌석과 가슴 지지 패드를 몸에 맞게 조절합니다.",
+        "약 30~45도 기울어진 오버핸드 계열 손잡이를 잡습니다.",
+        "가슴을 패드에 유지한 상태에서 머신의 원형 당김 궤적을 따라 팔꿈치를 뒤로 당깁니다.",
+        "반동을 줄이고 천천히 손잡이를 시작 위치로 되돌립니다."
+      ],
+      "equipment": "스택형 머신. 경사진 오버핸드 계열 손잡이를 사용합니다. 세부 모델은 미확정입니다.",
+      "modelStatus": "LIKELY_FIT_EVO_NOT_CONFIRMED",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "pull_mts_front_pulldown",
+      "id": "c543db1b-ed73-84fe-88eb-3c9082334404",
+      "name": "MTS 프론트 풀다운",
+      "english": "MTS Iso-Lateral Front Pulldown",
+      "aliases": [
+        "프론트 풀다운",
+        "MTS 풀다운",
+        "Hammer Strength MTS Front Pulldown",
+        "MTS 아이소래터럴 프론트 풀다운"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "STACK",
+      "manufacturer": "Hammer Strength",
+      "machine": "MTS ISO-Lateral Front Pulldown",
+      "ppl": "PULL",
+      "frontBack": "BACK",
+      "primary": [
+        "광배근"
+      ],
+      "secondary": [
+        "대원근",
+        "상완이두근"
+      ],
+      "steps": [
+        "좌석과 허벅지 패드를 조절해 몸통이 안정적으로 지지되도록 앉습니다.",
+        "손바닥이 자신을 향하도록 언더핸드 그립으로 손잡이를 잡습니다.",
+        "가슴을 자연스럽게 세우고 팔꿈치를 아래로 당겨 손잡이를 내립니다.",
+        "광배근의 수축을 느낀 후 손잡이를 천천히 올려 시작 위치로 돌아옵니다."
+      ],
+      "equipment": "스택형 머신. 언더핸드 그립을 사용합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "pull_machine_rear_delt_fly",
+      "id": "9f11e362-dbfc-8b1a-897e-2b5406f71930",
+      "name": "머신 리어 델트 플라이",
+      "english": "Machine Rear Delt Fly",
+      "aliases": [
+        "리어델트플라이",
+        "리버스 펙덱",
+        "머신 리버스 플라이",
+        "Reverse Pec Deck"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "STACK",
+      "manufacturer": "NewTech",
+      "machine": "Rear Delt Fly",
+      "ppl": "PULL",
+      "frontBack": "BACK",
+      "primary": [
+        "후면삼각근"
+      ],
+      "secondary": [
+        "능형근",
+        "중부승모근"
+      ],
+      "steps": [
+        "머신에 가슴을 패드에 대고 앉아 손잡이 위치를 조절합니다.",
+        "양팔을 앞쪽으로 뻗어 손잡이를 잡고 어깨를 안정적으로 유지합니다.",
+        "팔꿈치를 약간 굽힌 상태에서 양팔을 좌우 바깥쪽으로 벌립니다.",
+        "견갑골을 과도하게 모으기보다 후면 어깨의 수축에 집중합니다.",
+        "천천히 팔을 앞으로 가져와 시작 위치로 돌아갑니다."
+      ],
+      "equipment": "가슴 패드가 있는 리버스 펙덱 방식입니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "pull_standing_hammer_curl",
+      "id": "f3ecf8de-67eb-85e1-8cf6-1765512fe23f",
+      "name": "스탠딩 덤벨 해머 컬",
+      "english": "Standing Hammer Curl",
+      "aliases": [
+        "덤벨 해머 컬",
+        "해머컬",
+        "스탠딩 해머컬",
+        "Standing Dumbbell Hammer Curl"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "DUMBBELL",
+      "manufacturer": null,
+      "machine": "Dumbbell",
+      "ppl": "PULL",
+      "frontBack": "FRONT",
+      "primary": [
+        "상완근",
+        "상완요골근"
+      ],
+      "secondary": [
+        "상완이두근"
+      ],
+      "steps": [
+        "양손에 덤벨을 들고 손바닥이 서로 마주 보게 선 자세를 취합니다.",
+        "팔꿈치를 몸 옆에 유지한 채 덤벨을 들어 올립니다.",
+        "팔꿈치가 크게 앞뒤로 이동하지 않도록 하면서 팔을 굽힙니다.",
+        "천천히 덤벨을 내려 시작 자세로 돌아갑니다."
+      ],
+      "equipment": null,
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "push_incline_chest_press",
+      "id": "b40244d0-46e2-87fa-8d24-5743d2dda914",
+      "name": "인클라인 체스트 프레스",
+      "english": "M-Torture Incline Press",
+      "aliases": [
+        "인클라인 머신 프레스",
+        "뉴텍 인클라인 프레스",
+        "Incline Machine Chest Press",
+        "Torture Incline Chest Press"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "NewTech",
+      "machine": "M-Torture Incline Press",
+      "ppl": "PUSH",
+      "frontBack": "FRONT",
+      "primary": [
+        "대흉근 상부"
+      ],
+      "secondary": [
+        "전면삼각근",
+        "상완삼두근 외측두",
+        "상완삼두근 내측두"
+      ],
+      "steps": [
+        "좌석을 조절해 손잡이가 윗가슴 부근에 위치하도록 앉습니다.",
+        "등과 엉덩이를 패드에 지지하고 손잡이를 단단히 잡습니다.",
+        "가슴에 힘을 유지하면서 머신의 경사진 궤적을 따라 손잡이를 밀어냅니다.",
+        "팔꿈치를 과하게 잠그지 않고 천천히 손잡이를 내립니다."
+      ],
+      "equipment": "원판형 인클라인 프레스 머신입니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "push_super_vertical_chest_press",
+      "id": "bd07bf4d-9eac-87f5-8ddf-de7984d44034",
+      "name": "슈퍼 버티컬 체스트 프레스",
+      "english": "Super Vertical Chest Press",
+      "aliases": [
+        "슈퍼 버티컬 프레스",
+        "파나타 슈퍼 버티컬",
+        "Panatta Super Vertical Chest Press"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "Panatta",
+      "machine": "Super Vertical Chest Press",
+      "ppl": "PUSH",
+      "frontBack": "FRONT",
+      "primary": [
+        "대흉근 중부"
+      ],
+      "secondary": [
+        "전면삼각근",
+        "상완삼두근 외측두",
+        "상완삼두근 내측두"
+      ],
+      "steps": [
+        "머신 좌석을 조절하여 손잡이가 가슴을 밀어낼 수 있는 위치에 오도록 앉습니다.",
+        "등을 등받이에 안정적으로 지지하고 손잡이를 잡습니다.",
+        "가슴의 수축을 느끼며 머신의 궤적을 따라 손잡이를 앞으로 밀어냅니다.",
+        "반동 없이 천천히 팔꿈치를 굽혀 시작 자세로 돌아갑니다."
+      ],
+      "equipment": null,
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "push_incline_fly",
+      "id": "a65e10f0-146f-891f-87f8-0d2841b0b40d",
+      "name": "머신 인클라인 플라이",
+      "english": "Incline Fly",
+      "aliases": [
+        "인클라인 플라이 머신",
+        "아스널 인클라인 플라이",
+        "Arsenal Incline Fly",
+        "Incline Chest Fly"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "Arsenal Strength",
+      "machine": "Incline Fly",
+      "ppl": "PUSH",
+      "frontBack": "FRONT",
+      "primary": [
+        "대흉근 상부"
+      ],
+      "secondary": [
+        "전면삼각근"
+      ],
+      "steps": [
+        "인클라인 벤치와 좌석에 등을 안정적으로 지지합니다.",
+        "양손으로 손잡이를 직접 잡고 팔꿈치를 자연스럽게 약간 굽힙니다.",
+        "가슴 앞쪽으로 양팔을 모으면서 윗가슴 근육을 수축합니다.",
+        "가슴이 늘어나는 느낌을 유지하면서 천천히 손잡이를 바깥쪽으로 되돌립니다."
+      ],
+      "equipment": "머신 손잡이를 잡고 팔을 모읍니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "push_hammer_shoulder_press",
+      "id": "32ed1719-0c4b-89d1-8c36-58618013eb8c",
+      "name": "머신 숄더 프레스",
+      "english": "Iso-Lateral Shoulder Press",
+      "aliases": [
+        "해머스트렝스 숄더 프레스",
+        "Hammer Strength Shoulder Press",
+        "아이소래터럴 숄더 프레스"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "STACK",
+      "manufacturer": "Hammer Strength",
+      "machine": "ISO-Lateral Shoulder Press",
+      "ppl": "PUSH",
+      "frontBack": "FRONT",
+      "primary": [
+        "전면삼각근"
+      ],
+      "secondary": [
+        "측면삼각근",
+        "상완삼두근 외측두",
+        "상완삼두근 내측두"
+      ],
+      "steps": [
+        "좌석 높이를 조절하고 등과 엉덩이를 지지 패드에 안정적으로 붙입니다.",
+        "오버핸드 그립으로 양손잡이를 잡습니다.",
+        "몸통을 흔들지 않고 어깨와 팔에 힘을 주며 손잡이를 위로 밀어냅니다.",
+        "반동 없이 천천히 손잡이를 어깨 높이 부근으로 내려옵니다."
+      ],
+      "equipment": "스택형 머신. 오버핸드 그립을 사용합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "push_standing_machine_lateral_raise",
+      "id": "af156b7e-2496-87c3-8c15-7f31c5878160",
+      "name": "스탠딩 머신 레터럴 레이즈",
+      "english": "Standing Lateral Raise",
+      "aliases": [
+        "머신 사이드 레터럴 레이즈",
+        "스탠딩 레터럴 레이즈 머신",
+        "NewTech Standing Lateral Raise"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "STACK",
+      "manufacturer": "NewTech",
+      "machine": "Standing Lateral Raise",
+      "ppl": "PUSH",
+      "frontBack": "FRONT",
+      "primary": [
+        "측면삼각근"
+      ],
+      "secondary": [
+        "상부승모근"
+      ],
+      "steps": [
+        "머신에 선 상태로 양팔을 운동 패드에 댑니다.",
+        "몸통을 안정적으로 세우고 팔꿈치 높이가 편안한 위치가 되도록 조절합니다.",
+        "어깨의 벌림 동작으로 팔을 양옆으로 들어 올립니다.",
+        "어깨를 과도하게 으쓱하지 않도록 하며 천천히 팔을 내려옵니다."
+      ],
+      "equipment": "서서 팔을 패드에 대고 수행합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "push_machine_overhead_triceps_extension",
+      "id": "aaa6f7c3-0b02-8a32-8488-e682f39260ae",
+      "name": "머신 오버헤드 트라이셉스 익스텐션",
+      "english": "Overhead Extension",
+      "aliases": [
+        "머신 오버헤드 익스텐션",
+        "오버헤드 트라이셉스 익스텐션 머신",
+        "NewTech Overhead Extension"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "NewTech",
+      "machine": "Overhead Extension",
+      "ppl": "PUSH",
+      "frontBack": "BACK",
+      "primary": [
+        "상완삼두근 장두"
+      ],
+      "secondary": [
+        "상완삼두근 외측두",
+        "상완삼두근 내측두"
+      ],
+      "steps": [
+        "머신에 앉아 상완이 안정적으로 지지되는 위치를 잡습니다.",
+        "팔꿈치를 굽혀 시작 자세를 취하고 손잡이를 잡습니다.",
+        "상완의 위치를 크게 움직이지 않으면서 팔꿈치를 펴 손잡이를 밀어냅니다.",
+        "천천히 팔꿈치를 굽혀 시작 자세로 되돌립니다."
+      ],
+      "equipment": "원판형 머신이며 기구 자체 저항이 있습니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "push_arsenal_shoulder_press",
+      "id": "f6fc6164-3d3c-863e-83d2-0068d1da9aac",
+      "name": "머신 숄더 프레스",
+      "english": "Shoulder Press",
+      "aliases": [
+        "아스널 숄더 프레스",
+        "Arsenal Strength Shoulder Press",
+        "Arsenal Shoulder Press"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "Arsenal Strength",
+      "machine": "Shoulder Press",
+      "ppl": "PUSH",
+      "frontBack": "FRONT",
+      "primary": [
+        "전면삼각근"
+      ],
+      "secondary": [
+        "측면삼각근",
+        "상완삼두근 외측두",
+        "상완삼두근 내측두"
+      ],
+      "steps": [
+        "머신 좌석 높이를 맞추고 등과 엉덩이를 패드에 밀착합니다.",
+        "양손으로 손잡이를 잡고 손목과 팔꿈치가 자연스럽게 정렬되도록 합니다.",
+        "몸통을 흔들지 않고 손잡이를 위쪽으로 밀어냅니다.",
+        "어깨 움직임을 통제하면서 천천히 손잡이를 시작 위치로 내려옵니다."
+      ],
+      "equipment": "원판형 숄더 프레스 머신입니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "push_machine_dips_press",
+      "id": "c15d6b5b-40c2-8c9d-812a-53ad1db4d01c",
+      "name": "머신 딥스 프레스",
+      "english": "Dips Press",
+      "aliases": [
+        "시티드 딥스",
+        "머신 딥스",
+        "시티드 딥스 프레스",
+        "Panatta Dips Press"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "Panatta",
+      "machine": "Dips Press",
+      "ppl": "PUSH",
+      "frontBack": "FRONT",
+      "primary": [
+        "상완삼두근 외측두"
+      ],
+      "secondary": [
+        "상완삼두근 장두",
+        "상완삼두근 내측두",
+        "대흉근 하부",
+        "전면삼각근"
+      ],
+      "steps": [
+        "머신에 앉아 좌석을 조절하고 양옆 손잡이를 잡습니다.",
+        "상체를 안정적으로 유지하면서 팔꿈치를 펴 손잡이를 아래쪽으로 누릅니다.",
+        "삼두근의 수축을 느낀 후 반동 없이 손잡이를 천천히 시작 위치로 올립니다.",
+        "허리나 어깨를 과하게 움직이지 않으면서 반복합니다."
+      ],
+      "equipment": "원판형 머신. 앉아서 양옆 손잡이를 아래로 누릅니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "push_dumbbell_lateral_raise",
+      "id": "e3ef7b2e-a8e9-869d-8a08-86b4e022bad3",
+      "name": "덤벨 레터럴 레이즈",
+      "english": "Side Lateral Raise",
+      "aliases": [
+        "사이드 레터럴 레이즈",
+        "덤벨 사이드 레터럴 레이즈",
+        "덤벨 레터럴레이즈"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "DUMBBELL",
+      "manufacturer": null,
+      "machine": "Dumbbell",
+      "ppl": "PUSH",
+      "frontBack": "FRONT",
+      "primary": [
+        "측면삼각근"
+      ],
+      "secondary": [
+        "상부승모근"
+      ],
+      "steps": [
+        "양손에 덤벨을 들고 발을 안정적으로 벌려 섭니다.",
+        "팔꿈치를 자연스럽게 약간 굽혀 양팔을 옆으로 들어 올립니다.",
+        "어깨를 과하게 으쓱하지 않고 측면 어깨에 집중합니다.",
+        "반동 없이 천천히 덤벨을 내려 시작 자세로 돌아갑니다."
+      ],
+      "equipment": null,
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "push_cable_overhead_triceps_extension",
+      "id": "e113fff3-d45f-8a4e-8d0c-3445914f4929",
+      "name": "케이블 오버헤드 트라이셉스 익스텐션",
+      "english": "Cable Overhead Extension",
+      "aliases": [
+        "케이블 오버헤드 익스텐션",
+        "케이블 삼두 오버헤드 익스텐션",
+        "Cable Overhead Triceps Extension"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "STACK",
+      "manufacturer": "NewTech",
+      "machine": "Cable Overhead Extension",
+      "ppl": "PUSH",
+      "frontBack": "BACK",
+      "primary": [
+        "상완삼두근 장두"
+      ],
+      "secondary": [
+        "상완삼두근 외측두",
+        "상완삼두근 내측두"
+      ],
+      "steps": [
+        "케이블 손잡이를 잡고 상체를 앞으로 숙여 안정적인 자세를 만듭니다.",
+        "팔꿈치를 굽힌 상태에서 상완이 지나치게 움직이지 않도록 자세를 유지합니다.",
+        "팔꿈치를 펴면서 케이블 저항에 맞서 손잡이를 밀어냅니다.",
+        "천천히 팔꿈치를 굽혀 시작 자세로 돌아옵니다."
+      ],
+      "equipment": "케이블 머신에서 상체를 앞으로 기울여 수행합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "legs_pendulum_squat",
+      "id": "44160d3b-640b-8062-8cf7-541ae0a5ee54",
+      "name": "펜듈럼 스쿼트",
+      "english": "Pendulum Squat",
+      "aliases": [
+        "펜듈럼스쿼트",
+        "Pendulum Squat Machine"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "Arsenal Strength",
+      "machine": "Pendulum Squat (일반형)",
+      "ppl": "LEGS",
+      "frontBack": "FRONT",
+      "primary": [
+        "대퇴사두근"
+      ],
+      "secondary": [
+        "대둔근"
+      ],
+      "steps": [
+        "머신에 들어가 등과 어깨가 지지 패드에 안정적으로 닿게 위치를 잡습니다.",
+        "발판에 양발을 안정적으로 놓고 손잡이를 잡습니다.",
+        "머신의 안전장치를 확인한 뒤 고관절과 무릎을 굽혀 천천히 내려갑니다.",
+        "무릎이 발끝과 자연스럽게 같은 방향으로 움직이도록 유지합니다.",
+        "발판을 밀며 일어선 다음 동작을 마치고 안전장치를 다시 고정합니다."
+      ],
+      "equipment": "원판형 펜듈럼 스쿼트 머신입니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "legs_romanian_deadlift",
+      "id": "73eb4b15-21d2-8a8f-8724-20a0fe912f63",
+      "name": "루마니안 데드리프트",
+      "english": "Romanian Deadlift",
+      "aliases": [
+        "루마니안데드리프트",
+        "RDL",
+        "바벨 루마니안 데드리프트"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": null,
+      "machine": "Barbell Romanian Deadlift",
+      "ppl": "LEGS",
+      "frontBack": "BACK",
+      "primary": [
+        "햄스트링",
+        "대둔근"
+      ],
+      "secondary": [
+        "척추기립근"
+      ],
+      "steps": [
+        "바벨을 양손에 잡고 발을 골반너비 정도로 벌려 섭니다.",
+        "무릎을 살짝 굽히고 척추의 중립 자세를 유지합니다.",
+        "엉덩이를 뒤로 보내면서 바벨을 몸에 가깝게 유지해 내립니다.",
+        "햄스트링의 늘어남을 느낀 지점에서 엉덩이를 앞으로 밀며 시작 자세로 돌아옵니다."
+      ],
+      "equipment": "일반 바벨과 원판을 사용합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "legs_leg_extension",
+      "id": "0f4a3e33-a61e-8f1e-8537-463e334a10ba",
+      "name": "레그 익스텐션",
+      "english": "Leg Extension",
+      "aliases": [
+        "레그익스텐션",
+        "머신 레그 익스텐션"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "STACK",
+      "manufacturer": "NewTech",
+      "machine": "Leg Extension",
+      "ppl": "LEGS",
+      "frontBack": "FRONT",
+      "primary": [
+        "대퇴사두근"
+      ],
+      "secondary": [],
+      "steps": [
+        "머신에 앉아 무릎의 회전축이 기구 축과 자연스럽게 맞도록 좌석을 조절합니다.",
+        "발목 패드가 정강이 아래쪽에 오도록 위치를 잡고 손잡이를 잡습니다.",
+        "허벅지를 좌석에 유지하며 무릎을 펴 패드를 들어 올립니다.",
+        "천천히 무릎을 굽혀 시작 자세로 돌아갑니다."
+      ],
+      "equipment": null,
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "legs_lying_leg_curl",
+      "id": "34e41144-9213-8c35-87c3-f8be2ad58abe",
+      "name": "라잉 레그 컬",
+      "english": "Lying Leg Curl",
+      "aliases": [
+        "라잉 레그컬",
+        "라잉레그컬",
+        "누워서 레그 컬",
+        "Prone Leg Curl"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "STACK",
+      "manufacturer": "NewTech",
+      "machine": "Lying Leg Curl",
+      "ppl": "LEGS",
+      "frontBack": "BACK",
+      "primary": [
+        "햄스트링"
+      ],
+      "secondary": [
+        "비복근"
+      ],
+      "steps": [
+        "머신에 엎드려 누워 무릎이 기구 회전축과 자연스럽게 맞도록 위치를 조절합니다.",
+        "발목 뒤쪽에 롤러 패드를 대고 손잡이를 잡아 몸통을 고정합니다.",
+        "무릎을 굽혀 발목을 엉덩이 방향으로 당깁니다.",
+        "햄스트링의 수축을 느낀 뒤 천천히 다리를 펴 시작 위치로 돌아갑니다."
+      ],
+      "equipment": null,
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "legs_standing_calf_raise",
+      "id": "ccb5bd7f-73e8-8f98-8b1e-96fdabc2ba8b",
+      "name": "스탠딩 카프 레이즈",
+      "english": "Standing Calf Raise",
+      "aliases": [
+        "스탠딩 카프레이즈",
+        "핵스쿼트 카프 레이즈",
+        "Hack Squat Calf Raise"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "NewTech",
+      "machine": "Hack Squat machine used for standing calf raise",
+      "ppl": "LEGS",
+      "frontBack": "BACK",
+      "primary": [
+        "비복근"
+      ],
+      "secondary": [
+        "가자미근"
+      ],
+      "steps": [
+        "핵스쿼트 머신의 어깨 지지 패드에 몸을 안정적으로 위치시킵니다.",
+        "발 앞부분으로 체중과 머신의 저항을 지지할 수 있도록 발 위치를 잡습니다.",
+        "무릎을 거의 편 상태에서 발뒤꿈치를 들어 종아리를 수축합니다.",
+        "천천히 발뒤꿈치를 내리며 시작 자세로 돌아갑니다."
+      ],
+      "equipment": "핵스쿼트 머신을 사용합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "legs_machine_crunch",
+      "id": "85d532b1-009e-84b6-8efd-b19b5d27659f",
+      "name": "머신 업도미널 크런치",
+      "english": "Abdominal Crunch",
+      "aliases": [
+        "머신 복근 크런치",
+        "어브도미널 크런치",
+        "Abdominal Crunch Machine",
+        "머신 크런치"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "STACK",
+      "manufacturer": "NewTech",
+      "machine": "Abdominal Crunch",
+      "ppl": "LEGS",
+      "frontBack": "FRONT",
+      "primary": [
+        "복직근"
+      ],
+      "secondary": [
+        "복사근군"
+      ],
+      "steps": [
+        "머신에 앉아 등과 몸통이 패드 또는 지지부에 안정적으로 놓이게 조절합니다.",
+        "골반을 크게 움직이지 않고 복부에 힘을 준 상태로 몸통을 굽힙니다.",
+        "복부가 수축한 위치에서 잠시 멈춘 후 천천히 시작 자세로 돌아갑니다.",
+        "목과 팔에 과도하게 힘을 주지 않고 반복합니다."
+      ],
+      "equipment": null,
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "legs_rogers_hip_press",
+      "id": "b773e2d2-b363-8602-8c74-1a8443330e4d",
+      "name": "힙 프레스",
+      "english": "Hip Press",
+      "aliases": [
+        "로저스 힙 프레스",
+        "Rogers Hip Press",
+        "힙프레스"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "PLATE",
+      "manufacturer": "Rogers",
+      "machine": "Hip Press",
+      "ppl": "LEGS",
+      "frontBack": "BACK",
+      "primary": [
+        "대둔근",
+        "대퇴사두근"
+      ],
+      "secondary": [
+        "내전근군"
+      ],
+      "steps": [
+        "머신의 좌석과 등받이를 몸에 맞게 조절하고 앉습니다.",
+        "발판에 양발을 안정적으로 놓고 손잡이로 몸을 고정합니다.",
+        "무릎과 고관절을 펴며 발판을 밀어냅니다.",
+        "무릎을 과하게 잠그지 않고 천천히 굽혀 시작 자세로 돌아갑니다."
+      ],
+      "equipment": "앉아서 양발로 발판을 미는 원판형 머신입니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "COMPOUND"
+    },
+    {
+      "key": "legs_captains_chair_leg_raise",
+      "id": "44d8cc67-2aff-83c9-8423-b7d77f93612d",
+      "name": "캡틴스 체어 레그 레이즈",
+      "english": "Captain's Chair Leg Raise",
+      "aliases": [
+        "캡틴체어 레그레이즈",
+        "버티컬 레그 레이즈",
+        "Captain Chair Leg Raise"
+      ],
+      "type": "WEIGHT",
+      "method": "SETS_REPS",
+      "load": "BODYWEIGHT",
+      "manufacturer": "NewTech",
+      "machine": "Captain's Chair Leg Raise",
+      "ppl": "LEGS",
+      "frontBack": "FRONT",
+      "primary": [
+        "고관절 굴곡근군(장요근 중심)"
+      ],
+      "secondary": [
+        "복직근"
+      ],
+      "steps": [
+        "캡틴스 체어의 팔꿈치 패드에 팔뚝을 올리고 등을 안정적으로 지지합니다.",
+        "손잡이를 잡고 양다리를 편 상태로 아래로 내립니다.",
+        "몸통 반동을 줄이고 무릎을 편 채 양다리를 앞으로 들어 올립니다.",
+        "천천히 다리를 내려 시작 위치로 돌아옵니다."
+      ],
+      "equipment": "캡틴스 체어에서 다리를 편 상태로 올립니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": null,
+      "sourceId": null,
+      "jointType": "ISOLATION"
+    },
+    {
+      "key": "cardio_treadmill_running",
+      "id": "2759cc0f-a8e0-866c-84cd-2a52e0aca65e",
+      "name": "트레드밀 러닝",
+      "english": "Treadmill",
+      "aliases": [
+        "러닝머신",
+        "런닝머신",
+        "트레드밀",
+        "트레드밀 달리기",
+        "Treadmill Running"
+      ],
+      "type": "CARDIO",
+      "method": "CARDIO",
+      "load": null,
+      "manufacturer": "Health One",
+      "machine": "Treadmill",
+      "ppl": null,
+      "frontBack": null,
+      "primary": [],
+      "secondary": [],
+      "steps": [
+        "트레드밀에 올라 시작 전 속도와 안전 장치를 확인합니다.",
+        "낮은 속도에서 시작해 계획한 러닝 속도로 조절합니다.",
+        "정해둔 거리나 시간을 기준으로 운동을 진행합니다.",
+        "종료 시 속도를 서서히 낮추고 운동 거리와 시간을 기록합니다."
+      ],
+      "equipment": "트레드밀에서 수행합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": "TREADMILL",
+      "sourceId": null,
+      "jointType": null
+    },
+    {
+      "key": "cardio_outdoor_running",
+      "id": "2ba68fb8-e8b1-8f70-8a4b-715d26ed34e9",
+      "name": "야외 러닝",
+      "english": "Outdoor Running",
+      "aliases": [
+        "러닝",
+        "야외 달리기",
+        "실외 러닝",
+        "Running Outdoor",
+        "Outdoor Run"
+      ],
+      "type": "CARDIO",
+      "method": "CARDIO",
+      "load": null,
+      "manufacturer": null,
+      "machine": "Outdoor",
+      "ppl": null,
+      "frontBack": null,
+      "primary": [],
+      "secondary": [],
+      "steps": [
+        "야외 러닝에 적합한 경로와 거리를 계획합니다.",
+        "무리 없는 페이스로 출발해 계획한 속도를 유지합니다.",
+        "거리와 운동 시간을 확인하며 러닝을 이어갑니다.",
+        "운동을 마친 뒤 거리, 시간, 평균 페이스를 기록합니다."
+      ],
+      "equipment": "야외에서 수행합니다.",
+      "modelStatus": "모델 상세 미확정",
+      "cardioKind": "OUTDOOR",
+      "sourceId": null,
+      "jointType": null
+    }
+  ],
+  "highRowSource": {
+    "id": "nZZZy9m",
+    "position": 729,
+    "sha256": "a28dfeafa409fcaf737a6d27c4694d9bddc52ba69f12b37121be1e81b90b5c2d",
+    "name": "lever high row",
+    "gif": "https://static.exercisedb.dev/media/nZZZy9m.gif"
+  }
+}

@@ -58,13 +58,18 @@ public final class V22BrowserEnvironment implements AutoCloseable {
     }
 
     static V22BrowserEnvironment start(UUID runId, boolean failBeforeReady, Class<?>... additionalSources) throws Exception {
+        return start(runId, failBeforeReady, false, additionalSources);
+    }
+
+    private static V22BrowserEnvironment start(UUID runId, boolean failBeforeReady, boolean approvedCatalog,
+                                                Class<?>... additionalSources) throws Exception {
         // The local HTTP cookie profile is safe only with the test resource overlay.
         var overlay = V22BrowserEnvironment.class.getClassLoader().getResource("application-local.yaml");
         require(overlay != null && overlay.toString().contains("/build/resources/test/"), "Test resource overlay required");
         require(System.getenv().keySet().stream().noneMatch(k -> k.matches("^(SPRING_|OTP_|RESEND_|GOOGLE_|AUTH_|OVERLOAD_).*")), "Clean child environment required");
         var environment = new V22BrowserEnvironment(runId);
         try {
-            environment.startBackend(additionalSources);
+            environment.startBackend(approvedCatalog, additionalSources);
             if (failBeforeReady) throw new IllegalStateException("Requested pre-ready failure");
             environment.evidence.put("readyAt", Instant.now().toString());
             environment.ready = true;
@@ -77,7 +82,7 @@ public final class V22BrowserEnvironment implements AutoCloseable {
         }
     }
 
-    private void startBackend(Class<?>... additionalSources) throws Exception {
+    private void startBackend(boolean approvedCatalog, Class<?>... additionalSources) throws Exception {
         postgres = new PostgreSQLContainer("postgres:18.6-alpine")
                 .withDatabaseName(DATABASE).withUsername("overload_test").withPassword(UUID.randomUUID().toString())
                 .withReuse(false).withLabel(RUN_LABEL, runId.toString())
@@ -162,8 +167,17 @@ public final class V22BrowserEnvironment implements AutoCloseable {
         evidence.put("externalAuthDisabled", true);
         String origin = "http://127.0.0.1:" + ((WebServerApplicationContext) app).getWebServer().getPort();
         evidence.put("backendOrigin", origin);
-        seedCatalog(jdbc);
-        smoke(origin);
+        if (!approvedCatalog) {
+            seedCatalog(jdbc);
+            smoke(origin);
+        } else {
+            var sender = app.getBean(EmailOtpFixtures.FakeSender.class);
+            evidence.put("approvedCatalogReview", ApprovedCatalogReviewSeed.apply(
+                    app.getBean(javax.sql.DataSource.class), jdbc, origin, sender));
+            evidence.put("accountFlow", "EMAIL_OTP");
+            evidence.put("preparedUsers", 1);
+            evidence.put("httpSmokePassed", true);
+        }
         require(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class) == 1, "One normal OTP account required");
         require(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions", Integer.class) == 0, "Personal seed prohibited");
         control = new V22BrowserControl(app.getBean(EmailOtpFixtures.FakeSender.class), jdbc, identityHeaders(origin));
@@ -212,7 +226,7 @@ public final class V22BrowserEnvironment implements AutoCloseable {
         evidence.put("httpSmokePassed", true);
     }
 
-    private static HttpResponse<String> send(HttpClient client, String origin, String path, String method, Object body,
+    static HttpResponse<String> send(HttpClient client, String origin, String path, String method, Object body,
                                               tools.jackson.databind.JsonNode csrf, int expected) throws Exception {
         var request = HttpRequest.newBuilder(URI.create(origin + path)).timeout(Duration.ofSeconds(10)).header("Accept", "application/json");
         if (csrf != null) request.header(csrf.get("headerName").asString(), csrf.get("token").asString());
@@ -258,15 +272,17 @@ public final class V22BrowserEnvironment implements AutoCloseable {
 
     public static void main(String[] args) {
         try {
-            require(args.length == 1, "Supply one new verification run UUID");
-            try (var environment = start(UUID.fromString(args[0]), false)) {
+            require(args.length == 1 || (args.length == 2 && "--approved-catalog".equals(args[1])),
+                    "Supply a new run UUID and optionally --approved-catalog");
+            boolean approvedCatalog = args.length == 2;
+            try (var environment = start(UUID.fromString(args[0]), false, approvedCatalog)) {
                 var hook = new Thread(() -> { try { environment.close(); } catch (Exception ignored) { System.err.println("V22 cleanup failed"); } });
                 Runtime.getRuntime().addShutdownHook(hook);
                 System.out.println("V22_READY run=" + environment.runId + " origin=" + environment.evidence.get("backendOrigin"));
                 try {
                     // Bounded lease accommodates the explicitly requested full online browser scenarios.
                     long deadline = System.nanoTime() + Duration.ofHours(2).toNanos();
-                    while (!environment.closed && System.nanoTime() < deadline) {
+                    while (!environment.closed && (approvedCatalog || System.nanoTime() < deadline)) {
                         var stop = environment.directory.resolve("stop");
                         if (Files.exists(stop) && Files.readString(stop).trim().equals(environment.runId.toString())) break;
                         Thread.sleep(150);
@@ -275,6 +291,9 @@ public final class V22BrowserEnvironment implements AutoCloseable {
             }
         } catch (Exception failure) {
             System.err.println("V22 environment failed: " + failure.getClass().getSimpleName());
+            if (args.length == 2 && failure instanceof IllegalStateException) {
+                System.err.println(failure.getMessage());
+            }
             System.exit(1);
         }
     }

@@ -27,7 +27,7 @@
 ```
 
 - 활성 상태이고 근육 타겟과 분할 검수를 모두 마친 `SETS_REPS` 운동을 UUID 오름차순으로 반환한다. 이름이 같은 서로 다른 UUID는 별도 운동이다.
-- 신규 운동의 검수 상태는 둘 다 미완료다. 분할값이 NULL이어도 개발자가 분할 검수를 완료할 수 있다. 근육 타겟이 필요 없는 운동은 연결 없이도 근육 검수를 완료할 수 있다.
+- 신규 운동은 근육 타겟·분할 검수가 모두 미완료다. 두 검수 상태는 독립적이며 분할값이 `null`이어도 분할 검수를 완료할 수 있다. 내부 검수 서비스에서 `SETS_REPS`의 근육 검수를 완료하려면 활성 PRIMARY가 하나 이상 필요하다. 다른 기록 방식은 근육 연결 없이도 근육 검수를 완료할 수 있다. 읽기 API는 활성 상태, 저장된 검수 상태와 각 경로의 기록 방식·선택 조건을 기준으로 판정한다.
 - 각 항목은 id/name/aliases/muscles로 구성한다. 제조사, ExerciseDB 원본 ID, GIF 주소·참조 키, 개인 운동은 포함하지 않는다.
 - 별칭은 해당 운동의 normalized_alias 오름차순이며 표시는 원래 alias 문자열이다. 서로 다른 운동의 같은 별칭은 허용한다.
 - 별칭이 없는 운동의 aliases는 빈 배열이다. 카탈로그가 비면 `{"schemaVersion":1,"exercises":[]}`다.
@@ -139,3 +139,16 @@ V32의 `CARDIO`, `HOLD_DURATION`, `UNSPECIFIED`는 표준 카탈로그에 저장
 ## 보호 GIF 전송과 UI 계약
 
 회원별 V35 열람 권한은 일반 운동 정보 조회와 독립적이다. 로컬 Nginx는 `/media/exercises/v1/{sourceExerciseId}.gif`의 정규 경로를 받아 기존 세션으로 내부 확인을 요청한다. Spring은 활성화 상태·회원 허용 행·현재 대표 출처를 검사하고, Nginx가 승인된 로컬 파일을 no-store로 전송한다. 공개 카탈로그·UUID 상세는 원본 ID와 GIF 주소를 제공하지 않으며, 현재 표준 UUID에서 보호 경로를 찾는 공개 계약은 없다. [GIF 배포 경계 및 UI 연결 순서](../engineering/standard-exercise-handoff.md#다음-작업인-사용자-ui-연결)
+
+아래는 **로컬 Nginx 외부 응답** 기준이다. 실제 파일 권리와 운영 제공은 [배포 경계](../engineering/standard-exercise-handoff.md#후속-순서와-배포-경계)를 확인한다.
+
+| HTTP | 로컬 보호 경로 응답 조건 |
+| --- | --- |
+| 200 | 정규 경로의 `GET` 또는 `HEAD`에서 내부 승인과 로컬 파일 확인이 모두 성공 |
+| 401 | 로그인 세션 없음 또는 만료 |
+| 403 | 회원 미허용 등 접근 거부. 내부 요청 검증과 회원 허용 확인을 통과한 원본 ID가 현재 대표 출처가 아니면 Spring은 404를 반환하고 Nginx는 외부 403으로 변환 |
+| 404 | 내부 승인 후 파일 부재 또는 비정규 보호 경로 |
+| 405 | 정규 보호 경로에 `GET`·`HEAD` 이외 메서드 사용 |
+| 500 | 인증 상류에 연결할 수 없는 상황에서 격리 통합 테스트로 확인한 응답 |
+
+Spring의 내부 204와 명시적 승인 헤더가 모두 일치해야 Nginx가 보호 파일 경로를 연다. 내부 판정과 외부 파일 전송의 상태 코드는 별개다. 외부 보호 응답에는 `Cache-Control: no-store`가 적용되며, PWA Service Worker는 `/media/exercises/`를 사전 캐시와 캐시 조회에서 제외한다. [Spring Security 세션](../engineering/security-session.md#http-보안-계약) · [Nginx 구성](../../deploy/local/nginx/default.conf.template) · [격리 GIF 테스트](../../src/test/java/com/overload/overload_server/catalog/ExerciseGifIntegrationTests.java)
