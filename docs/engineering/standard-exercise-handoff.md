@@ -1,6 +1,6 @@
 # Overload 표준 운동 카탈로그 인수인계
 
-2026-11-11 최종 통합 검증 기준이다. Backend HEAD `061ede4`, Frontend HEAD `5543e7f`의 1~4-C 작업 트리를 확인했다. 현재 목표 스키마는 **Flyway V35**다. 이 문서의 격리 검증과 실제 DB 적용 이력은 별도로 관리한다.
+2026-11-11의 1~4-C 통합 검증과 2026-11-12의 실제 계정 UI 마감을 기록한다. 현재 목표 스키마는 **Flyway V35**다. 격리 검증과 실제 DB 적용 이력은 별도로 관리한다.
 
 ## 단계별 상태
 
@@ -25,7 +25,7 @@
 - 원본 1,500건은 ExerciseDB V1 검수 대기 자료다. 가져오기 미리보기와 일회용 DB 저장 검증은 `exerciseDbIntake`를 사용한다. 원본과 가공 초안을 분리하고, 같은 원본의 재실행은 기존 초안과 연결을 보존한다. 개발자가 검수한 연결만 기존 표준 UUID에 추가하거나 새 표준 운동을 만든다. 새 운동은 두 검수가 미완료다. [원본 가져오기와 내부 검수](../api/standard-exercise-catalog.md#데이터-등록-경계)
 - 내부 서비스로 검수할 때는 현재 판본으로 저장하고, 근력 운동을 근육 검수 완료로 바꾸기 전에 활성 PRIMARY와 순서를 확인한다. 승인된 직접 SQL을 사용할 때도 같은 공개·검수·참조 규칙을 적용한다.
 - 일반 공개 목록과 상세는 활성 상태 및 두 검수 완료를 요구한다. `SETS_REPS`는 웨이트 선택, `CARDIO`는 활성 기록 설정과 선택 조건을 만족할 때 유산소 선택에 들어간다. `HOLD_DURATION`과 `UNSPECIFIED`는 공개 상태이면 정보 조회가 가능하다. 검수 취소는 신규 선택을 막으며, 저장된 루틴·세션의 참조는 보존한다. 유산소의 표준 운동 UUID와 기존 `activityId`는 역할이 서로 다르므로 모두 유지한다. [공개·선택 계약](../api/standard-exercise-catalog.md#일반-카탈로그와-유산소-선택)
-- GIF 권한은 운동 정보 조회 및 계정 역할과 별개인 회원 UUID 허용 목록이다. 실제 GIF 사용·재배포는 권리 확인 전까지 미승인 상태이며, 제공 기능은 기본 비활성이다.
+- GIF 권한은 운동 정보 조회 및 계정 역할과 별개인 회원 UUID 허용 목록이다. 제공 기능은 기본 비활성이다. 정식 서비스의 실제 파일 사용·제공 범위는 별도로 확정한다.
 
 ## 실제 DB 적용 상태
 
@@ -35,7 +35,7 @@ V32~V35와 ExerciseDB 원본 가져오기는 일회용 PostgreSQL에서 검증�
 
 1. 기존 로컬 DB 설정과 분리된 일회용 PostgreSQL에 V35까지 적용한다. Spring Boot는 그 격리 DB를 사용하고 Docker에서 도달 가능한 호스트의 로컬 포트로 실행한다.
 2. [예시 환경 설정](../../deploy/local/.env.example)을 Git에서 제외되는 `deploy/local/.env`로 복사해 Git 밖의 **합성 GIF** 폴더 절대 경로를 `OVERLOAD_GIF_DIR`로 지정한다. 개인 미디어 경로·토큰·GIF 파일은 저장소에 넣지 않는다. 호스트 포트와 Backend 주소는 필요시 `OVERLOAD_GIF_NGINX_PORT`, `OVERLOAD_GIF_BACKEND_UPSTREAM`으로 설정한다. 로컬 Docker Desktop의 기본 Backend 주소는 `host.docker.internal:8080`이다. Linux의 경우 호스트 도달 방식을 별도로 맞춘다.
-3. 32바이트 난수의 64자리 소문자 hex 토큰을 `OVERLOAD_GIF_PROXY_TOKEN`에 넣고 Spring Boot 프로세스에도 같은 값을 전달한다. Compose의 env 파일은 이미 실행 중인 호스트 JVM에 자동 적용되지 않는다. `OVERLOAD_GIF_SERVING_ENABLED`는 Spring Boot 시작 시 적용하는 독립 플래그다. 기본값은 false이며, 합성 파일을 쓰는 격리 검증에서만 true로 실행한다.
+3. 32바이트 난수의 64자리 소문자 hex 토큰을 `OVERLOAD_GIF_PROXY_TOKEN`에 넣고 Spring Boot 프로세스에도 같은 값을 전달한다. Compose의 env 파일은 이미 실행 중인 호스트 JVM에 자동 적용되지 않는다. `OVERLOAD_GIF_SERVING_ENABLED`는 Spring Boot 시작 시 적용하는 독립 플래그다. 기본값은 false다. 합성 파일 테스트와 권리가 확인된 내부 시연은 각각 전용 격리 환경에서 활성화한다.
 4. 저장소 루트에서 `docker compose --env-file deploy/local/.env -f deploy/local/compose.yml up -d`를 실행한다. Nginx는 loopback 포트만 공개하고 GIF 폴더를 읽기 전용으로 연결한다. 이 Compose는 PostgreSQL을 시작하지 않는다. 확인 후 같은 인자의 `down`으로 이 Compose만 종료한다. 처음 검증하는 환경에서는 Compose가 고정한 Nginx 이미지가 Docker에 준비되어 있어야 한다.
 5. 허용하거나 회수할 회원 UUID와 접속 대상 DB를 확인한 후 `psql -X -d <확인한-격리-DB> -v user_id=<회원-UUID> -v grant_access=true -f deploy/local/gif-access.sql`을 실행한다. `grant_access=false`는 그 회원 권한만 회수한다. 기존 회원과 신규 회원의 기본값은 허용 행이 없는 상태다. [Compose](../../deploy/local/compose.yml) · [권한 관리 SQL](../../deploy/local/gif-access.sql)
 
@@ -62,9 +62,11 @@ V32~V35와 ExerciseDB 원본 가져오기는 일회용 PostgreSQL에서 검증�
 
 더미 데이터 대신 실제 운동 데이터로 화면을 확인할 때는 승인된 31종목 검토 자료를 사용한다. 전용 V35 검토 DB에 계정, 월~토 루틴·활성 일정과 회원별 GIF 권한을 복원할 수 있다. 개인 개발·보존·운영 DB에는 적용하지 않는다. 원본 운동 정보와 요일별 적용값은 DB 밖의 JSON에 보관한다. [검토 시작·종료 및 초기화 후 복원](../dev-data/overload-31-catalog/README.md#실제-운동-데이터로-검토)
 
-## 다음 작업인 사용자 UI 연결
+<a id="다음-작업인-사용자-ui-연결"></a>
 
-1. 기존 설정의 공개 카탈로그 검색과 웨이트·유산소 신규 선택은 연동되어 있다. 상세 화면은 표준 UUID로 `GET /api/v1/standard-exercises/{exerciseId}`를 호출할 수 있다. 호출 허용 목록·응답 타입과 검증, 조회 가능 여부와 `selectableForRoutine`을 구분한 UI 처리는 다음 단계에서 연결한다.
-2. 표준 상세 UI는 `instructionSteps`, 순서 있는 PRIMARY, SECONDARY와 분할값을 사용한다. 기존 목록은 `instructionsKo` 문자열을 제공한다. 상세 DTO의 기구 설명과 기록 방식은 표준 운동 정보이며 제조사·부하 방식 선택은 루틴 배치와 세션에 속한다. 데이터 제공 예시와 오류는 현행 계약을 따른다. [운동 상세 API](../api/standard-exercise-catalog.md#get-apiv1standard-exercisesexerciseid)
-3. 현재 상세 응답에는 원본 ID나 GIF URL이 없으며 표준 UUID로 보호 GIF 경로를 찾는 공개 계약도 없다. 상세 텍스트 UI는 연결할 수 있다. GIF를 화면에 붙이기 전에 권리와 대표 경로 전달 계약을 확정한다. 표준 UUID로 원본 ID를 만들거나 외부 원본 URL을 화면에 넣지 않는다. 같은 출처의 요청과 권한·파일 미제공 UI 처리는 그 계약에 맞춘다.
-4. Overview의 `cardioByCategory`는 Backend 응답에 있고 현행 PWA 통계 화면은 `cardioByKind`를 사용한다. 이번 통합 문서 정리 이후 UI를 검토·승인하고 기존 개발 절차에 따라 실제 API를 연결한다. [프런트엔드 개발 절차](../../../overload-pwa/docs/engineering/frontend.md#181-기본-ui-개발-절차)
+## 사용자 UI 연결과 후속 범위
+
+1. 실제 계정의 CATALOG-01·02는 공개 목록과 표준 UUID 상세를 조회하고 SETTING-01에서 진입한다. 상세 화면은 `instructionSteps`, 순서 있는 PRIMARY, SECONDARY와 분할을 표시한다. 조회 가능 여부와 `selectableForRoutine`은 독립적이다. 제조사·부하 방식 선택은 루틴 배치와 세션에 속한다. 사용자는 2026-11-12 이 범위를 직접 확인하고 승인했다. [운동 상세 API](../api/standard-exercise-catalog.md#get-apiv1standard-exercisesexerciseid)
+2. V35 전용 검토 DB에서 머신 하이 로우 한 종목에 원본 `nZZZy9m.gif`를 대표로 지정했다. 4180 프런트엔드의 검토 전용 매핑이 동일 출처의 정규 보호 요청을 4181 루프백 Nginx로 전달했다. Nginx는 같은 격리 DB에 연결된 3840 루프백 Spring 권한 검사기를 사용했고, 원본 파일 한 개를 읽기 전용으로 마운트했다. 기존 3838 Backend는 일반 계정 API를 제공했다. 파일의 비상업적 프로토타입 이용 조건을 확인하고 AscendAPI 출처를 표시했다. [ExerciseDB V1 이용 조건](https://oss.exercisedb.dev/docs) · [종료 기록](test-environment.md#catalog-검토-종료-기록)
+3. 로컬 내부 검토 전용 계정은 구현된 앱 기능과 시연 대상 미디어의 열람을 허용하는 것을 기본으로 한다. 기존 인증·사용자 소유권·V35 회원 허용·대표 출처 검사를 거쳐 기능을 검증한다. 정식 제공용 UUID→대표 미디어 경로 전달, 배포 권리, HTTPS와 캐시 정책은 후속 범위다. 상세 응답의 공개 계약에는 원본 ID와 GIF URL이 없다.
+4. Overview의 `cardioByCategory`는 Backend 응답에 있고 현행 PWA 통계 화면은 `cardioByKind`를 사용한다. 이 통계 연결은 카탈로그 마감과 별도다. [프런트엔드 개발 절차](../../../overload-pwa/docs/engineering/frontend.md#181-기본-ui-개발-절차)

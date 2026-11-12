@@ -10,7 +10,7 @@ UI 구현·Mock 시연·사용자 승인 순서는 [Frontend 기본 UI 개발 �
 | 보존된 홈·루틴 검토 환경 | 실제 Spring Boot·Vite·PostgreSQL과 검토 계정 데이터의 역사적 통합 환경이다. named volume과 PC 덤프를 보존한다. 마지막 DB 직접 확인은 V24였으며 최신 API 연동에는 버전 호환성 확인이 필요하다. |
 | 일회용 PostgreSQL 자동 테스트 | JDK 25, Gradle Wrapper와 Docker Desktop Linux 엔진이 필요하다. `integrationTest`는 `postgres` 태그와 Testcontainers PostgreSQL 18.6을 사용한다. 빈 DB V1~V35 적용, 기존 스키마 전환, 서버 API와 합성 GIF의 Nginx 접근 제어를 검증한다. |
 | 일회용 V35 브라우저 검증 | Backend test-classpath 진입점이 전용 DB, 실제 Spring API, 합성 계정·표본을 준비한다. 최신 PWA 프로덕션 빌드를 loopback에서 사용한다. |
-| 승인 운동 데이터 검토 | 사용자와 합의한 운동 31종과 주간 루틴을 JSON에서 전용 V35 DB로 복원한다. 더미 데이터 대신 실제 운동 구성으로 검토할 때 사용한다. [시작·종료와 복원](../dev-data/overload-31-catalog/README.md#실제-운동-데이터로-검토) |
+| 승인 운동 데이터 검토 | 사용자와 합의한 운동 31종과 주간 루틴을 JSON에서 전용 V35 DB로 복원한다. 전용 계정에 구현된 앱 기능과 시연 대상 미디어 열람을 허용해 실제 경로를 검토한다. [시작·종료와 복원](../dev-data/overload-31-catalog/README.md#실제-운동-데이터로-검토) |
 | 로컬 개발 DB / 개인 데이터 | Compose의 PostgreSQL 18.6은 기본 loopback 5433과 전용 named volume을 사용한다. 개인 기록의 실제 위치와 적용 이력을 별도로 확인한다. 통합 작업에는 테스트 전용으로 확인된 대상만 사용한다. |
 | 운영 | 별도의 HTTPS 배포 및 운영 계정·DB다. 테스트 seed, 미리보기, 테스트 인증, 실험적 DB 적용은 격리 환경에서만 수행한다. |
 
@@ -77,10 +77,17 @@ COMMIT;
 
 2026-11-10 종료 확인 당시 Mock Vite 4173과 실제 V31 Vite 4175, V31 Spring 5505·제어 5957·전용 PostgreSQL 32784를 정리했다. V30의 Vite 4174와 Spring 2755는 앞서 실행 기한이 끝났다. 통합 테스트가 끝난 뒤 검토 포트 해제와 일회용 테스트 컨테이너 정리를 확인했다. 개인 개발 DB·보존 DB·다른 프로젝트 서비스에는 조치하지 않았다. 위 포트는 종료 이력이며 활성 접속 주소로 사용하지 않는다.
 
+## CATALOG 검토 종료 기록
+
+2026-11-12 사용자가 실제 계정의 CATALOG-01·02, SETTING-01 및 머신 하이 로우 원본 GIF를 직접 확인하고 최종 승인했다. 전용 V35 tmpfs에서 공개 운동 31종과 검토 계정 1개·루틴 6개를 사용했다. 기존 보고의 Chrome 검증은 1280px·320px·393px에서 실제 상세와 반복 재생을 확인했다. 자동화의 실제 iPhone Safari 검증은 별도다. 최종 마감에서는 화면·테스트·Lint·타입 검사·빌드를 재실행하지 않았다.
+
+실행 소유권과 포트·컨테이너 라벨을 확인한 뒤 프런트엔드 4180을 Ctrl+C, 미디어 Nginx 4181을 SIGQUIT, 루프백 미디어 Spring 3840을 JVM 정상 종료 훅으로 닫았다. V35 DB를 읽기 전용으로 `pg_dump`하고 PWA의 Git 제외 경로 `.local-backups/catalog-review/<run-id>/v35-review.dump`에 보존했다. 43개 테이블의 목록과 전체 SQL 읽기, 주요 행 수, SHA-256 및 별도 복원 JSON 3개를 확인했다. 새 DB 복원 실행은 하지 않았다. 그 뒤 해당 실행의 `review.ps1 -Action Stop`으로 Backend 3838·제어 1954·tmpfs DB 32778을 종료했다. 여섯 포트가 모두 해제됐으며 개인·보존·운영 DB와 볼륨은 건드리지 않았다.
+
 ## 종료와 보존
 
 사용자 UI 검토 환경은 피드백과 최종 승인이 끝날 때까지 유지한다. 승인 후 범위에 필요한 검증을 마치면 아래의 환경별 절차로 안전하게 종료한다. 일회용 자동 검증 실행은 검증이 끝날 때 정리한다. [Frontend 마감 절차](../../../overload-pwa/docs/engineering/frontend.md#181-기본-ui-개발-절차)
 
 - **Mock 및 일회용 실행.** 소유한 Vite를 실행 터미널에서 `Ctrl+C`로 종료한다. 일회용 Backend도 해당 터미널에서 정상 종료한다. 홈 fixture는 해당 `build/verification-v22/<run-id>/stop` 파일의 내용이 자신의 run ID와 일치할 때 정상 종료할 수 있다. JVM의 종료 루틴과 Testcontainers가 자신이 만든 임시 PostgreSQL을 정리한다. 종료 후 해당 run의 PID·포트·컨테이너만 확인한다. 브라우저 저장소 정리는 전용 프로필에 한정한다.
+- **승인 카탈로그 검토 실행.** tmpfs의 현재 데이터까지 보존해야 할 때는 Stop 전에 확인된 컨테이너의 로컬 덤프를 Git 제외 경로에 저장하고 해시와 읽기 가능 여부를 확인한다. JSON은 기본 표본의 재구성 자료다. 복원 자료나 보존 조건을 확인할 수 없으면 DB를 폐기하는 Stop을 보류한다. 보호 미디어가 활성화된 실행은 소유권을 확인한 미디어 서비스도 종료한다.
 - **보존된 검토 실행.** 수동 재개한 동일 run을 확인하고 PWA 루트에서 `pwsh -NoProfile -File scripts/home-review-resume.ps1 -Action Stop`을 사용한다. 이 경로는 프런트와 Spring을 닫은 뒤 보존 DB를 정지한다. 다시 `-Action Status`로 컨테이너·볼륨·덤프가 남아 있는지 확인한다. 구형 `home-review.ps1 -Action Stop`, 기존 볼륨 삭제·prune·덮어쓰기 복원은 피한다. 추가 검토 데이터의 백업이 승인되면 새 파일로 보존한다. [보존 및 장애 복원 기록](../../../overload-pwa/docs/tasks/ui-v09-t02a-closeout.md)
 - **로컬 개발·개인·운영 환경.** 사용한 테스트 실행과 경계가 다른 컨테이너·볼륨·계정에는 정리 작업을 적용하지 않는다. 실제 데이터 삭제·초기화·migration은 [Backend AGENTS.md 15절](../../AGENTS.md#15-git-and-change-management)의 승인 절차를 따른다.

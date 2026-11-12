@@ -56,7 +56,7 @@ Task 006의 나머지 운동·인증 정책과 Task 008의 휴식 설정 조회 
 
 ### 1.1 현재 개발 현황
 
-**마지막 확인** 2026-11-11 (KST). 표준 운동 DB 확장 1~4-C는 Backend HEAD `061ede4`의 작업 트리에서 통합 확인했다. 목표 스키마는 V35이며, 실제 DB 적용과 다음 UI 연결 범위는 [표준 운동 인수인계](standard-exercise-handoff.md)에 있다.
+**마지막 확인** 2026-11-12 (KST). 표준 운동 DB 확장 1~4-C의 2026-11-11 통합 검증 이후 V35 격리 DB에서 실제 계정의 카탈로그·설정 UI와 하이 로우 보호 GIF 검토를 완료했다. 목표 스키마는 V35다. [표준 운동 인수인계](standard-exercise-handoff.md)
 
 | 범위 | 상태와 근거 |
 | --- | --- |
@@ -64,6 +64,7 @@ Task 006의 나머지 운동·인증 정책과 Task 008의 휴식 설정 조회 
 | G3 일별 검사·일반 통계·G4 분석 | **완료.** 적용 일정과 최초 근거, 통계·성장 조회, 분석 설정·epoch·주별 확정·재계산을 구현했다. [통계 API](../api/statistics.md) · [성장 API](../api/approved-weight-growth.md) · [G3·G4 구현](#124-ui-v09와-디로딩-v17-연동) |
 | G5 기간·세션·프리셋 연동 | **완료.** 기간 시작·임시 계획·세션·종료, 분석 재개와 일반 프리셋 순환 정지·복귀를 구현했다. [디로딩 기간 API](../api/deload-periods.md) · [G5 연동](#124-ui-v09와-디로딩-v17-연동) |
 | 표준 운동 DB 확장 4-C | V35 회원별 열람 권한과 로컬 Nginx 보호 GIF 경로를 구현했다. [인수인계](standard-exercise-handoff.md) |
+| CATALOG-01·02 / SETTING-01 | **실제 API 연결과 내부 검토 승인·마감.** PWA `9c276d5`가 공개 목록·UUID 상세를 사용하고, 기존 V35 권한 검사로 하이 로우 원본을 제공했다. Backend `ed70174`는 검토 실행 스크립트의 LAN 옵션 변경이다. API·스키마는 기존 계약을 유지한다. [검토 종료](test-environment.md#catalog-검토-종료-기록) |
 | 표준 운동 DB 확장 4-B | ExerciseDB V1 원본·후보·초안을 V34에 보관하고 명시적 결정으로만 표준 운동에 연결한다. [가져오기 계약](../api/standard-exercise-catalog.md#exercisedb-v1-검수-대기) · [4-B 범위](#표준-운동-db-확장-4-b) |
 | 표준 운동 DB 확장 4-A | 공개 운동 UUID 상세 조회와 서버 내부 수정·검수 서비스를 제공한다. [카탈로그 계약](../api/standard-exercise-catalog.md) · [4-A 범위](#표준-운동-db-확장-4-a) |
 | 표준 운동 DB 확장 3단계 | 세부 근육 기여와 그룹 실제 세트를 분리한다. 압축 편성은 전체 PRIMARY와 운동별 분할을 사용한다. [통계](../api/statistics.md) · [편성](../api/deload-periods.md#자동-편성-경계) |

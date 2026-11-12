@@ -138,7 +138,9 @@ V32의 `CARDIO`, `HOLD_DURATION`, `UNSPECIFIED`는 표준 카탈로그에 저장
 
 ## 보호 GIF 전송과 UI 계약
 
-회원별 V35 열람 권한은 일반 운동 정보 조회와 독립적이다. 로컬 Nginx는 `/media/exercises/v1/{sourceExerciseId}.gif`의 정규 경로를 받아 기존 세션으로 내부 확인을 요청한다. Spring은 활성화 상태·회원 허용 행·현재 대표 출처를 검사하고, Nginx가 승인된 로컬 파일을 no-store로 전송한다. 공개 카탈로그·UUID 상세는 원본 ID와 GIF 주소를 제공하지 않으며, 현재 표준 UUID에서 보호 경로를 찾는 공개 계약은 없다. [GIF 배포 경계 및 UI 연결 순서](../engineering/standard-exercise-handoff.md#다음-작업인-사용자-ui-연결)
+회원별 V35 열람 권한은 일반 운동 정보 조회와 독립적이다. 로컬 Nginx는 `/media/exercises/v1/{sourceExerciseId}.gif`의 정규 경로를 받아 기존 세션으로 내부 확인을 요청한다. Spring은 활성화 상태·회원 허용 행·현재 대표 출처를 검사하고, Nginx가 승인된 로컬 파일을 `no-store`로 전송한다. 공개 카탈로그·UUID 상세는 원본 ID와 GIF 주소를 제공하지 않으며, 현재 표준 UUID에서 보호 경로를 찾는 공개 계약은 없다.
+
+V35 내부 검토에서는 하이 로우 한 종목에 검토 전용 UUID 매핑을 사용했다. 같은 출처의 Vite 프록시가 정규 GIF 요청과 기존 세션을 루프백 Nginx에 전달한다. 이 설정은 검토 전용이며, 회원 권한·대표 출처 확인은 기존 Spring과 Nginx가 수행한다. 정식 서비스의 대표 주소 전달과 파일 제공은 별도다. [내부 검토와 사용자 UI 연결](../engineering/standard-exercise-handoff.md#사용자-ui-연결과-후속-범위)
 
 아래는 **로컬 Nginx 외부 응답** 기준이다. 실제 파일 권리와 운영 제공은 [배포 경계](../engineering/standard-exercise-handoff.md#후속-순서와-배포-경계)를 확인한다.
 
