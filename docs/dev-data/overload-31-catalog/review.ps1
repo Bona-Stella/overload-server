@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)]
     [ValidateSet('Start', 'Status', 'Stop')]
     [string]$Action,
-    [string]$JavaHome = $env:JAVA_HOME
+    [string]$JavaHome = $env:JAVA_HOME,
+    [string]$LanAddress
 )
 
 $ErrorActionPreference = 'Stop'
@@ -113,7 +114,7 @@ try {
     $nodeOptions = @{
         FilePath = (Get-Command node.exe).Source
         WorkingDirectory = $frontend
-        ArgumentList = "scripts/approved-catalog-review.mjs $runId"
+        ArgumentList = "scripts/approved-catalog-review.mjs $runId $LanAddress"
         WindowStyle = 'Hidden'
         PassThru = $true
         RedirectStandardOutput = Join-Path $logs.FullName 'frontend.log'
