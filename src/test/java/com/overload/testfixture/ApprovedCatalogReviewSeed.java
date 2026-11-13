@@ -22,7 +22,7 @@ final class ApprovedCatalogReviewSeed {
     private static final String ROUTINES = "/api/v1/routines";
     private static final List<Integer> RUN_SECONDS = List.of(2100, 1200, 2100, 1200);
 
-    private record Exercise(String id, String manufacturer, String manufacturerId, String activityId) { }
+    private record Exercise(String id, String activityId) { }
 
     static Map<String, Object> apply(DataSource dataSource, JdbcTemplate jdbc, String origin,
                                       EmailOtpFixtures.FakeSender sender) throws Exception {
@@ -58,7 +58,7 @@ final class ApprovedCatalogReviewSeed {
             UUID owner = UUID.fromString(settings.get("userId").asString());
             String generation = settings.get("dataGeneration").asString();
             csrf = get(client, origin, "/api/v1/auth/csrf");
-            require(get(client, origin, "/api/v1/standard-exercises/search-data").get("exercises").size() == 29
+            require(get(client, origin, "/api/v1/standard-exercises/search-data").get("exercises").size() == 28
                     && get(client, origin, "/api/v1/standard-exercises/cardio-choices").get("activities").size() == 2,
                     "The approved catalog was not visible through the normal API");
 
@@ -71,12 +71,10 @@ final class ApprovedCatalogReviewSeed {
                 var weights = new ArrayList<Map<String, Object>>();
                 for (var row : day.get("weightPlacements")) {
                     var exercise = exercise(catalog, row);
-                    require(Objects.equals(exercise.manufacturer(), row.get("manufacturer").asString(null)),
-                            "Routine manufacturer differs from the reviewed catalog mapping");
                     var weight = new LinkedHashMap<String, Object>();
                     weight.put("id", id(key + "/weight/" + weights.size()));
                     weight.put("standardExerciseId", exercise.id());
-                    weight.put("manufacturerId", exercise.manufacturerId());
+                    weight.put("manufacturerId", manufacturer(jdbc, row.get("manufacturer").asString(null)));
                     for (String field : List.of("loadType", "setCount", "minReps", "maxReps", "initialWeightKg")) {
                         weight.put(field, row.get(field));
                     }
@@ -152,13 +150,20 @@ final class ApprovedCatalogReviewSeed {
                     require(rows.getBoolean("muscle_targets_reviewed") && rows.getBoolean("splits_reviewed"),
                             "Catalog SQL left a selected exercise unreviewed");
                     result.put(rows.getString("key"), new Exercise(rows.getString("standard_exercise_id"),
-                            rows.getString("manufacturer"), rows.getString("manufacturer_id"), rows.getString("cardio_activity_id")));
+                            rows.getString("cardio_activity_id")));
                 }
             }
-            require(result.size() == 31, "Exactly 31 catalog exercises required");
+            require(result.size() == 30, "Exactly 30 standardized catalog exercises required");
             connection.commit();
         }
         return result;
+    }
+
+    private static String manufacturer(JdbcTemplate jdbc,String name) {
+        if(name==null)return null;
+        var ids=jdbc.queryForList("SELECT id FROM manufacturer WHERE name=? AND is_active",UUID.class,name);
+        require(ids.size()==1,"Routine manufacturer must resolve independently of standard exercise");
+        return ids.getFirst().toString();
     }
 
     private static Exercise exercise(Map<String, Exercise> catalog, JsonNode row) {

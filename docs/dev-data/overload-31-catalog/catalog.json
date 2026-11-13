@@ -581,43 +581,6 @@
       "jointType": "ISOLATION"
     },
     {
-      "key": "push_hammer_shoulder_press",
-      "id": "32ed1719-0c4b-89d1-8c36-58618013eb8c",
-      "name": "머신 숄더 프레스",
-      "english": "Iso-Lateral Shoulder Press",
-      "aliases": [
-        "해머스트렝스 숄더 프레스",
-        "Hammer Strength Shoulder Press",
-        "아이소래터럴 숄더 프레스"
-      ],
-      "type": "WEIGHT",
-      "method": "SETS_REPS",
-      "load": "STACK",
-      "manufacturer": "Hammer Strength",
-      "machine": "ISO-Lateral Shoulder Press",
-      "ppl": "PUSH",
-      "frontBack": "FRONT",
-      "primary": [
-        "전면삼각근"
-      ],
-      "secondary": [
-        "측면삼각근",
-        "상완삼두근 외측두",
-        "상완삼두근 내측두"
-      ],
-      "steps": [
-        "좌석 높이를 조절하고 등과 엉덩이를 지지 패드에 안정적으로 붙입니다.",
-        "오버핸드 그립으로 양손잡이를 잡습니다.",
-        "몸통을 흔들지 않고 어깨와 팔에 힘을 주며 손잡이를 위로 밀어냅니다.",
-        "반동 없이 천천히 손잡이를 어깨 높이 부근으로 내려옵니다."
-      ],
-      "equipment": "스택형 머신. 오버핸드 그립을 사용합니다.",
-      "modelStatus": "모델 상세 미확정",
-      "cardioKind": null,
-      "sourceId": null,
-      "jointType": "COMPOUND"
-    },
-    {
       "key": "push_standing_machine_lateral_raise",
       "id": "af156b7e-2496-87c3-8c15-7f31c5878160",
       "name": "스탠딩 머신 레터럴 레이즈",
@@ -689,20 +652,21 @@
       "jointType": "ISOLATION"
     },
     {
-      "key": "push_arsenal_shoulder_press",
+      "key": "push_machine_shoulder_press",
       "id": "f6fc6164-3d3c-863e-83d2-0068d1da9aac",
       "name": "머신 숄더 프레스",
-      "english": "Shoulder Press",
+      "english": "Machine Shoulder Press",
       "aliases": [
-        "아스널 숄더 프레스",
-        "Arsenal Strength Shoulder Press",
-        "Arsenal Shoulder Press"
+        "머신 숄더프레스",
+        "숄더 프레스 머신",
+        "Machine Shoulder Press",
+        "Seated Machine Shoulder Press"
       ],
       "type": "WEIGHT",
       "method": "SETS_REPS",
-      "load": "PLATE",
-      "manufacturer": "Arsenal Strength",
-      "machine": "Shoulder Press",
+      "load": null,
+      "manufacturer": null,
+      "machine": null,
       "ppl": "PUSH",
       "frontBack": "FRONT",
       "primary": [
@@ -719,8 +683,8 @@
         "몸통을 흔들지 않고 손잡이를 위쪽으로 밀어냅니다.",
         "어깨 움직임을 통제하면서 천천히 손잡이를 시작 위치로 내려옵니다."
       ],
-      "equipment": "원판형 숄더 프레스 머신입니다.",
-      "modelStatus": "모델 상세 미확정",
+      "equipment": "앉은 자세에서 손잡이를 어깨 위로 밀어 올리는 머신 운동입니다. 제조사와 부하 방식은 루틴 및 수행 장비에서 별도로 선택합니다.",
+      "modelStatus": null,
       "cardioKind": null,
       "sourceId": null,
       "jointType": "COMPOUND"

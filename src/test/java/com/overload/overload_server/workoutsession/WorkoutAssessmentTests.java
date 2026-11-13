@@ -21,34 +21,47 @@ class WorkoutAssessmentTests {
     }
     @ParameterizedTest @CsvSource({"5,8,8,DECREASE","6,6,6,MAINTAIN","10,10,9,MAINTAIN","10,10,10,INCREASE","11,12,10,INCREASE","15,8,8,MAINTAIN"})
     void rangeDoesNotDisqualifyComparablePerformanceButControlsAdvice(int a,int b,int c,String advice) {
-        var result=WorkoutAssessment.evaluate(initial(),plan(3),List.of(set(1,a),set(2,b),set(3,c))).exercises().getFirst();
+        var result=WorkoutAssessment.evaluate(initial(),plan(3),List.of(set(1,a),set(2,b),set(3,c)),true).exercises().getFirst();
         assertThat(result.eligible()).isTrue();assertThat(result.advice()).isEqualTo(advice);
     }
     @Test void firstNChoosesOrdinalBeforeApprovalFilterAndIgnoresExtraPerformance() {
         var a=set(1,10);var b=set(2,10);var c=set(3,10);var extra=set(4,1);
         extra.contextKind="TODAY_ONLY";extra.approvalState="TODAY_ONLY";extra.approvedWeight=null;
-        var result=WorkoutAssessment.evaluate(initial(),plan(3),List.of(extra,c,a,b)).exercises().getFirst();
+        var result=WorkoutAssessment.evaluate(initial(),plan(3),List.of(extra,c,a,b),true).exercises().getFirst();
         assertThat(result.evaluatedPerformedSetIds()).containsExactly(a.id,b.id,c.id);assertThat(result.advice()).isEqualTo("INCREASE");
         a.contextKind="TODAY_ONLY";a.approvalState="TODAY_ONLY";a.approvedWeight=null;
-        result=WorkoutAssessment.evaluate(initial(),plan(3),List.of(extra,c,a,b)).exercises().getFirst();
+        result=WorkoutAssessment.evaluate(initial(),plan(3),List.of(extra,c,a,b),true).exercises().getFirst();
         assertThat(result.eligible()).isFalse();assertThat(result.reasonCodes()).contains("TEMPORARY_WEIGHT");assertThat(result.advice()).isEqualTo("UNAVAILABLE");
     }
     @Test void deletedPreApprovalFactIsRetainedButNewApprovedPerformancesCanQualify() {
         var old=set(1,8);old.deletedAt=Instant.parse("2026-10-31T10:01:00Z");
         var next=List.of(set(1,8),set(2,8),set(3,8));next.forEach(s->{s.weight=new BigDecimal("62.5");s.approvedWeight=new BigDecimal("62.5");s.approvalState="APPLIED";});
         var all=new ArrayList<>(next);all.add(old);
-        var result=WorkoutAssessment.evaluate(initial(),plan(3),all).exercises().getFirst();
+        var result=WorkoutAssessment.evaluate(initial(),plan(3),all,true).exercises().getFirst();
         assertThat(result.eligible()).isTrue();assertThat(result.comparisonContext().approvedWeightKg()).isEqualTo("62.5");
         assertThat(old.approvedWeight).isEqualByComparingTo("60");assertThat(old.deletedAt).isNotNull();
         next.getFirst().approvalState="PENDING";next.getFirst().approvedWeight=null;
-        assertThat(WorkoutAssessment.evaluate(initial(),plan(3),all).exercises().getFirst().reasonCodes()).contains("NO_APPROVED_CONTEXT");
+        assertThat(WorkoutAssessment.evaluate(initial(),plan(3),all,true).exercises().getFirst().reasonCodes()).contains("NO_APPROVED_CONTEXT");
     }
     @Test void changingCountsThenReturningDoesNotLeaveAnyPermanentDisqualification() {
         var sets=List.of(set(1,8),set(2,8),set(3,8));
-        assertThat(WorkoutAssessment.evaluate(initial(),plan(4),sets).exercises().getFirst().reasonCodes()).contains("SET_COUNT_MISMATCH");
-        assertThat(WorkoutAssessment.evaluate(initial(),plan(3),sets).exercises().getFirst().eligible()).isTrue();
+        assertThat(WorkoutAssessment.evaluate(initial(),plan(4),sets,true).exercises().getFirst().reasonCodes()).contains("SET_COUNT_MISMATCH");
+        assertThat(WorkoutAssessment.evaluate(initial(),plan(3),sets,true).exercises().getFirst().eligible()).isTrue();
         var removed=new InitialPlan(2,routine,"test","0",List.of(initial().weightExercises().getFirst(),new InitialPlan.Weight(UUID.randomUUID(),UUID.randomUUID(),definition,"second",null,null,1,6,10,"60","60")),List.of());
-        assertThat(WorkoutAssessment.evaluate(removed,plan(3),sets).exercises().getFirst().reasonCodes()).contains("INCOMPLETE_INITIAL_WEIGHT_PLAN");
+        assertThat(WorkoutAssessment.evaluate(removed,plan(3),sets,true).exercises().getFirst().reasonCodes()).contains("INCOMPLETE_INITIAL_WEIGHT_PLAN");
+    }
+    @Test void provisionalGuidanceIsPerExerciseWhileOfficialEvaluationStillRequiresTheWholePlan() {
+        var original=initial();var other=UUID.randomUUID();
+        var extended=new InitialPlan(2,routine,"test","0",List.of(original.weightExercises().getFirst(),
+                new InitialPlan.Weight(other,UUID.randomUUID(),definition,"second",null,null,1,6,10,"60","60")),List.of());
+        var applied=new Plan(2,List.of(plan(3).weightExercises().getFirst(),new WeightPlan(other,1,6,10,null,null)),List.of());
+        var facts=List.of(set(1,10),set(2,10),set(3,10));
+        var provisional=WorkoutAssessment.evaluate(extended,applied,facts,false);
+        assertThat(provisional.complete()).isFalse();
+        assertThat(provisional.exercises().getFirst().advice()).isEqualTo("INCREASE");
+        assertThat(provisional.exercises().get(1).eligible()).isFalse();
+        assertThat(WorkoutAssessment.evaluate(extended,applied,facts,true).exercises().getFirst().reasonCodes())
+                .contains("INCOMPLETE_INITIAL_WEIGHT_PLAN");
     }
     @Test void tiesUseUnsignedUuidOrderAfterRepsAndActualEndedAt() {
         var at=Instant.parse("2026-10-31T10:00:00Z");
@@ -87,7 +100,7 @@ class WorkoutAssessmentTests {
             case "above-max"->stored.forEach(s->s.reps=11);
         }
         session.initialPlan=original.json();session.appliedPlan=json(applied);
-        var current=WorkoutAssessment.evaluate(original,applied,stored);
+        var current=WorkoutAssessment.evaluate(original,applied,stored,true);
         boolean eligible=Set.of("partial","both","eligible","below-min","above-max").contains(scenario);
         assertThat(current.exercises().stream().anyMatch(WorkoutAssessment.ExerciseResult::eligible)).isEqualTo(eligible);
         if(scenario.equals("partial"))assertThat(current.exercises().stream().filter(WorkoutAssessment.ExerciseResult::eligible)).hasSize(1);
@@ -174,7 +187,7 @@ class WorkoutAssessmentTests {
         var results=new ArrayList<WorkoutAssessment.ExerciseResult>();
         for(var item:current.exercises()) {
             WorkoutAssessment.Benchmark best=null;
-            for(var prior:past)for(var exercise:WorkoutAssessment.evaluate(InitialPlan.read(prior.initialPlan),JSON.readValue(prior.appliedPlan,Plan.class),stored).exercises()) {
+            for(var prior:past)for(var exercise:WorkoutAssessment.evaluate(InitialPlan.read(prior.initialPlan),JSON.readValue(prior.appliedPlan,Plan.class),stored,true).exercises()) {
                 if(!item.eligible()||!exercise.eligible()||!exercise.comparisonContext().equals(item.comparisonContext()))continue;
                 var evidence=new WorkoutAssessment.Benchmark(prior.id,Long.toString(prior.version),prior.endedAt,exercise.evaluatedPerformedSetIds(),exercise.evaluatedReps(),exercise.repsSum(),WorkoutAssessment.RULE_VERSION);
                 if(best==null||WorkoutAssessment.benchmarkOrder(evidence,best)<0)best=evidence;
@@ -182,5 +195,43 @@ class WorkoutAssessmentTests {
             results.add(new WorkoutAssessment.ExerciseResult(item.sessionExerciseId(),item.eligible(),item.reasonCodes(),item.comparisonContext(),item.evaluatedPerformedSetIds(),item.evaluatedReps(),item.repsSum(),best,item.advice(),item.adviceReason()));
         }
         return new WorkoutAssessment.Result(2,WorkoutAssessment.RULE_VERSION,at,Long.toString(session.version),current.complete(),List.copyOf(results));
+    }
+
+    @ParameterizedTest @CsvSource({"10,10,11,INCREASE","11,10,9,MAINTAIN","10,10,5,DECREASE","6,5,5,DECREASE"})
+    void postWorkoutReviewHighlightsOnlyTheContributingRepetitions(int a,int b,int c,String advice) {
+        var facts=List.of(set(1,a),set(2,b),set(3,c));
+        var result=WorkoutAssessment.review(initial(),plan(3),facts,"7",Instant.now()).exercises().getFirst();
+        assertThat(result.advice()).isEqualTo(advice);
+        assertThat(result.referenceWeightKg()).isEqualTo("60");
+        assertThat(result.completedSetCount()).isEqualTo(3);
+        for(int n=0;n<3;n++)assertThat(result.sets().get(n).contributes())
+                .isEqualTo(advice.equals("INCREASE")||advice.equals("DECREASE")&&facts.get(n).reps<6);
+    }
+    @Test void incompleteReviewSuggestsReductionWithoutGrantingOfficialBenchmarkEligibility() {
+        var facts=List.of(set(1,10),set(2,9));
+        var result=WorkoutAssessment.review(initial(),plan(3),facts,"7",Instant.now()).exercises().getFirst();
+        assertThat(result.advice()).isEqualTo("DECREASE");assertThat(result.incomplete()).isTrue();
+        assertThat(result.completedSetCount()).isEqualTo(2);assertThat(result.plannedSetCount()).isEqualTo(3);
+        assertThat(result.sets()).allMatch(s->!s.contributes());assertThat(result.sets()).hasSize(2);
+        assertThat(WorkoutAssessment.evaluate(initial(),plan(3),facts,true).exercises().getFirst().eligible()).isFalse();
+        facts.getFirst().reps=5;
+        result=WorkoutAssessment.review(initial(),plan(3),facts,"7",Instant.now()).exercises().getFirst();
+        assertThat(result.sets().getFirst().contributes()).isTrue();assertThat(result.sets().getLast().contributes()).isFalse();
+    }
+    @Test void unavailableContextsNeverTurnIntoPartialSetReductionAdvice() {
+        for(String kind:List.of("empty","temporary","pending","mixed","targets","removed")) {
+            var facts=new ArrayList<>(List.of(set(1,5),set(2,8)));var applied=plan(3);
+            switch(kind) {
+                case "empty"->facts.clear();
+                case "temporary"->facts.getFirst().contextKind="TODAY_ONLY";
+                case "pending"->{facts.getFirst().approvalState="PENDING";facts.getFirst().approvedWeight=null;}
+                case "mixed"->facts.getFirst().weight=new BigDecimal("61");
+                case "targets"->applied=plan(4);
+                case "removed"->applied=new Plan(2,List.of(),List.of());
+            }
+            var result=WorkoutAssessment.review(initial(),applied,facts,"7",Instant.now()).exercises().getFirst();
+            assertThat(result.advice()).as(kind).isEqualTo("UNAVAILABLE");
+            assertThat(result.referenceWeightKg()).isNull();assertThat(result.sets()).allMatch(r->!r.contributes());
+        }
     }
 }

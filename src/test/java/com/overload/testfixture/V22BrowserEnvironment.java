@@ -61,7 +61,7 @@ public final class V22BrowserEnvironment implements AutoCloseable {
         return start(runId, failBeforeReady, false, additionalSources);
     }
 
-    private static V22BrowserEnvironment start(UUID runId, boolean failBeforeReady, boolean approvedCatalog,
+    static V22BrowserEnvironment start(UUID runId, boolean failBeforeReady, boolean approvedCatalog,
                                                 Class<?>... additionalSources) throws Exception {
         // The local HTTP cookie profile is safe only with the test resource overlay.
         var overlay = V22BrowserEnvironment.class.getClassLoader().getResource("application-local.yaml");

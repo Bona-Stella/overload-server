@@ -124,6 +124,15 @@ public class WorkoutRecordService {
         });
     }
 
+    ProgressAssessment progressAssessment(UUID owner,UUID id) {
+        return reads.execute(tx->{
+            var session=find(owner,id);
+            if(!session.status.equals("ACTIVE"))throw failure(SESSION_NOT_ACTIVE);
+            return new ProgressAssessment(owner,Long.toString(session.dataGeneration),id,session.status,Long.toString(session.version),
+                    Long.toString(session.writerEpoch),Long.toString(session.localRevision),"PROVISIONAL",
+                    session.deload()?List.of("DELOAD_SESSION"):List.of(),session.deload()?null:assessments.progress(session,now()));
+        });
+    }
     Assessment assessment(UUID owner,UUID id) {
         return reads.execute(tx->{
             var session=find(owner,id);requireClosed(session);
@@ -131,7 +140,7 @@ public class WorkoutRecordService {
             var current=reason==null?new CurrentAssessment("EVALUATED",List.of(),null,assessments.assess(session,now()))
                     :new CurrentAssessment("EXCLUDED",List.of(reason),"UNAVAILABLE",null);
             return new Assessment(owner,Long.toString(session.dataGeneration),id,session.status,Long.toString(session.version),
-                    session.completionAssessment==null?null:JSON.readTree(session.completionAssessment),current);
+                    session.completionAssessment==null?null:JSON.readTree(session.completionAssessment),current,reason==null?assessments.weightReview(session,now()):null);
         });
     }
     Changes changes(UUID owner,UUID id) {

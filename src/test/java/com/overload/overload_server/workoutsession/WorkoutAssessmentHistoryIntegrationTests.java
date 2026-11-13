@@ -288,10 +288,10 @@ class WorkoutAssessmentHistoryIntegrationTests {
 
     // Work 3 implementation, retained here only as an identical-input/JPA-query measurement reference.
     WorkoutAssessment.Result previousAssessment(WorkoutSession session,Instant assessedAt,WorkoutSnapshotRepository records,WorkoutSessionRepository sessions) {
-        var current=WorkoutAssessment.evaluate(InitialPlan.read(session.initialPlan),JSON.readValue(session.appliedPlan,Plan.class),records.sets(session.id));
+        var current=WorkoutAssessment.evaluate(InitialPlan.read(session.initialPlan),JSON.readValue(session.appliedPlan,Plan.class),records.sets(session.id),true);
         var past=new ArrayList<Map.Entry<WorkoutSession,WorkoutAssessment.Evaluation>>();
         if(current.exercises().stream().anyMatch(WorkoutAssessment.ExerciseResult::eligible)) {
-            for(var candidate:sessions.finishedBefore(session))past.add(Map.entry(candidate,WorkoutAssessment.evaluate(InitialPlan.read(candidate.initialPlan),JSON.readValue(candidate.appliedPlan,Plan.class),records.sets(candidate.id))));
+            for(var candidate:sessions.finishedBefore(session))past.add(Map.entry(candidate,WorkoutAssessment.evaluate(InitialPlan.read(candidate.initialPlan),JSON.readValue(candidate.appliedPlan,Plan.class),records.sets(candidate.id),true)));
         }else sessions.flush();
         var exercises=new ArrayList<WorkoutAssessment.ExerciseResult>();
         for(var item:current.exercises()) {
@@ -304,6 +304,25 @@ class WorkoutAssessmentHistoryIntegrationTests {
             exercises.add(new WorkoutAssessment.ExerciseResult(item.sessionExerciseId(),item.eligible(),item.reasonCodes(),item.comparisonContext(),item.evaluatedPerformedSetIds(),item.evaluatedReps(),item.repsSum(),benchmark,item.advice(),item.adviceReason()));
         }
         return new WorkoutAssessment.Result(2,WorkoutAssessment.RULE_VERSION,assessedAt,Long.toString(session.version),current.complete(),List.copyOf(exercises));
+    }
+
+    @Test void incompleteWeightReviewIsReadOnlyAndDoesNotChangeOfficialAssessmentOrBenchmarkEligibility() {
+        var current=start(at);var full=state(current,true);
+        var partial=new State(full.sessionExercises(),full.appliedPlan(),full.performedSets().subList(0,2),
+                full.cardioResults(),full.deletedPerformedSetIds(),full.deletedCardioResultIds(),full.approvalRequests());
+        var ack=finish(current,partial);
+        var before=jdbc.queryForMap("select * from workout_sessions where id=?",current.id());
+        var result=records.assessment(owner,current.id());
+        var review=result.weightReview().exercises().getFirst();
+        assertThat(review.advice()).isEqualTo("DECREASE");assertThat(review.referenceWeightKg()).isEqualTo("60");
+        assertThat(review.completedSetCount()).isEqualTo(2);assertThat(review.plannedSetCount()).isEqualTo(3);
+        assertThat(review.incomplete()).isTrue();assertThat(review.sets()).hasSize(2).allMatch(s->!s.contributes());
+        assertThat(result.currentAssessment().evaluation().exercises().getFirst().eligible()).isFalse();
+        assertThat(result.currentAssessment().evaluation().exercises().getFirst().benchmarkEvidence()).isNull();
+        assertThat(JSON.treeToValue(result.completionAssessment(),WorkoutAssessment.Result.class)).isEqualTo(ack.completionAssessment());
+        assertThat(jdbc.queryForMap("select * from workout_sessions where id=?",current.id())).isEqualTo(before);
+        var later=start(at.plusSeconds(3600));var laterAck=finish(later,state(later,true));
+        assertThat(laterAck.completionAssessment().exercises().getFirst().benchmarkEvidence()).isNull();
     }
 
     WorkoutSessionResponses.Detail start(Instant started) {

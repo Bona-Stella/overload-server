@@ -11,12 +11,13 @@ const byKey = new Map(catalog.exercises.map(row => [row.key, row]));
 const unique = values => new Set(values).size === values.length;
 
 assert.equal(names.size, 40);
-assert.equal(byKey.size, 31);
+assert.equal(byKey.size, 30);
 assert.equal(catalog.exercises.length, byKey.size);
 assert.ok(unique(catalog.exercises.map(row => row.id)));
-assert.equal(catalog.exercises.filter(row => row.type === 'WEIGHT' && row.method === 'SETS_REPS').length, 29);
+assert.ok(unique(catalog.exercises.map(row => row.name.normalize('NFKC').replace(/\s/g,''))), 'Standard names must not be duplicated by equipment');
+assert.equal(catalog.exercises.filter(row => row.type === 'WEIGHT' && row.method === 'SETS_REPS').length, 28);
 assert.equal(catalog.exercises.filter(row => row.type === 'CARDIO' && row.method === 'CARDIO').length, 2);
-assert.equal(catalog.exercises.filter(row => row.jointType === 'COMPOUND').length, 15);
+assert.equal(catalog.exercises.filter(row => row.jointType === 'COMPOUND').length, 14);
 assert.equal(catalog.exercises.filter(row => row.jointType === 'ISOLATION').length, 14);
 assert.deepEqual(catalog.exercises.filter(row => row.sourceId).map(row => [row.key, row.sourceId]),
   [['pull_machine_high_row', 'nZZZy9m']]);
@@ -45,9 +46,10 @@ function verifyHandoff(path, sourcePath) {
   assert.deepEqual(handoff.cardio_rest_days, ['WED', 'SAT', 'SUN']);
   assert.deepEqual(handoff.excluded_exercises, ['Baseball']);
   const routines = [...handoff.strength_routine, ...handoff.cardio_routine];
-  assert.ok(routines.every(slot => byKey.has(slot.exercise_review_key)));
-  assert.ok(handoff.strength_routine.every(slot => byKey.get(slot.exercise_review_key).type === 'WEIGHT'));
-  assert.ok(handoff.cardio_routine.every(slot => byKey.get(slot.exercise_review_key).type === 'CARDIO'
+  const standardKey = key => ['push_hammer_shoulder_press', 'push_arsenal_shoulder_press'].includes(key) ? 'push_machine_shoulder_press' : key;
+  assert.ok(routines.every(slot => byKey.has(standardKey(slot.exercise_review_key))));
+  assert.ok(handoff.strength_routine.every(slot => byKey.get(standardKey(slot.exercise_review_key)).type === 'WEIGHT'));
+  assert.ok(handoff.cardio_routine.every(slot => byKey.get(standardKey(slot.exercise_review_key)).type === 'CARDIO'
     && !handoff.cardio_rest_days.includes(slot.day)));
   const fridayRaise = routines.find(slot => slot.day === 'FRI' && slot.exercise_review_key === 'push_dumbbell_lateral_raise');
   assert.equal(fridayRaise.completed_repetitions_by_set[2], 20);
@@ -68,6 +70,14 @@ function verifyHandoff(path, sourcePath) {
     legs_captains_chair_leg_raise: { ppl: 'LEGS' },
   };
   for (const exercise of handoff.standard_exercises) {
+    if (['push_hammer_shoulder_press','push_arsenal_shoulder_press'].includes(exercise.review_key)) {
+      const row=byKey.get('push_machine_shoulder_press');
+      assert.equal(row.name,'머신 숄더 프레스');
+      assert.equal(row.manufacturer,null);assert.equal(row.machine,null);
+      assert.deepEqual(row.primary,exercise.primary_muscles_candidate);
+      assert.deepEqual(row.secondary,exercise.secondary_muscles_candidate);
+      continue; // Latest user decision unifies these two source machine references.
+    }
     const row = byKey.get(exercise.review_key);
     assert.ok(row, exercise.review_key);
     const expected = {
@@ -102,7 +112,7 @@ function verifyHandoff(path, sourcePath) {
   assert.deepEqual([source.exerciseId, source.name, source.gifUrl],
     [catalog.highRowSource.id, catalog.highRowSource.name, catalog.highRowSource.gif]);
   assert.equal(sourceRows.filter(row => row.exerciseId === 'nZZZy9m').length, 1);
-  console.error('입력 대조 통과 · 표준 운동 31개(웨이트 29, 유산소 2), 루틴 배치 33/4건, V32 근육명 40개, 단일 원본 729번');
+  console.error('입력 대조 통과 · 표준 운동 30개(웨이트 28, 유산소 2), 루틴 배치 33/4건, V32 근육명 40개, 단일 원본 729번');
 }
 
 const args = process.argv.slice(2);

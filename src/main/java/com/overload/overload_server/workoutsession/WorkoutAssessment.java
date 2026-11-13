@@ -36,7 +36,7 @@ public class WorkoutAssessment {
             for(var w:InitialPlan.read(session.initialPlan).weightExercises()){var actual=all.stream().filter(v->v.deletedAt==null&&v.exerciseId.equals(w.sessionExerciseId())).toList();results.add(new ExerciseResult(w.sessionExerciseId(),false,List.of("DELOAD_SESSION"),null,actual.stream().map(v->v.id).toList(),actual.stream().map(v->v.reps).toList(),Long.toString(actual.stream().mapToLong(v->v.reps).sum()),null,"UNAVAILABLE","DELOAD_SESSION"));}
             sessions.flush();return new Result(2,"deload-record-only-v1",assessedAt,Long.toString(session.version),null,List.copyOf(results));
         }
-        var current=evaluate(InitialPlan.read(session.initialPlan),JSON.readValue(session.appliedPlan,Plan.class),records.sets(session.id));
+        var current=evaluate(InitialPlan.read(session.initialPlan),JSON.readValue(session.appliedPlan,Plan.class),records.sets(session.id),true);
         var benchmarks=new HashMap<Context,Benchmark>();
         if (current.exercises().stream().anyMatch(ExerciseResult::eligible)) {
             var contexts=current.exercises().stream().filter(ExerciseResult::eligible).map(ExerciseResult::comparisonContext).collect(Collectors.toSet());
@@ -46,7 +46,7 @@ public class WorkoutAssessment {
                 var batch=past.subList(offset,Math.min(offset+HISTORY_BATCH_SIZE,past.size()));
                 var sets=records.setsForSessions(batch.stream().map(s->s.id).toList()).stream().collect(Collectors.groupingBy(s->s.sessionId));
                 for (var candidate:batch) {
-                    var previous=evaluate(InitialPlan.read(candidate.initialPlan),JSON.readValue(candidate.appliedPlan,Plan.class),sets.getOrDefault(candidate.id,List.of()));
+                    var previous=evaluate(InitialPlan.read(candidate.initialPlan),JSON.readValue(candidate.appliedPlan,Plan.class),sets.getOrDefault(candidate.id,List.of()),true);
                     for (var prior:previous.exercises()) {
                         if (!prior.eligible()||!contexts.contains(prior.comparisonContext())) continue;
                         var evidence=new Benchmark(candidate.id,Long.toString(candidate.version),candidate.endedAt,prior.evaluatedPerformedSetIds(),
@@ -75,7 +75,51 @@ public class WorkoutAssessment {
         return time!=0?time:a.sessionId().toString().compareTo(b.sessionId().toString());
     }
 
-    static Evaluation evaluate(InitialPlan initial,Plan applied,List<PerformedSet> stored) {
+    /** Active exercise guidance uses the same facts/range rules, without claiming whole-plan completion. */
+    Result progress(WorkoutSession session,Instant assessedAt) {
+        var current=evaluate(InitialPlan.read(session.initialPlan),JSON.readValue(session.appliedPlan,Plan.class),records.sets(session.id),false);
+        return new Result(2,RULE_VERSION,assessedAt,Long.toString(session.version),current.complete(),current.exercises());
+    }
+
+    public record ReviewSet(UUID performedSetId,int ordinal,int reps,boolean contributes) { }
+    public record ReviewExercise(UUID sessionExerciseId,String advice,List<String> reasonCodes,String referenceWeightKg,
+            int plannedSetCount,int completedSetCount,int minReps,int maxReps,boolean incomplete,List<ReviewSet> sets) { }
+    public record WeightReview(int schemaVersion,String ruleVersion,String sessionVersion,Instant assessedAt,List<ReviewExercise> exercises) { }
+
+    /** User-facing post-workout guidance is independent of official benchmark eligibility. */
+    WeightReview weightReview(WorkoutSession session,Instant assessedAt) {
+        return review(InitialPlan.read(session.initialPlan),JSON.readValue(session.appliedPlan,Plan.class),
+                records.sets(session.id),Long.toString(session.version),assessedAt);
+    }
+    static WeightReview review(InitialPlan initial,Plan applied,List<PerformedSet> stored,String version,Instant at) {
+        var evaluation=evaluate(initial,applied,stored,false);
+        var items=new ArrayList<ReviewExercise>();
+        for(var original:initial.weightExercises()) {
+            var facts=stored.stream().filter(s->s.deletedAt==null&&s.exerciseId.equals(original.sessionExerciseId()))
+                    .sorted(Comparator.comparingInt((PerformedSet s)->s.ordinal).thenComparing(s->s.id.toString())).toList();
+            var selected=facts.stream().limit(original.setCount()).toList();
+            var basis=evaluation.exercises().stream().filter(e->e.sessionExerciseId().equals(original.sessionExerciseId())).findFirst().orElseThrow();
+            var reasons=new ArrayList<>(basis.reasonCodes().stream().filter(r->!r.equals("INSUFFICIENT_PERFORMED_SETS")).toList());
+            if(selected.isEmpty())reasons.add("NO_PERFORMED_SETS");
+            boolean incomplete=facts.size()<original.setCount();
+            String advice="UNAVAILABLE";
+            if(reasons.isEmpty()) {
+                if(incomplete||selected.stream().anyMatch(f->f.reps<original.minReps()))advice="DECREASE";
+                else if(selected.stream().allMatch(f->f.reps>=original.maxReps()))advice="INCREASE";
+                else advice="MAINTAIN";
+            }
+            var direction=advice;
+            var selectedIds=selected.stream().map(f->f.id).collect(Collectors.toSet());
+            var values=facts.stream().map(f->new ReviewSet(f.id,f.ordinal,f.reps,selectedIds.contains(f.id)
+                    &&(direction.equals("INCREASE")||direction.equals("DECREASE")&&f.reps<original.minReps()))).toList();
+            String reference=reasons.isEmpty()?decimal(selected.getFirst().approvedWeight):null;
+            items.add(new ReviewExercise(original.sessionExerciseId(),advice,List.copyOf(reasons),reference,
+                    original.setCount(),facts.size(),original.minReps(),original.maxReps(),incomplete,values));
+        }
+        return new WeightReview(1,"workout-weight-review-v1",version,at,List.copyOf(items));
+    }
+
+    static Evaluation evaluate(InitialPlan initial,Plan applied,List<PerformedSet> stored,boolean requireWholePlan) {
         var valid=new HashMap<UUID,List<PerformedSet>>();
         for (var set:stored) if (set.deletedAt==null) valid.computeIfAbsent(set.exerciseId,ignored->new ArrayList<>()).add(set);
         valid.values().forEach(list->list.sort(Comparator.comparingInt((PerformedSet s)->s.ordinal).thenComparing(s->s.id.toString())));
@@ -85,7 +129,7 @@ public class WorkoutAssessment {
         var results=new ArrayList<ExerciseResult>();
         for (var original:initial.weightExercises()) {
             var reasons=new LinkedHashSet<String>();
-            if (!Boolean.TRUE.equals(complete)) reasons.add("INCOMPLETE_INITIAL_WEIGHT_PLAN");
+            if (requireWholePlan&&!Boolean.TRUE.equals(complete)) reasons.add("INCOMPLETE_INITIAL_WEIGHT_PLAN");
             var plan=plans.get(original.sessionExerciseId());
             if (plan==null) reasons.add("INITIAL_EXERCISE_REMOVED");
             else {

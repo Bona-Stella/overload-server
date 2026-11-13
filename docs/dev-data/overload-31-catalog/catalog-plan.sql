@@ -74,8 +74,9 @@ JOIN standard_exercise e ON e.id NOT IN (SELECT requested_id FROM handoff_exerci
 DO $$
 DECLARE conflict text;
 BEGIN
-    IF (SELECT count(*) FROM handoff_exercise) <> 31
-        OR (SELECT count(DISTINCT resolved_id) FROM handoff_exercise) <> 31
+    IF (SELECT count(*) FROM handoff_exercise) <> 30
+        OR (SELECT count(DISTINCT resolved_id) FROM handoff_exercise) <> 30
+        OR EXISTS (SELECT 1 FROM handoff_exercise GROUP BY regexp_replace(lower(normalize(name,NFKC)), '[[:space:]]+', '', 'g') HAVING count(*)>1)
         OR (SELECT count(*) FROM handoff_cardio) <> 2
         OR EXISTS (
             SELECT 1 FROM handoff_payload p CROSS JOIN LATERAL jsonb_object_keys(p.reuse) AS r(key)
@@ -115,10 +116,8 @@ BEGIN
               e.exercise_type <> h.type OR e.record_method <> h.method
               OR e.cardio_activity_id IS DISTINCT FROM c.id
               OR (h.resolved_id = h.requested_id AND e.name <> h.name)
-              OR (h.name = '머신 숄더 프레스' AND position(lower(h.manufacturer)
-                    IN lower(COALESCE(e.equipment_description, ''))) = 0)
        ));
-    IF conflict IS NOT NULL THEN RAISE EXCEPTION 'Standard exercise UUID or variant conflict: %', conflict; END IF;
+    IF conflict IS NOT NULL THEN RAISE EXCEPTION 'Standard exercise UUID conflict: %', conflict; END IF;
 
     IF NOT EXISTS (
         SELECT 1 FROM handoff_exercise h CROSS JOIN handoff_payload p
@@ -163,7 +162,7 @@ INSERT INTO standard_exercise(
 SELECT h.resolved_id, h.name, h.type, h.method, h."jointType", h.ppl, h."frontBack",
     (SELECT string_agg(step, E'\n' ORDER BY ordinal)
      FROM jsonb_array_elements_text(h.steps) WITH ORDINALITY AS t(step, ordinal)),
-    concat_ws(' · ', h.manufacturer, h.machine, h.equipment), c.id, false, false
+    h.equipment, c.id, false, false
 FROM handoff_exercise h JOIN handoff_new n USING(key)
 LEFT JOIN handoff_cardio c USING(key);
 
@@ -203,7 +202,7 @@ BEGIN
             IS DISTINCT FROM ROW(h.name, h."jointType", h.ppl, h."frontBack",
                 (SELECT string_agg(step, E'\n' ORDER BY ordinal)
                  FROM jsonb_array_elements_text(h.steps) WITH ORDINALITY AS t(step, ordinal)),
-                concat_ws(' · ', h.manufacturer, h.machine, h.equipment))
+                h.equipment)
         OR EXISTS (
             (SELECT m.muscle_id, m.role, m.position FROM handoff_muscle m WHERE m.key = h.key
              EXCEPT
@@ -231,12 +230,10 @@ SET muscle_targets_reviewed = true, splits_reviewed = true,
 FROM handoff_exercise h CROSS JOIN handoff_payload p
 WHERE p.approve AND e.id = h.resolved_id AND (NOT e.muscle_targets_reviewed OR NOT e.splits_reviewed);
 
-SELECT h.key, h.name, h.resolved_id AS standard_exercise_id, b.resolved_id AS manufacturer_id,
-       h.manufacturer, h.machine, h.load AS placement_load_type, e.cardio_activity_id, h."sourceId" AS source_id,
+SELECT h.key, h.name, h.resolved_id AS standard_exercise_id, e.cardio_activity_id, h."sourceId" AS source_id,
        n.key IS NOT NULL AS inserted, e.joint_type, e.ppl_split, e.front_back_split,
        e.muscle_targets_reviewed, e.splits_reviewed
 FROM handoff_exercise h
 JOIN standard_exercise e ON e.id = h.resolved_id
-LEFT JOIN handoff_brand b ON b.name = h.manufacturer
 LEFT JOIN handoff_new n USING(key)
 ORDER BY h.key;

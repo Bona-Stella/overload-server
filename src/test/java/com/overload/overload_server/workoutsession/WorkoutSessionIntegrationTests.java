@@ -1928,6 +1928,27 @@ class WorkoutSessionIntegrationTests {
     JsonNode bodyweightStatistics() throws Exception {return node(browser.get("/api/v1/statistics/overview?fromDate=2026-11-01&toDateExclusive=2026-11-02")).get("statistics").get("summary");}
     static SetValue bodyweight(SetValue v,BodyweightLoad extra){return new SetValue(v.id(),v.sessionExerciseId(),v.ordinal(),v.weightKg(),v.reps(),v.completedAt(),v.weightContext(),null,"BODYWEIGHT",extra);}
 
+    @ParameterizedTest @org.junit.jupiter.params.provider.CsvSource({"10,10,10,INCREASE","5,8,8,DECREASE","8,8,8,MAINTAIN"})
+    void activeProgressAssessmentUsesSavedFactsWithoutSealingOrMutatingTheSession(int a,int b,int c,String advice) throws Exception {
+        var base=initialState();var value=confirmed(base,new int[]{a,b,c},new Context("INITIAL_APPROVED",null));
+        node(save(1,value));var before=row();
+        var response=browser.get(path()+"/progress-assessment");var progress=node(response);
+        assertThat(response.headers().firstValue("Cache-Control").orElse("")).contains("no-store");
+        assertThat(progress.get("kind").asString()).isEqualTo("PROVISIONAL");
+        assertThat(progress.get("status").asString()).isEqualTo("ACTIVE");
+        assertThat(progress.get("localRevision").asString()).isEqualTo("1");
+        assertThat(progress.get("evaluation").get("exercises").get(0).get("advice").asString()).isEqualTo(advice);
+        assertThat(row()).isEqualTo(before);
+        error(browser.get(path()+"/assessment"),409,"SESSION_NOT_CLOSED");
+        try(var foreign=new Browser()) {
+            foreign.login(UUID.randomUUID()+"@example.test");
+            error(foreign.get(path()+"/progress-assessment"),404,"SESSION_NOT_FOUND");
+        }
+        node(finish(1,value));
+        error(browser.get(path()+"/progress-assessment"),409,"SESSION_NOT_ACTIVE");
+        assertThat(node(browser.get(path()+"/assessment")).get("completionAssessment").get("exercises").get(0).get("advice").asString()).isEqualTo(advice);
+    }
+
     void routineEquipment(UUID manufacturer,String load,long version) throws Exception {
         var input=updateRoutine();input.put("expectedVersion",Long.toString(version));input.put("name","session source");
         var weight=equipment(Map.of("mode","EXISTING","id",placement,"setCount",3,"minReps",6,"maxReps",10));

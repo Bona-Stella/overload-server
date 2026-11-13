@@ -26,7 +26,9 @@ public final class WorkoutRecordData {
             boolean changed,List<ApprovalResult> approvalResults) { }
     public record CurrentAssessment(String state,List<String> reasonCodes,String advice,WorkoutAssessment.Result evaluation) { }
     public record Assessment(UUID userId,String dataGeneration,UUID sessionId,String status,String version,
-            JsonNode completionAssessment,CurrentAssessment currentAssessment) { }
+            JsonNode completionAssessment,CurrentAssessment currentAssessment,WorkoutAssessment.WeightReview weightReview) { }
+    public record ProgressAssessment(UUID userId,String dataGeneration,UUID sessionId,String status,String version,
+            String writerEpoch,String localRevision,String kind,List<String> reasonCodes,WorkoutAssessment.Result evaluation) { }
     public record Change(UUID id,String recordKind,UUID recordId,String changeKind,JsonNode before,JsonNode after,
             JsonNode changeContext,Instant recordedAt) { }
     public record Changes(UUID userId,String dataGeneration,UUID sessionId,String version,List<Change> events) { }

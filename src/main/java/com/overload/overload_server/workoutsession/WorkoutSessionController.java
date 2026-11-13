@@ -36,6 +36,10 @@ public class WorkoutSessionController {
             @RequestBody String body,HttpServletRequest request) {
         validate(request,false);return ok(snapshots.resolveClosed(principal.userId(),WorkoutSessionRequests.uuid(id),WorkoutRecordRequests.resolve(body)));
     }
+    @GetMapping("/{id}/progress-assessment")
+    ResponseEntity<WorkoutRecordData.ProgressAssessment> progressAssessment(@AuthenticationPrincipal SessionPrincipal principal,@PathVariable String id,HttpServletRequest request) {
+        validate(request,true);return ok(records.progressAssessment(principal.userId(),WorkoutSessionRequests.uuid(id)));
+    }
     @GetMapping("/{id}/assessment")
     ResponseEntity<WorkoutRecordData.Assessment> assessment(@AuthenticationPrincipal SessionPrincipal principal,@PathVariable String id,HttpServletRequest request) {
         validate(request,true);return ok(records.assessment(principal.userId(),WorkoutSessionRequests.uuid(id)));
