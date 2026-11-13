@@ -1,5 +1,7 @@
 # Approved Weight Growth API — Phase 2C
 
+> **2026-11-13 후속 정책:** 공식 승인 원본은 루틴 배치별 `approved_weight`이며 개인 조합별 승인 원본을 추가하지 않는다. [루틴 조합 변경 정책](routine-management.md#2026-11-13-후속-확정-정책과-현재-http의-경계)은 기존 배치를 논리적으로 제외하고 NEW 배치를 생성한다. 같은 조합으로 돌아와도 과거 배치의 승인·benchmark를 새 배치에 연결하지 않는다. 최근 실제 중량 조회는 이 성장 API와 별도이며 아래 HTTP는 현재 구현을 설명한다.
+
 2026-11-02 (Asia/Seoul). [Statistics and Tracking v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md) ST-38~42를 구현한다. 제품 정책 버전은 변경하지 않는다. 새로운 승인·평가·집계 표·migration 없이 기존 `progress_change_events`를 읽는다. 개인 DB V18~V20 미적용 상태를 유지한다.
 
 ## 공통 계약
@@ -22,7 +24,7 @@ query는 period/timeZone뿐이다. 본인 수행 또는 승인 이력으로 접�
 
 `{...공통,standardExerciseId,name,placements:[{routineId,placementId,routineName,deleted,lastApprovalAt}]}`
 
-배치는 최근 승인·배치UUID 순이다. deleted는 부모 또는 배치의 논리 삭제이며 조회 제외 조건이 아니다. UI는 하나의 배치를 명시 선택한다. 같은 표준 운동/이름/장비라는 이유로 서로 다른 배치의 승인값을 평균·최댓값·하나의 성장선으로 합치지 않는다. 장비 변경도 기존 배치의 공식 승인 계보를 재정의하지 않는다.
+배치는 최근 승인·배치UUID 순이다. deleted는 부모 또는 배치의 논리 삭제이며 조회 제외 조건이 아니다. UI는 하나의 배치를 명시 선택한다. 같은 표준 운동/이름/조합이라는 이유로 서로 다른 배치의 승인값을 평균·최댓값·하나의 성장선으로 합치지 않는다. 기존 배치 내 제조사·부하 변경을 허용하는 현재 쓰기 구현은 후속 전환 대상이다. 확정 정책의 조합 변경은 NEW 배치이므로 기존 배치의 승인 계보는 보존하고 새 배치와 연결하지 않는다.
 
 ## GET /api/v1/statistics/growth/exercises/{standardId}/placements/{placementId}
 

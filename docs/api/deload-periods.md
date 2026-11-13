@@ -1,5 +1,7 @@
 # 디로딩 기간·임시 계획 API — G5
 
+> **2026-11-13 정책 정합성 확인:** G5 임시 계획은 원본 정규 루틴 배치의 공식 승인 중량을 기준으로 편성한다. [조합 선택 시 최근 실제 중량 조회](routine-management.md#후속-조회메모-api-설계-범위)는 G5 기준값을 대체하지 않는다. 디로딩 수행은 일반 승인 중량을 변경하거나 일반 공식 증감 평가·성장 사건을 만들지 않는다. 대체 수행의 일반 유효 운동일 인정은 [DL-08/G4 후속 연결](deload-analysis.md)의 범위이며 이 문서의 기간·편성 계산식은 유지한다.
+
 2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md), [G5-1 기록](../tasks/deload-g5-1-report.md), [G5-2 기록](../tasks/deload-g5-2-report.md), [G5-3 기록](../tasks/deload-g5-3-report.md)을 따른다. 디로딩 운동은 [공통 세션 계약](workout-sessions.md#g5-2-디로딩-세션)을 사용한다.
 
 ## 인증·읽기·쓰기

@@ -1,6 +1,20 @@
 # Statistics API — Overview
 
+> **2026-11-13 후속 정책 확정 / 대체 슬롯 연결 미구현:** [통계·추적 v1.4의 ST-17~23](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md)은 정확한 네 분류와 원계획 세트 수를 충족한 대체 수행도 원계획 슬롯 완료로 인정한다. 이 인정은 공식 증감 평가 전체 제외와 독립이며 실제 운동량을 중복 생성하지 않는다. 아래 응답은 현재 HTTP 구현이다. 공통 완료 판정의 대체 연결·분류 근거·정정 후 재계산 연결은 후속 구현이며 새 응답 필드를 확정한 것이 아니다.
+
 현재 일반 통계 조회는 Overview를 사용한다. 제품 정책은 [통계·추적 v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md), 적용 이력과 날짜 판정은 [주간 일정](weekly-schedule.md), 관련 집계 계약은 [승인 성장](approved-weight-growth.md)·[유산소 실제 측정](cardio-actual-measurements.md)·[맨몸 추가 부하](bodyweight-additional-load.md)에 있다. 제거된 루트 GET과 당시 제약은 문서 마지막의 역사 기록에 보존한다.
+
+## 분류별 독립 집계와 선택 프리셋 계획 — 2026-11-13
+
+**제품 정책 확정 / 일부 구현·후속 확장 필요.** [ST-24~31 및 4.3절](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md#4-근육별-세트-집계)을 적용한다. 전면/후면·PPL·부위는 검수된 운동 분류와 원본 계획/실제 세트를 각각 직접 집계한다. 세부 근육만 계획·실제 원본별 PRIMARY 1.0 / SECONDARY 0.5 기여를 계산한다. 상위를 하위 기여 합으로 만들지 않으며 전체 물리적 세트와 실제 참여 세트는 정수로 보존한다. 0.5는 근사 기여 계수이며 반복·총중량에는 적용하지 않는다.
+
+| 확인한 현재 구현 | 후속 구현 경계 |
+|---|---|
+| `muscles[].contributionSets`는 실제 참여에 PRIMARY 1.0 / SECONDARY 0.5를 적용한다. `weights.completedSets`는 실제 참여 정수, `weights.plannedSets`는 가중하지 않은 계획 참여 정수다. | 계획 기여 세트도 계산·표현해야 한다. 기존 참여 필드를 소수 기여로 덮어쓰지 않는다. |
+| `groups`는 근육 매핑의 부위·역할별 집계, `groupActuals`는 같은 실제 세트를 매핑된 부위별 한 번 센 결과다. 전면/후면·PPL 응답은 없다. | 현재 근육 그룹 참여 집계를 검수된 운동 분류의 직접 집계와 동일시하지 않는다. 네 수준의 입력·누락 분류·계획/실제 표현을 연결해야 한다. |
+| Overview는 날짜 범위·당시 적용 일정·InitialPlan 근거를 사용한다. 선택 프리셋의 현재 주간 계획을 분석하는 조회 계약은 없다. | 활성/비활성 중 선택한 프리셋의 월~일 배정 루틴을 출현별로 읽는다. 동일 루틴의 월·목 배정을 모두 포함하며 프리셋에 운동·중량을 복제하지 않는다. |
+
+선택 프리셋 현재 계획, 과거 적용 주간 계획, 실제 완료량, 디로딩 임시 계획을 혼합하지 않는다. [주간 프리셋 계약](weekly-schedule.md#선택-프리셋의-현재-주간-계획-분석--2026-11-13)과 [카탈로그 분류 경계](standard-exercise-catalog.md#세트-분석용-분류와-근육-매핑--2026-11-13)를 재사용한다. 추가 HTTP 경로·query·DTO·오류 코드는 이번에 확정하지 않는다. 아래 GET의 허용 query·현재 응답은 그대로이며 이 문서 반영만으로 구현 완료로 표시하지 않는다. 기존 대체 슬롯·공식 평가·G4·정정/삭제/복구 계약은 유지한다.
 
 ## GET /api/v1/statistics/overview
 
@@ -50,8 +64,8 @@ Decimal은 정확한 JSON 문자열이다. 유효 실제 수행의 중량은 실
 - 승인 상태·TODAY_ONLY·UNVERIFIED·장비·표준 운동 활성 여부로 실제 기록을 제외하지 않는다. 현재 활성 muscle 연결을 참고 분류로 사용한다.
 - 정정·삭제·명시 누락 복구 이후 매 조회에서 관계형 수행을 읽는다. record_change_events를 수행으로 더하지 않고 삭제 UUID를 복구하지 않는다. InitialPlan과 봉인 AppliedPlan·평가·승인 사건은 변경하지 않는다.
 - `completedSets`, `reps`는 실제 유효 완료 세트·실제 반복 합계다. 추가 종목·추가 세트를 포함하며 계획을 초과해도 잘라내지 않는다. 계획0/실제양수는 계획 없음으로 표시한다.
-- `muscles[].weights.completedSets`는 역할별 실제 참여 세트를 정수 문자열로 유지한다. `contributionSets`는 완료 세트당 PRIMARY 1.0, SECONDARY 0.5를 적용한 한 자리 십진 문자열이다. 계획·반복·총중량에는 기여율을 적용하지 않는다.
-- `groupActuals`는 PRIMARY·SECONDARY를 가로질러 같은 실제 세트를 대분류마다 한 번 센다. 해당 기간에 실제 참여가 있는 그룹만 반환한다. 기존 `groups`는 역할별 계획·참여·총중량을 유지하며 전체 `summary`는 수행 세트당 한 번 집계한다.
+- `muscles[].weights.completedSets`는 역할별 실제 참여 세트를 정수 문자열로 유지한다. 현재 `contributionSets`는 완료 세트당 PRIMARY 1.0, SECONDARY 0.5를 적용한 한 자리 십진 문자열이며 실제 기여만 제공한다. `weights.plannedSets`는 현재 가중하지 않은 계획 참여 값이다. 후속 정책의 계획 기여도 별도로 지원해야 하며 반복·총중량에는 기여율을 적용하지 않는다.
+- 현재 `groupActuals`는 PRIMARY·SECONDARY를 가로질러 같은 실제 세트를 근육 매핑의 부위마다 한 번 센다. 해당 기간에 실제 참여가 있는 그룹만 반환한다. 기존 `groups`는 역할별 계획·참여·총중량을 유지하며 전체 `summary`는 수행 세트당 한 번 집계한다. 이 구현 설명을 위 후속 정책의 네 수준 직접 집계 완료로 해석하지 않는다.
 - 예를 들어 한 세트에 같은 대분류의 PRIMARY 하나와 SECONDARY 하나가 연결되면 각 근육 기여는 `"1.0"`과 `"0.5"`이며 해당 `groupActuals`와 전체 `summary.completedSets`에는 각각 한 세트가 반영된다. 다른 대분류에도 참여한 세트는 해당 그룹에 한 번씩 포함되므로 그룹을 더해 전체를 계산하지 않는다.
 - 과거 수행의 근육 통계에도 조회 시점의 활성 근육 연결을 사용한다. 기존 세트·계획·승인 이력을 바꾸지 않고, 정정·논리 삭제·복구의 기존 유효성 규칙을 적용한다.
 - `unmappedCompletedSets`는 활성 PRIMARY 연결이 없는 실제 세트 수이며 전체 실제 세트에는 남긴다. 카탈로그 검토 완료 수치가 아니다.
@@ -64,8 +78,8 @@ Decimal은 정확한 JSON 문자열이다. 유효 실제 수행의 중량은 실
 - 날짜별로 해당 날짜에 유효한 최신 일정 version을 찾는다. 최초 등록은 당일 즉시 적용하며 첫 주 등록 전 날짜만 BEFORE_REGISTRATION으로 제외한다. 그 날짜의 plan, plannedExercises, completedExercises, effectiveDay는 null이고 unknownPlanDays를 증가시키지 않는다. 휴식 또는 소급 계획을 만들지 않는다. 최초 등록 주보다 앞선 주는 UNKNOWN이며 과거 분모를 추정하지 않는다. 명시적 휴식 일정은 REST다.
 - 예정일에 해당 루틴을 시작한 증거가 있으면 가장 이른 시작의 불변 InitialPlan을 그날 계획 표시/계획 세트 원본으로 사용한다. 삭제/ACTIVE 세션도 시작 계획의 증거는 유지하며 실제 수행 분자에는 기존처럼 미삭제 종료 세션만 사용한다. 시작한 세션이 없으면 당시 계획 이력의 현지 날짜 종료 이전 최신값을 사용한다. 미래/오늘 계획에는 현재 확인된 최신 자료만 반영하며 지난 날짜를 이후 편집으로 바꾸지 않는다.
 - routine_plan_history는 조회 구간의 날짜별 마지막 계획과 구간 직전 기준만, 일정은 적용일별 마지막 version·구간 직전 기준·최초version1을 읽는다. 최초 이력은 같은 SQL의 UNION으로 확보하여 최근20개 편집에 의존하지 않는다. 세션/근육별 N+1 없이 추가 최대3개 고정 query를 사용한다. 적용 계획의 세트에는 **운동하지 않은 예정일**도 포함한다. 근육별 분류·중복 제거는 위의 실제 집계와 같은 기준이다.
-- 완료 후보는 예정일 날짜·예정 루틴이 모두 일치하는 미삭제 FINISHED/AUTO_CLOSED 세션이다. 각 후보의 **자기 InitialPlan**과 현재 유효 수행을 비교한다. WEIGHT는 해당 sessionExerciseId의 실제 완료 세트 수가 최초 setCount 이상이어야 완료 종목1개다. AppliedPlan 축소나 추가 종목은 분자/분모를 바꾸지 않는다. 반복·승인 중량 성과 평가를 이 달성률 산식에 섞지 않는다.
-- 후보별 완료 계획 종목/최초 계획 종목의 정확한 유리수를 비교하여 **단일 최고값**만 사용한다. 서로 다른 세션의 부분 세트/종목을 합치지 않는다. 예정일에 수행이 없으면 유효 운동일0, 휴식일/다른 루틴/추가 운동은 계획 분자를 채우지 않으며 실제 운동량에는 남는다. 일일 최대1이다. 유리수 합계는 BigInteger로 유지하고 표시할 때만 반올림한다.
+- 완료 후보는 예정일 날짜·예정 루틴이 모두 일치하는 미삭제 FINISHED/AUTO_CLOSED 세션이다. 각 후보의 **자기 InitialPlan**과 현재 유효 수행을 비교한다. 현재 WEIGHT 구현은 원래 sessionExerciseId의 실제 완료 세트 수가 최초 setCount 이상일 때 완료 종목1개로 센다. 후속 확정 정책에서는 ST-18의 인정된 대체 수행도 해당 원계획 슬롯 완료에 기여해야 한다. AppliedPlan 축소나 순수 추가 종목은 분자/분모를 바꾸지 않는다. 반복·승인 중량 성과 평가를 이 달성률 산식에 섞지 않는다.
+- 후보별 완료 계획 종목/최초 계획 종목의 정확한 유리수를 비교하여 **단일 최고값**만 사용한다. 서로 다른 세션의 부분 세트/종목을 합치지 않는다. 예정일에 수행이 없으면 유효 운동일0, 휴식일/다른 루틴/순수 추가 운동은 계획 분자를 채우지 않으며 실제 운동량에는 남는다. 인정된 대체는 원계획 슬롯을 채우며 분모를 늘리지 않는다. 일일 최대1과 부분 완료율(3/3=1, 4/5=0.8)을 유지한다. 유리수 합계는 BigInteger로 유지하고 표시할 때만 반올림한다.
 - CARDIO는 최초 시간·거리 목표와 실제 activeMs/distance를 비교한다. 이미 확인된 목표 미달은 미완료다. 실제 속도/경사/저항이나 필요한 거리 값이 없어서 판정할 수 없으면 UNVERIFIABLE로 남긴다. 계획 속도를 실제로 대체하지 않는다. 불확실한 후보의 가능한 최고값이 확실한 최상 후보를 넘지 못하면 그날은 확실한 결과를 사용할 수 있다.
 - plannedDays.status는 UNKNOWN/BEFORE_REGISTRATION/REST/PLANNED/UNVERIFIABLE/PENDING이다. PENDING은 해당 날짜 ACTIVE의 판정 대기이며 unverifiableDays에 포함한다. PENDING과 UNVERIFIABLE에서 plannedExercises는 계획 종목 수를 유지하며, 완료 후보가 있으면 선택 후보의 InitialPlan 종목 수를 사용한다. 판정 대기 또는 확인 불가를 나타내는 completedExercises와 effectiveDay는 null이다. 표시 계획과 최고 후보의 InitialPlan 버전이 다른 같은 날짜의 경우, plan은 최초 시작 계획, plannedExercises/completedExercises/selectedSessionId는 최고 후보의 최초 계획 기준임을 구분한다.
 - statistics.planCoverage는 FULL_SCHEDULE_HISTORY 또는 PARTIAL_SCHEDULE_HISTORY다. UNKNOWN 날짜가 있으면 plannedWorkoutDays·routineAchievementPercent·effectiveWorkoutDays는 null이다. 최초 등록 주는 등록 전 날짜의 제외 근거가 있으므로 FULL_SCHEDULE_HISTORY이며 등록일~일요일 예정일만 분모에 포함한다. 목요일 월·목·금·토 등록/목·금 완료의 경우 계획일3·유효일2·달성률66.666667%다. 다음 주는 전체4일이다. 모든 날짜의 근거가 있고 계획일이0이면 계획일0/달성률null이다. 숫자가 없는 과거 분모를0이나 현재 루틴으로 채우지 않는다.
@@ -99,6 +113,8 @@ plannedDays에 nullable reviewStatus/reviewRevision을 추가한다. reviewStatu
 
 <details>
 <summary>2A 과거 계약과 당시 구현 범위</summary>
+
+아래 SECONDARY 0.5 미적용 설명은 2A 당시 참여량 계약의 역사 기록이다. 현재 실제 기여는 위 Overview 계약, 계획/실제 네 수준 분석의 확정 정책은 ST-24~31을 따른다. 과거의 미적용 문구를 현재 기여 세트 금지로 적용하지 않는다.
 
 ## 2A 구현 기록 — 과거 계약
 

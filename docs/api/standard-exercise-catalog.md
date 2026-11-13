@@ -136,6 +136,12 @@ V32의 `CARDIO`, `HOLD_DURATION`, `UNSPECIFIED`는 표준 카탈로그에 저장
 
 `GET /api/v1/cardio-activities`는 인증된 카탈로그 조회(no-store)이며 `{activities:[{id,category,name,kind}]}`를 응답한다. 상위 분류는 RUNNING/WALKING/CYCLING이다. 신규 카탈로그ID 연결은 routine-management.md의 V23 계약을 따른다. 과거 유산소는 재분류하지 않는다.
 
+### 세트 분석용 분류와 근육 매핑 — 2026-11-13
+
+[ST-24~31](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md#4-근육별-세트-집계)은 기존 표준 UUID와 관리자 근육 매핑을 재사용한다. 세부 근육에 계획/실제 원본별 PRIMARY 1.0 / SECONDARY 0.5 기여를 적용하며 복수 PRIMARY를 유지한다. 고정 기여 계수용 운동별 입력·저장 컬럼은 요구하지 않는다. 같은 운동·근육의 역할 중복 방지와 PRIMARY 저장 순서는 기존 계약을 따른다.
+
+상위 세 수준은 검수된 운동 분류를 원본 세트에 직접 적용하며 근육 기여 합·근육 기본 분할·이름으로 역산하지 않는다. 현재 `StandardExercise`에는 nullable `front_back_split`·`ppl_split`과 독립 검수 상태가 있으나, `muscle.group_code`는 근육의 소속 부위다. 현재 근육 매핑 그룹 집계만으로 운동의 직접 부위 분류가 검수됐다고 간주하지 않는다. 운동별 부위 분류의 데이터/조회 근거와 네 수준 집계 입력 연결은 **구현 확인·구현 필요**다. 첫 PRIMARY를 자동 부위 분류로 채택하거나 새 스키마·API를 여기서 확정하지 않는다. NULL인 채 검수가 끝날 수도 있으므로 누락/미확정은 임의로 채우지 않는다. 이는 이전 대체 슬롯의 네 분류·첫 PRIMARY 일치 조건을 변경하는 결정이 아니다.
+
 ## 보호 GIF 전송과 UI 계약
 
 회원별 V35 열람 권한은 일반 운동 정보 조회와 독립적이다. 로컬 Nginx는 `/media/exercises/v1/{sourceExerciseId}.gif`의 정규 경로를 받아 기존 세션으로 내부 확인을 요청한다. Spring은 활성화 상태·회원 허용 행·현재 대표 출처를 검사하고, Nginx가 승인된 로컬 파일을 `no-store`로 전송한다. 공개 카탈로그·UUID 상세는 원본 ID와 GIF 주소를 제공하지 않으며, 현재 표준 UUID에서 보호 경로를 찾는 공개 계약은 없다.

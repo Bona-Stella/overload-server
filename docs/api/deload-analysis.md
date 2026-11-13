@@ -1,5 +1,7 @@
 # 디로딩 분석 설정·epoch·확정 누적 API — G4
 
+> **2026-11-13 DL-08 후속 정책 / 대체 슬롯 연결 미구현:** 현행 제품 기준은 v1.7이며 v1.6은 과거 근거다. [v1.7 DL-08](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md)의 인정된 대체 수행은 원계획 슬롯 완료로 G4에 반영한다. 공식 증감 평가 전체 제외 여부와 별개이며 3/3=1, 4/5=0.8의 부분 완료율·동일 날짜 단일 최고 세션·기존 E/N 및 유효 훈련 주수 계산은 유지한다. 현재 원래 운동 ID 기반 공통 완료 판정에 대체 연결을 추가해야 하며, 새 피로 점수·별도 계산식·확정 HTTP 변경을 도입하지 않는다.
+
 2026-11-08. [제품 v1.7](../../../overload-pwa/docs/product/Overload_Deloading_Design_Specification_v1.7.md) DL-05~14와 [G4 준비 계약](../../../overload-pwa/docs/tasks/deload-v17-backend-readiness-analysis.md#5-g4-개발-범위의존성검증-계획)을 따른다. 설정/epoch·공통 판정·후보/E/N·주간 확정·재계산과 [G4-6 조회 연동](../tasks/deload-g4-6-report.md)을 구현했다. [G5 기간 계약](deload-periods.md)에 따라 종료 후 분석을 재개한다. [디로딩 세션](workout-sessions.md#g5-2-디로딩-세션)은 일반 G3/G4 후보에 들어가지 않는다. 실제 DB 적용과 G6 PWA 연결은 별도다.
 
 ## GET /api/v1/deload-analysis

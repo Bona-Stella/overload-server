@@ -924,6 +924,21 @@ Authorized Data Access
 
 ## 12. 진행 세션 API와 로컬 보호 연동
 
+### 루틴 중심 중량·메모·대체 후속 설계 — 2026-11-13
+
+**확정 정책 / 후속 구현·검증 전.** [제품 10.21절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#1021--루틴-중심-중량메모대체-정책--2026-11-13-후속-확정), [루틴](../api/routine-management.md#2026-11-13-후속-확정-정책과-현재-http의-경계), [세션](../api/workout-sessions.md#2026-11-13-후속-확정-정책과-구현-경계)이 아래 구현 기록의 상충 설명을 대체한다.
+
+- 현재 승인 원본은 `RoutineWeightPlacement.approvedWeight`와 배치별 `ProgressChangeEvent`다. 개인 조합별 공식 중량 원본·다른 루틴 동기화는 만들지 않는다. 조합이 유지된 START는 `RoutineRepository.planForWorkoutStart`→`InitialPlan.copy`로 승인값을 보존한다.
+- `RoutineService.apply`와 `RoutineRequests`는 표준 운동·제조사·중량 방식 변경 저장을 기존 배치 제외+같은 위치 NEW로 처리하도록 전환한다. 사용자 확인값으로 최초/승인값을 초기화하고 옛 benchmark를 연결하지 않는다. 같은 조합 복귀도 새 배치이며 정상 첫 운동부터 기존 권고 산식으로 평가한다. 조합이 같거나 저장 전 취소일 때 불필요한 배치를 만들지 않는다.
+- 최근 중량은 `performed_sets`·`session_exercises`·세션의 유효 실제 기록에서 읽는다. 원본 루틴 배치나 공식 자격/TODAY_ONLY 여부로 정규·임시 출처를 배제하지 않는다. 조합은 사용자·세대와 함께 정확히 비교하고 nullable 제조사·부하를 wildcard로 해석하지 않는다. 없음/실패 구분, 최근 세션·마지막 세트의 정렬/동률·ACTIVE 포함 범위와 인덱스는 구현 확인이며 현재 첫 페이지 참고 로직을 계약으로 확정하지 않는다.
+- 최신 메모는 사용자·세대·조합별로 조회/수정/삭제하는 독립 저장 책임이다. null 조합의 유일성·소유권을 보장하고 메모 버전/잠금을 루틴 승인과 분리한다. 메모 이력·수행별 스냅샷·개인 장비 엔터티를 추가하지 않는다. HTTP·DTO·오류·자동 저장/오프라인 재시도/동시 수정은 아직 확정 구현이 아니다.
+- `WorkoutAssessment`의 현재 Context와 `WorkoutSnapshotService.context/approvals`·`WorkoutRecordService.recoverContext`는 장비 조합을 공식 문맥으로 격리하지 않는다. 후속 구현은 오늘만 원계획 조합 변경의 **세션 공식 평가 전체 제외**, 새 배치 계보와 승인 대상/실제 수행 조합 검증을 적용한다. 일반 미수행의 전체 완료 제한·추가/초과의 첫 N개·기존 권고 산식·최초/현재 평가 분리를 유지한다.
+- 원계획 슬롯↔실제 대체 운동 연결과 적용 사실의 표현을 마련하고 네 분류·첫 PRIMARY 순서·원계획 세트를 검사한다. 현재 `primary_order` 저장·정렬은 있지만 분류/순서가 없거나 불명확한 자료를 임의로 인정하지 않는다. `InitialPlanCompletion`·`PlanningCalculator`·G4 `DeloadCandidateCalculator`는 같은 인정 결과를 사용하되 완료 종목 비율·날짜별 최고 단일 세션·E/N 산식은 유지한다. 실제 운동량은 실제 운동으로 한 번 집계한다.
+- G5는 원본 정규 배치의 승인 중량으로 편성하고 확정한 디로딩 임시 계획과 일반 원본의 독립성을 유지한다. 개인 최근값을 G5 원본 승인값 대신 쓰거나 디로딩 수행으로 일반 승인·평가를 갱신하지 않는다.
+- 기존 개발 데이터·더미·구형 API의 이관/호환 비용은 최소 설계의 전제가 아니다. 신규 기능의 수행·승인·정정/복구·확정 요청 무중복·소유권 정합성은 유지한다. 실제 Flyway 적용 상태·초기화 절차는 구현 단계에서 별도 확인한다. 이번 문서 단계는 DB·코드 변경을 허용하지 않는다.
+
+**변경 기록:** 후속 설계와 기존 1.1·12.1~12.5절 구현 현황을 분리했다. 변경은 Markdown에 한정하며 새 HTTP/DDL·평가 ruleVersion·검증 성공을 선언하지 않는다.
+
 현행 기준은 [Task 009 v1.0](../tasks/task-009-redesign-v1.0.md)입니다. 다음은 서버 구현과 현재 Frontend/IndexedDB 연동의 원칙입니다. V17 실제 개발 환경 검증 범위는 [4단계 보고서](../tasks/standard-exercise-catalog-dev-phase-4-report.md)를 따릅니다.
 
 ### 12.1 전송과 중복 판정
@@ -980,6 +995,21 @@ V30 마감 당시 격리 회귀에서 단위 438개와 PostgreSQL 통합 840개�
 V31 검토 후 전체 회귀에서 843개 중 821개가 통과했고 운동 세션 테스트 22개가 실패했다. 로그인 뒤 테스트 시계를 과거로 이동하면서 세션 발급 시각이 미래가 되어 운동 로직 진입 전에 HTTP 401을 반환했다. 동일한 실패는 V31 이전 `a5b47d6`에서도 재현했다.
 
 `5b5b136`은 OTP 로그인 전에 시나리오 기준 시각을 적용하고 테스트가 끝나면 공유 시계를 복구한다. 정상 세션 조회와 발급 시각 이전 요청 거부를 확인하는 회귀를 추가했다. 운영 코드와 인증 정책은 유지했다. 이전 실패 22개와 신규 회귀 1개를 먼저 통과한 뒤 2026-11-10 Gradle Wrapper의 `test integrationTest assemble`로 단위 439개·격리 PostgreSQL 통합 844개·패키징을 검증했다. 실패와 건너뜀은 0개였다. [테스트 소스](../../src/test/java/com/overload/overload_server/workoutsession/WorkoutSessionIntegrationTests.java)
+
+### 12.6 근육별 독립 집계와 주간 프리셋 계획 — 2026-11-13
+
+**정책 확정 / 일부 구현·후속 구현 필요.** [통계·추적 v1.4 ST-24~31·4.3절](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md#4-근육별-세트-집계), [현재 HTTP와 후속 경계](../api/statistics.md#분류별-독립-집계와-선택-프리셋-계획--2026-11-13)를 따른다. 앞선 루틴 중심 중량·메모·대체 정책, 공식 증감 평가, 정정/삭제/복구, ST-17~23·DL-08/G4·G5 산식은 유지한다.
+
+| 실제 경로·현재 책임 | 필요한 후속 연결 |
+|---|---|
+| [StatisticsCalculator.java](../../src/main/java/com/overload/overload_server/statistics/StatisticsCalculator.java)는 원본 실제 세트와 날짜별 계획을 집계한다. `contribute`는 근육·부위/역할 중복을 제거하고 실제 `contributionSets`에 1.0/0.5를 적용한다. | 계획 기여를 추가하고 네 수준을 원본에서 각각 직접 계산한다. 근육 매핑 부위별 `groupActuals`를 운동의 직접 부위 분류로 단정하지 않는다. 원본/참여 정수·기여 소수·반복/볼륨을 분리한다. |
+| [StatisticsRepository.java](../../src/main/java/com/overload/overload_server/statistics/StatisticsRepository.java)는 사용자·현재 세대·기간의 유효 종료 수행과 현재 활성 근육 매핑을 읽는다. `Mapping`에는 근육 부위/역할만 있다. | 운동 분할·검수된 직접 부위 분류의 입력 근거를 확인하고 연결한다. 누락·미확정을 역산하지 않으며 원본 전체 세트는 보존한다. 조회 성능·소유권·일관성을 검증한다. |
+| [PlanningCalculator.java](../../src/main/java/com/overload/overload_server/statistics/PlanningCalculator.java)는 날짜별 적용 이력·InitialPlan에서 계획과 루틴 달성을 계산한다. | 과거 계획 경로를 현재 선택 프리셋으로 치환하지 않는다. [WeeklyScheduleStore.java](../../src/main/java/com/overload/overload_server/routine/WeeklyScheduleStore.java)의 배정과 기존 루틴 조회를 재사용해 선택 프리셋 월~일 출현별 현재 계획을 읽는다. 동일 루틴의 반복 요일은 각각 센다. 프리셋에 운동/중량 사본을 저장하지 않는다. |
+| [StatisticsResponse.java](../../src/main/java/com/overload/overload_server/statistics/StatisticsResponse.java)는 참여 정수 `Weight`와 실제 기여 `contributionSets`를 구분한다. | 계획 기여·전면/후면·PPL·운동 직접 부위·분류 확인 필요·선택 프리셋 계획의 응답은 미구현이다. HTTP·DTO·오류 표현은 후속 계약이며 임의 필드나 경로를 확정하지 않는다. |
+
+PRIMARY 1.0 / SECONDARY 0.5는 계획/실제의 세부 근육 기여에만 적용하는 근사 계수다. 상위 세 수준은 검수된 운동 분류와 원본 세트를 사용한다. 여러 PRIMARY·SECONDARY의 기여 합을 상위·전체 물리적 세트로 쓰지 않으며 현재 참여 값을 0.5로 덮어쓰지 않는다. 분류 입력은 [카탈로그 경계](../api/standard-exercise-catalog.md#세트-분석용-분류와-근육-매핑--2026-11-13), 프리셋 읽기는 [주간 일정 계약](../api/weekly-schedule.md#선택-프리셋의-현재-주간-계획-분석--2026-11-13)을 확인한다.
+
+**변경 기록:** 2026-11-13 제품 후속 개정의 구현 경계를 문서화했다. 기존 1.1절 표준 운동 DB 확장 3단계의 실제 기여 구현/검증 기록과 구분한다. 새 코드·DB·migration·테스트·API·UI 구현은 수행하지 않았다.
 
 ## 13. 테스트 규칙
 
