@@ -1586,3 +1586,9 @@ Flyway가 실행 이력을 관리한다.
 JPA는 카탈로그, 설정, 루틴과 주요 세션·수행의 17개 테이블을 매핑한다. 다섯 세션 하위 엔티티의 일부 필드는 `nullable=false` 표기 없이 DB의 `NOT NULL` 제약을 따른다. 계정·OTP, 주간 일정, 통계 조회와 디로딩 분석·기간 저장소는 JDBC를 사용한다. 복합 FK, 부분 인덱스와 트리거는 Flyway 정의에서 관리한다. Hibernate는 `ddl-auto=validate`이며 Spring Session의 자체 초기화는 비활성화되어 있다. [세션 하위 엔티티](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutSnapshotEntities.java) · [런타임 설정](../../src/main/resources/application.yaml) · [마이그레이션 통합 테스트](../../src/test/java/com/overload/overload_server/database/PostgresMigrationTests.java) · [Flyway SQL 전체](../../src/main/resources/db/migration/)
 
 이전 논리 모델과 카탈로그 도입안은 작성 시점의 설계 근거다. 최종 물리 구조는 위 테이블별 근거 migration을 따른다. [Task 006-A 논리 모델](../tasks/task-006-model-mapping-report.md) · [표준 운동 카탈로그 도입안](../tasks/standard-exercise-catalog-design-analysis.md)
+
+## 일반 운동 UI/API 연결에 따른 스키마 확인 — 2026-11-13
+
+Backend a56103e는 기존 V35 관계를 사용하며 신규 migration/컬럼/테이블을 만들지 않았다. standard_exercise는 운동 종류, manufacturer는 독립 장비 제조사다. routine_weight_placements.manufacturer_id/load_type과 performed_sets.manufacturer_id/load_type은 배치 및 완료 당시 장비를 보존한다. 표준 이름을 제조사/모델별로 복제하는 데이터 정책을 적용하지 않는다. [검토 시드30종 표준화](../engineering/standard-exercise-handoff.md#일반-운동-검수-후-표준화--2026-11-13)는 스키마 변경이나 전체 운영 데이터 전환을 뜻하지 않는다.
+
+workout_sessions의 최초 completion_assessment 보존과 record_change_events의 수행 변경 전후 기록은 유지한다. progress-assessment와 weightReview는 저장 사실에서 읽기 계산하는 DTO이며 DB 열이 아니다. weightReview는 공식 benchmark 자격/승인 사건을 바꾸지 않는다. 기구 세팅 메모 서버 컬럼은 없고 PWA 해당 기기·세션만 보관한다. 개인/보존 DB·이미 적용된 Flyway·사용자 데이터를 이번 문서 단계에서 변경하지 않았다.

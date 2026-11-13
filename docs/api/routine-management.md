@@ -164,3 +164,7 @@ V11 구현 당시 검증 대상은 격리 Testcontainers PostgreSQL뿐이었다.
 ## G5-1 ACTIVE 기간 보호
 
 [디로딩 기간 계약](deload-periods.md)의 ACTIVE 기간과 COMPLETED 당일에는 루틴 생성·수정·삭제를 409 DELOAD_ACTIVE_PERIOD로 차단한다. 읽기와 기존 확정 요청의 무변경 ACK는 유지한다. 기간 시작과 일반 쓰기는 기존 사용자 잠금으로 직렬화하며 [G5-2 임시 계획](deload-periods.md#임시-계획-관리--g5-2)은 별도 저장하고 일반 루틴 목록을 변경하지 않는다. 완료 다음 로컬 날짜 또는 무수행 취소 직후에 일반 루틴 쓰기를 재개한다. 기존 검토 DB와 서버에는 새 기능을 배포하지 않는다.
+
+## 일반 운동 화면의 소비 확인 — 2026-11-13
+
+PWA15a0f6b는 GET 목록/상세의 안정 배치ID·표준 운동ID·승인 중량·장비·목표를 START와 이후 세션 InitialPlan의 출처로 사용한다. 운동 중 순서·세트·추가/교체는 해당 세션 AppliedPlan/snapshot에 저장하며 루틴 PUT을 몰래 호출하지 않는다. 명시 진행 중량 승인은 기존 세션 승인 요청/결과와 충돌 해결 계약을 재사용한다. 제조사별 표준 운동 복제가 아니라 배치의 manufacturerId/loadType을 사용한다. 기존 DTO·nullable·버전·오류는 이 문서가 소유하며 이번 연동에서 새 루틴 엔드포인트/스키마를 만들지 않았다. [세션 소비](workout-sessions.md#일반-운동-pwa-소비-확인--2026-11-13)

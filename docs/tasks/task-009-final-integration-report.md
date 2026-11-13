@@ -202,3 +202,9 @@ Frontend ignored 증빙:
 - 기존 5A~5E 보고서의 상세 검증 근거는 각 보고서에서 연결한다. 테스트 프로필·쿠키·일회용 인증 파일은 Git에 포함하지 않는다.
 
 Backend fixture의 정상 stop과 `BUILD SUCCESSFUL`을 확인했다. 새 PostgreSQL/Ryuk과 직접 시작한 Java/Gradle/Node/전용 Edge가 종료됐으며 전용1693/3080 listener0, ready/OTP 파일 제거를 확인했다. 기본 사용자 컨테이너5개는 시작과 같은 ID `81a6b4d6aca2`, `908b9728eec1`, `97473d622cad`, `1079a897c476`, `927921a2c15b`로 그대로 실행 중이다. 기존 컨테이너·사용자 데이터·브라우저 프로필은 변경하거나 삭제하지 않았다.
+
+## 후속 일반 운동 UI/API 마감 참조 — 2026-11-13
+
+이 문서의 Task009 당시 검증 수치/적용 범위는 역사 기록이다. 이후 일반 운동 UI 실제 API 연결과 사용자 피드백 코드는 Backend a56103e39e9821657da3ef98b047f3ce136116c8 / PWA15a0f6bee4421f799cd691fa435bc8103c1e28e2에 반영됐다. 기존 전체 snapshot·고정 FINISH·정정/선택 복구를 재사용하고 읽기 전용 ACTIVE 잠정 평가와 종료 weightReview를 추가했다. 공식 기준 자격·최초 평가·DB V35는 유지한다.
+
+당시 최신 보고는 Frontend585/585·Backend단위453/453·DB통합180/180·실제API14개그룹·Lint/TypeScript/Build 통과이며 이번 문서 동기화에서 재실행하지 않았다. 검토 서비스는 볼륨/백업 보존 후 종료했다. [정확한 완료 범위·검증·미구현·실기기 경계](../../../overload-pwa/docs/tasks/ui-v09-workout-api-integration.md#최종-마감--2026-11-13)를 확인한다. 기존 단계 보고를 전체 제품/운영 배포 승인으로 확대하지 않는다.

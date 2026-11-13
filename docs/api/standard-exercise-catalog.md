@@ -154,3 +154,9 @@ V35 내부 검토에서는 하이 로우 한 종목에 검토 전용 UUID 매핑
 | 500 | 인증 상류에 연결할 수 없는 상황에서 격리 통합 테스트로 확인한 응답 |
 
 Spring의 내부 204와 명시적 승인 헤더가 모두 일치해야 Nginx가 보호 파일 경로를 연다. 내부 판정과 외부 파일 전송의 상태 코드는 별개다. 외부 보호 응답에는 `Cache-Control: no-store`가 적용되며, PWA Service Worker는 `/media/exercises/`를 사전 캐시와 캐시 조회에서 제외한다. [Spring Security 세션](../engineering/security-session.md#http-보안-계약) · [Nginx 구성](../../deploy/local/nginx/default.conf.template) · [격리 GIF 테스트](../../src/test/java/com/overload/overload_server/catalog/ExerciseGifIntegrationTests.java)
+
+## 일반 운동 UI의 표준 운동·장비 분리 — 2026-11-13
+
+공개 catalog와 UUID 상세는 조회용, search-data와 cardio-choices는 신규 선택용이다. 일반 운동은 기존 메서드/DTO를 그대로 소비하며 새 검색·제조사 엔드포인트를 추가하지 않았다. 공통 ExerciseSearch는 설정 공개 목록과 루틴·세션 선택의 외형만 공유하고 조회/선택 자격을 혼합하지 않는다.
+
+제조사는 독립 manufacturer이며 운동 UUID를 제조사나 장비 모델에 따라 중복 생성하지 않는다. 장비는 배치·AppliedPlan·완료 세트의 manufacturerId/loadType으로 기록한다. 머신 숄더 프레스 검토 시드 표준화와30종 수량은 [인수인계 현행 절](../engineering/standard-exercise-handoff.md#일반-운동-검수-후-표준화--2026-11-13)의 개발 자료 범위다. 별도 모델 선택 계약·메모 서버 필드는 없으며 이번 문서 작업에서 DB를 변경하지 않았다.

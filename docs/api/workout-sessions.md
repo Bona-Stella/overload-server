@@ -38,7 +38,8 @@ JSON 중복 키·추가 필드·필수 필드 누락·명시적으로 허용하�
 | POST | /api/v1/workout-sessions/{id}/recoveries | 200, 종료 후 선택한 누락 완료 수행 복구 |
 | DELETE | /api/v1/workout-sessions/{id} | 200, 종료 세션 전체 논리 삭제 |
 | POST | /api/v1/workout-sessions/{id}/closed-approval-resolutions | 200, 종료 후 PENDING 해결 |
-| GET | /api/v1/workout-sessions/{id}/assessment | 200, 최초 평가·현재 평가 구분 |
+| GET | /api/v1/workout-sessions/{id}/progress-assessment | 200, ACTIVE 종목별 잠정 평가 |
+| GET | /api/v1/workout-sessions/{id}/assessment | 200, 최초 공식 평가·현재 공식 평가·화면 weightReview 구분 |
 | GET | /api/v1/workout-sessions/{id}/record-change-events | 200, 본인 세션 변경 이력 |
 
 START의 모든 필드:
@@ -366,6 +367,46 @@ InitialPlan 대상 종목의 삭제되지 않은 완료 수행을 ordinal ASC→
 이번 수행 권고는 후보 순위와 독립이다. 자격 미충족은 UNAVAILABLE/INELIGIBLE, 첫 N개 중 하나라도 하한 미달은 DECREASE/BELOW_MIN_REPS, 전부 상한 이상은 INCREASE/ALL_AT_OR_ABOVE_MAX_REPS, 나머지는 MAINTAIN/TARGET_NOT_EXCEEDED_BY_ALL_SETS다. 비교 대상이 없더라도 정상 수행 자체의 권고는 계산한다. 중량 변경 폭·1RM·최근 약한 수행과 최고 기준을 합친 새 공식은 만들지 않는다. 승인 중량/사건을 자동 변경하지 않는다.
 이 산식은 2026-10-31 사용자가 확정한 초기 안내 정책이다. 결과는 사용자의 판단을 돕는 권고이며 승인 중량 변경은 별도의 명시적 승인을 통해서만 처리한다.
 
+## 진행 중 종목별 잠정 평가
+
+`GET /api/v1/workout-sessions/{id}/progress-assessment`는 로그인한 본인의 현재 세대 ACTIVE 세션에만 허용한다. query·GET 본문을 받지 않으며 응답은 no-store다. 다른 소유자/세대는 404, 종료된 세션은 409 SESSION_NOT_ACTIVE다.
+
+응답은 `{userId,dataGeneration,sessionId,status:"ACTIVE",version,writerEpoch,localRevision,kind:"PROVISIONAL",reasonCodes,evaluation}`이다. Counter는 기존 십진 문자열 계약을 따른다. 일반 운동의 evaluation은 schemaVersion 2·task009-completion-v1 결과이며 sessionVersion은 외부 version과 일치한다. 디로딩은 reasonCodes=[DELOAD_SESSION], evaluation=null이다.
+
+현재 서버에 저장된 수행으로 위의 첫 N개 선택·목표 일치·수행 당시 승인 문맥·실제 중량·반복 범위 규칙을 그대로 적용한다. **잠정 안내는 해당 종목 완료만 필요**하며 INCOMPLETE_INITIAL_WEIGHT_PLAN 사유를 적용하지 않는다. overallWeightPlanComplete는 실제 전체 원계획 상태를 그대로 반환한다. 미완료·오늘만 중량·PENDING·혼합 중량·변경 목표는 자격 제외이며 추가한 세션 전용 종목의 권고를 임의 생성하지 않는다.
+
+읽기 전용 repeatable-read 트랜잭션으로 평가하며 과거 벤치마크 조회, 승인 변경, 세션 종료, 공식 평가 스냅샷 생성이나 동기화 기한 연장을 하지 않는다. FINISH의 공식 평가는 기존 전체 원계획 완료 요건과 최초 평가 보존 계약을 유지한다.
+
+PWA는 CLEAN 및 localRevision=serverRevision인 사본에서만 요청한다. 응답의 사용자·세대·세션·writerEpoch·revision·version을 확인하고, 오래된 응답을 취소/배제한다. 세트 취소·목표·중량 변경 등 미전송 변경 동안 이전 권고를 숨긴다. 조회 실패는 수행 기록을 보존하며 명시적 재시도를 제공한다.
+
+## 종료 화면의 중량 검토 권고 — 공식 평가와 분리
+
+2026-11-13 사용자 확인으로 **미완료 세트의 감량은 종료 화면의 권고에만 적용**한다. 기존 공식 평가·기준 기록의 전체 원계획 완료·첫 N개·승인 문맥·과거 비교 자격과 최초 종료 스냅샷은 변경하지 않는다.
+
+기존 `GET /api/v1/workout-sessions/{id}/assessment` 응답에 필수 nullable `weightReview`를 추가한다. 새 엔드포인트·DB 컬럼·migration은 없다. 이 값은 현재 저장 수행의 읽기 전용 권고이며 `completionAssessment`를 재작성하거나 승인 중량을 변경하지 않는다.
+
+```text
+weightReview = {
+  schemaVersion:1, ruleVersion:"workout-weight-review-v1",
+  sessionVersion, assessedAt,
+  exercises:[{
+    sessionExerciseId, advice:"INCREASE"|"DECREASE"|"MAINTAIN"|"UNAVAILABLE",
+    reasonCodes, referenceWeightKg:Decimal|null,
+    plannedSetCount, completedSetCount, minReps, maxReps, incomplete,
+    sets:[{performedSetId,ordinal,reps,contributes}]
+  }]
+}
+```
+
+- sessionVersion은 외부 version과 같다. Counter·Decimal·UUID·시각은 기존 계약을 따른다. 세트 수와 ordinal·reps는 JSON 정수이며 completedSetCount는 0 이상이다.
+- FINISHED·현재 세대·본인·비삭제·일반 운동에만 결과를 제공한다. AUTO_CLOSED·삭제·디로딩은 weightReview=null이며 기존 currentAssessment 제외 사유를 유지한다.
+- 원계획의 각 종목에 대해 삭제되지 않은 수행을 ordinal→UUID로 정렬한다. 기존과 같이 첫 N개를 판단 근거로 사용한다. 목표/구성 불일치·오늘만 중량·PENDING/승인 확인 불가·혼합 중량은 UNAVAILABLE이다. 수행이 전혀 없으면 NO_PERFORMED_SETS로 제외하며 임의 반복이나 기준값을 만들지 않는다.
+- 위 정상 문맥이 확인된 경우에만, 계획 세트 미완료 또는 첫 N개 중 최소 반복 미달이면 DECREASE, 전체 세트 완료 및 첫 N개 전부 최대 반복 이상이면 INCREASE, 나머지는 MAINTAIN이다. 다른 종목 미완료만으로 정상 완료한 종목의 권고를 제외하지 않는다.
+- referenceWeightKg는 판단에 사용한 수행 당시의 **서버 승인 중량**이다. 단순 첫 실제 수행값이나 현재 루틴 중량으로 대체하지 않는다. 초기 승인 및 APPLIED 승인 문맥을 재사용하며 기준이 없으면 null/UNAVAILABLE이다.
+- completedSetCount와 sets는 해당 종목의 실제 유효 완료 수행 전체다. 추가 세트를 포함하되 미완료 세트를 가공하지 않는다. contributes는 첫 N개 판단 근거 중 INCREASE에서는 전부, DECREASE에서는 최소 반복 미달인 수행에만 true다. 미완료만으로 감량한 경우 정상 반복은 false이며 incomplete=true로 완료/계획 수를 강조한다.
+- PWA는 세션·사용자·세대·서버 version과 수행 UUID·ordinal·reps를 대조해 연결한다. 유지와 판단 불가/조회 오류를 구분하고 공식 평가의 eligible을 이 권고의 표시 조건으로 재해석하지 않는다.
+- 권고는 기록 정정·복구 후 현재 서버 수행으로 다시 조회한다. 각 과거 정정 시점의 권고 스냅샷을 제공하는 계약은 아니다. 기존 최초/현재 공식 평가와 수행 변경 전후 이력을 구분해 표시한다.
+
 ## 24시간 AUTO_CLOSED와 만료 경합
 
 `now >= lastWorkoutSyncedAt + Duration.ofHours(24)`를 세션 잠금 후 새로 읽은 서버 Clock으로 판정한다. 먼저 만료를 검사한 뒤 입력을 적용하므로 늦은 snapshot이 기한을 갱신하며 살아나지 않는다. GET·takeover·중복·높은 무변경 revision·승인 해결은 기한을 연장하지 않는다.
@@ -525,3 +566,11 @@ V28에서 일반 세션의 `source_routine_id`는 기존 owner/generation 루틴
 클라이언트는 이 API 전 자신이 아는 미동기화 수행·고정 요청을 확인하고 정리 ACK가 오기 전 로컬 원본을 제거하지 않아야 한다. 서버는 아직 전송되지 않은 타 기기 사실을 추정하지 않는다. 동시 snapshot과 정리는 기존 owner 잠금/버전으로 직렬화한다. 24시간 AUTO_CLOSED는 공통 세션 정책이며 기간 종료는 별도 상태 전이다. 기간 자동 완료는 ACTIVE 세션이 있으면 기다린다. 기존 FINISH ACK와 명시적 복구는 기간 종료 후에도 유지된다.
 
 실제 수행 표식 `first_deload_activity_at`은 유효 웨이트 세트 또는 양의 COMPLETED 유산소와 같은 트랜잭션에서 한 번 저장한다. START·SKIPPED·무수행 종료만으로는 설정하지 않는다. 정정·논리삭제·복구·종료 이후에도 처음 저장한 표식을 바꾸지 않는다. 기록 저장이 롤백되면 표식도 롤백된다. 기간 `hasActivity`는 이 표식의 존재이며 현재 화면의 세트 개수와 별개다.
+
+## 일반 운동 PWA 소비 확인 — 2026-11-13
+
+Backend a56103e / PWA15a0f6b에서 위 계약을 연결했다. assessment 응답의 전체 최상위 필드는 `{userId,dataGeneration,sessionId,status,version,completionAssessment,currentAssessment,weightReview}`다. completionAssessment와 weightReview는 **키가 필수이며 값은 nullable**이다. currentAssessment는 `{state,reasonCodes,advice,evaluation}`이며 evaluation도 nullable이다. 숫자 카운터/UUID/소수 문자열과 세션 소유권 검증은 기존 계약을 따른다. 구형 DTO의 weightReview 누락을 현재 계약으로 허용하지 않는다.
+
+정정·삭제·복구 후에는 서버 detail/assessment/record-change-events를 재조회한다. PWA는 version 및 실제 수행 UUID·ordinal·reps와 권고 증거를 연결하고 불일치 시 권고를 숨기며 재조회를 안내한다. 첫 N개 증량 기여와 하한 미달 감량 기여만 강조하고 유지 항목은 권고 목록에서 제외한다. 미완료 감량의 공식 평가 제외·최초 평가 불변·과거 benchmark 제외는 회귀에 포함됐다.
+
+기구 세팅 메모는 서버 필드/API가 없다. 루틴·진행 중 화면의 메모 입력은 PWA의 해당 기기·세션 사본만 사용하며 snapshot 요청의 추가 키로 보내지 않는다. weightReview/잠정 결과를 DB 컬럼이나 별도 승인 사건으로 저장하지 않는다. [Frontend 연결 기록](../../../overload-pwa/docs/tasks/ui-v09-workout-api-integration.md#최종-마감--2026-11-13)

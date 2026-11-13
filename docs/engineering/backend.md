@@ -56,10 +56,11 @@ Task 006의 나머지 운동·인증 정책과 Task 008의 휴식 설정 조회 
 
 ### 1.1 현재 개발 현황
 
-**마지막 확인** 2026-11-12 (KST). 표준 운동 DB 확장 1~4-C의 2026-11-11 통합 검증 이후 V35 격리 DB에서 실제 계정의 카탈로그·설정 UI와 하이 로우 보호 GIF 검토를 완료했다. 목표 스키마는 V35다. [표준 운동 인수인계](standard-exercise-handoff.md)
+**마지막 확인** 2026-11-13 (KST). 일반 운동 코드 기준 `a56103e39e9821657da3ef98b047f3ce136116c8`, PWA `15a0f6bee4421f799cd691fa435bc8103c1e28e2`. 표준 운동 DB 확장 1~4-C의 2026-11-11 통합 검증 이후 V35 격리 DB에서 실제 계정의 카탈로그·설정 UI와 하이 로우 보호 GIF 검토를 완료했다. 목표 스키마는 V35다. [표준 운동 인수인계](standard-exercise-handoff.md)
 
 | 범위 | 상태와 근거 |
 | --- | --- |
+| 일반 운동 UI 검수 지원 (2026-11-13) | **구현·피드백·로컬 코드 커밋·문서 동기화 완료.** ACTIVE 잠정 평가와 종료 weightReview를 읽기 전용으로 제공한다. 공식 자격·최초 평가·기록 보호는 유지하며 스키마는 V35다. 검토 전용 서비스는 정지했고 보존 데이터는 유지한다. 메모 서버 저장·G6·HTTPS 운영 및 API 연동 후 실제 iPhone 검증은 별도다. [계약](../api/workout-sessions.md) · [마감 기록](../../../overload-pwa/docs/tasks/ui-v09-workout-api-integration.md#최종-마감--2026-11-13) |
 | 다중 주간 프리셋과 자동 순환 | **완료.** V30 저장·신규 계정 기본값·관리·수동 활성화·순환·누락 주차 복구와 V31 이름 저장을 구현했다. [API](../api/weekly-schedule.md) · [격리 회귀](#125-다중-주간-일정-프리셋) |
 | G3 일별 검사·일반 통계·G4 분석 | **완료.** 적용 일정과 최초 근거, 통계·성장 조회, 분석 설정·epoch·주별 확정·재계산을 구현했다. [통계 API](../api/statistics.md) · [성장 API](../api/approved-weight-growth.md) · [G3·G4 구현](#124-ui-v09와-디로딩-v17-연동) |
 | G5 기간·세션·프리셋 연동 | **완료.** 기간 시작·임시 계획·세션·종료, 분석 재개와 일반 프리셋 순환 정지·복귀를 구현했다. [디로딩 기간 API](../api/deload-periods.md) · [G5 연동](#124-ui-v09와-디로딩-v17-연동) |
@@ -1352,3 +1353,13 @@ Overload 백엔드는 단순히 요청을 처리하는 서버가 아니라,
 AI 에이전트는 변경 범위를 이해하고,
 도메인 규칙을 준수하며,
 검증 가능한 결과를 제공해야 합니다.
+
+## 일반 운동 PWA 연결 마감 — 2026-11-13
+
+WorkoutSessionController/WorkoutRecordService/WorkoutAssessment의 현행 계약으로 START, ACTIVE/상세/종료 목록, 전체 snapshot, FINISH, 종료 정정/논리 삭제/선택 복구/변경 이력을 제공한다. 세션 쿠키의 principal, 현재 dataGeneration 및 쓰기의 CSRF/버전/기기 epoch를 그대로 검증한다. FINISH 요청 고정·동일 재확인으로 중복 종료를 방지하며 최초 completionAssessment는 정정·복구 후에도 보존한다. [세션 HTTP·DTO·오류](../api/workout-sessions.md)
+
+진행 종목의 잠정 평가는 progress-assessment GET, 종료 화면 권고는 기존 assessment GET의 필수 nullable weightReview다. 둘 다 읽기 전용 repeatable-read다. weightReview의 미완료 감량은 화면 권고이며 공식 기준 자격·벤치마크·승인 중량을 바꾸지 않는다. weightReview는 별도 테이블/저장 스냅샷이 아니다. 메모 DTO/컬럼/API와 장비 모델 선택 계약은 없다.
+
+표준 운동·이름/별칭·신규 선택 가능 여부는 카탈로그 API, 제조사는 독립 manufacturer, 장비는 루틴 배치/AppliedPlan/완료 세트 문맥을 사용한다. 검토 시드의 머신 숄더 프레스는 하나의 표준 UUID로 통합하고 제조사·부하는 배치별로 유지했다. [카탈로그 표준화](standard-exercise-handoff.md#일반-운동-검수-후-표준화--2026-11-13)
+
+구현 당시 보고는 단위453/453·DB 통합180/180 및 PWA 실제 API14개 그룹 통과다. 코드 마감과 이번 문서 단계에서 새로 실행한 결과가 아니다. Flyway/DB 스키마는 변경하지 않았고 실제 데이터 정리·개인/보존 DB 전환을 이번 문서 작업에서 수행하지 않았다. 검토 종료와 보존 범위는 [환경 기록](test-environment.md#일반-운동-검토-종료--2026-11-13)을 따른다.

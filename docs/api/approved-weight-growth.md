@@ -45,3 +45,7 @@ Point는 `{id,previousWeightKg,approvedWeightKg,occurredAt,recordedAt,source,ses
 오류는400 INVALID_REQUEST,401 AUTHENTICATION_REQUIRED, 위404,503 WORKOUT_DATA_UNAVAILABLE,500 WORKOUT_DATA_READ_FAILED다. 사용자/세대가 바뀐 응답은 Frontend에서 폐기한다. 일반 API·2A/2B·IndexedDB3/schema2·고정 snapshot/finish·오프라인 permit은 그대로다.
 
 [G5-2](../tasks/deload-g5-2-report.md)에서 불변 디로딩 소속을 연결했다. 디로딩 세션의 일반 승인 요청/문맥/해결과 성장 사건은 API·DB에서 차단되며 일반 비교 benchmark에서도 제외한다. 실제 세트·볼륨·근육 및 이력은 기존 실제 운동 통계에 포함된다. 이 성장 조회는 계속 일반 승인 사건만 사용한다.
+
+## 종료 화면 권고와 성장 기록의 구분 — 2026-11-13
+
+일반 운동 UI의 weightReview와 ACTIVE progress-assessment는 사용자 판단을 돕는 읽기 결과다. 특히 미완료 세트의 DECREASE 권고는 공식 benchmark 자격·승인 중량·진행 중량 변경 사건을 새로 만들지 않는다. 이 문서의 성장 조회는 기존 공식 승인 사건을 사용한다. 현재 루틴 값으로 과거 승인 문맥을 덮어쓰지 않는다. [공식 평가와 화면 권고 계약](workout-sessions.md#종료-화면의-중량-검토-권고--공식-평가와-분리)

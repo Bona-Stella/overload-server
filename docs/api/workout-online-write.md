@@ -39,3 +39,7 @@
 GET은 read-only REPEATABLE_READ, PATCH는 기존 workoutTransactionManager의 JPA 트랜잭션 하나에서 실행한다. PATCH는 같은 연결의 users FOR SHARE로 작업 도중 계정 삭제/세대 변경을 막고, 설정은 반드시 owner+generation으로 조회한다. 공유 잠금은 같은 사용자 쓰기끼리 직렬화하지 않는다. 필요한 변경만 dirty checking하고 flush/commit 시 기존 @Version으로 중첩된 수정의 유실을 방지한다. 같은 값의 순차 재요청은 timestamp/version을 바꾸지 않는다.
 
 기존 GET에는 version이 없으므로 새 expectedVersion 계약을 강제하지 않는다. @Version은 **동시에 겹친 DB 트랜잭션**을 보호하며 이미 완료된 다른 수정 이후 도착한 명시적 PATCH까지 오래된 화면으로 판정하는 것은 아니다. 클라이언트는409에서 다시 조회하고 사용자가 재시도할지 결정해야 한다. 오프라인 큐·자동 병합·receipt/feed·추가 schema/의존성은 없다.
+
+## 일반 운동 UI 연결 상태 — 2026-11-13
+
+일반 운동은 위 GET의 세 휴식 시간과 기존 min/max 반복 구간 선택을 사용한다. 마지막 계획 세트는 휴식을 만들지 않고, 수동 종료/30초 연장은 현재 기기 타이머에 적용한다. 5~1초 기본 효과음·시각 강조와 수동 무음 종료를 구현했으나 독립 휴식 알림 토글/리드 시간의 서버 필드는 없다. 현재 UI 시연이나 로컬 효과음을 설정 PATCH의 새 필드로 문서화하지 않는다. 기구 메모 서버 저장도 이 API 범위에 없다.

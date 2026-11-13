@@ -1,10 +1,12 @@
-# Overload 31종목 카탈로그 등록 계획
+# Overload 표준 운동 카탈로그 등록 계획
 
-첨부한 31종목의 카탈로그와 6일 루틴을 검토 환경에서 복원하는 자료다. `catalog.json`에는 표준 운동과 제조사·기구 참조 및 하이 로우 원본 메타데이터가 있다. 사용자 후속 수정, 원래 완료 반복 수, 개인 기구 설정은 로컬 전용 `handoff.local.json`에 기록한다. 기구 설명은 공개 API에도 전달되는 필드이므로 확인된 기구 정보만 사용한다.
+원본 31개 기구 참조를 표준 운동 30종으로 정규화한 카탈로그와 6일 루틴을 검토 환경에서 복원하는 자료다. `catalog.json`에는 표준 운동과 제조사·기구 참조 및 하이 로우 원본 메타데이터가 있다. 사용자 후속 수정, 원래 완료 반복 수, 개인 기구 설정은 로컬 전용 `handoff.local.json`에 기록한다. 기구 설명은 공개 API에도 전달되는 필드이므로 확인된 기구 정보만 사용한다.
+
+디렉터리명 `overload-31-catalog`는 원본 자료의 이름을 유지한다. 현재 운동 UUID는 30개이며 제조사·부하 방식은 루틴 배치에서 독립적으로 선택한다. 기존 보존 백업은 자동으로 재시드하거나 변경하지 않는다.
 
 ## 실제 운동 데이터로 검토
 
-“더미 데이터 대신 실제 운동 데이터로 확인” 요청에는 이 승인 자료를 사용한다. 전용 V35 PostgreSQL에 표준 운동 31종을 검수 완료로 등록한다. 지정 테스트 계정으로 실제 OTP 인증을 거쳐 루틴 API에 웨이트 33건·유산소 4건을 등록하고 Asia/Seoul 기준 월~토 주간 일정을 활성화한다. 일요일은 미배정이다. 로컬 내부 검토 전용 계정에는 구현된 앱 기능과 시연 대상 미디어 열람을 허용하는 것을 기본으로 한다. 시작 스크립트는 해당 회원의 GIF 허용 행과 하이 로우 원본 출처를 준비한다. 2026-11-12 내부 검토에서는 하이 로우 대표 미디어 한 건을 별도로 지정해 기존 보호 경로로 표시했다. [보호 GIF 검토 기록](../../engineering/standard-exercise-handoff.md#사용자-ui-연결과-후속-범위)
+“더미 데이터 대신 실제 운동 데이터로 확인” 요청에는 이 승인 자료를 사용한다. 전용 V35 PostgreSQL에 표준 운동 30종을 검수 완료로 등록한다. 지정 테스트 계정으로 실제 OTP 인증을 거쳐 루틴 API에 웨이트 33건·유산소 4건을 등록하고 Asia/Seoul 기준 월~토 주간 일정을 활성화한다. 일요일은 미배정이다. 로컬 내부 검토 전용 계정에는 구현된 앱 기능과 시연 대상 미디어 열람을 허용하는 것을 기본으로 한다. 시작 스크립트는 해당 회원의 GIF 허용 행과 하이 로우 원본 출처를 준비한다. 2026-11-12 내부 검토에서는 하이 로우 대표 미디어 한 건을 별도로 지정해 기존 보호 경로로 표시했다. [보호 GIF 검토 기록](../../engineering/standard-exercise-handoff.md#사용자-ui-연결과-후속-범위)
 
 Backend와 PWA를 형제 디렉터리로 두고 Docker Desktop, JDK 25, Node.js와 기존 PWA 의존성을 준비한다. Backend 루트의 PowerShell에서 실행한다.
 
@@ -22,7 +24,7 @@ DB가 없어졌거나 빈 환경에서 다시 검토할 때 `Start`로 새 DB를
 
 | 파일 | 복원 범위 |
 | --- | --- |
-| `catalog.json` | 운동 31종, 별칭, 근육 순서, 분할, 기구·제조사, 원본 참조 |
+| `catalog.json` | 운동 30종, 별칭, 근육 순서, 분할, 기구·제조사, 원본 참조 |
 | `handoff.local.json` | 사용자의 검수 승인과 원래 기록·설정 |
 | `routine-plans.local.json` | 테스트 계정, GIF 권한, 시간대, 요일별 루틴·중량·러닝 목표 |
 
@@ -36,7 +38,7 @@ Backend 저장소 루트의 PowerShell에서 실행한다. Node.js가 출력하�
 node .\docs\dev-data\overload-31-catalog\preview.mjs
 ```
 
-첨부 JSON과 ExerciseDB 원본 파일을 첫째·둘째 인수로 지정하면 31종목, 웨이트 29종과 유산소 2종, 루틴 33·4건, 40개 근육명, 하이 로우 원본 729번을 함께 대조한다. 표준명·분할·부하 유형·펜듈럼 스쿼트 제조사는 사용자 후속 결정을 기대값에 반영한다. 파일 경로 인수를 생략하면 저장소의 카탈로그 초안으로 미리보기 SQL을 출력한다. SQL 실행 대상은 이미 검증된 V35 격리 DB를 사용한다. psql에서 파일로 실행할 때는 `-v ON_ERROR_STOP=1`을 지정한다.
+첨부 JSON과 ExerciseDB 원본 파일을 첫째·둘째 인수로 지정하면 원본 31개 참조를 현재 표준 30종(웨이트 28종·유산소 2종)으로 정규화하여, 루틴 33·4건, 40개 근육명, 하이 로우 원본 729번을 함께 대조한다. 표준명·분할·부하 유형·펜듈럼 스쿼트 제조사는 사용자 후속 결정을 기대값에 반영한다. 파일 경로 인수를 생략하면 저장소의 카탈로그 초안으로 미리보기 SQL을 출력한다. SQL 실행 대상은 이미 검증된 V35 격리 DB를 사용한다. psql에서 파일로 실행할 때는 `-v ON_ERROR_STOP=1`을 지정한다.
 
 ## 사용자 승인 및 루틴 적용 준비
 
@@ -48,9 +50,9 @@ node .\docs\dev-data\overload-31-catalog\preview.mjs
 
 - 표의 UUID는 신규 초안에 사용하는 안정 ID다. 기존 운동의 정확한 동일성을 확인했다면 셋째 인수로 `{"review_key":"기존 UUID"}` 형태의 JSON을 전달해 UUID를 재사용할 수 있다. 같은 이름의 기존 후보를 확인한 결과 별도 운동이면 해당 키의 값을 JSON null로 지정한다. 단순 공백 정규화 또는 비슷한 이름은 검토 신호다.
 - 재사용한 운동의 현재 설명·검수·별칭·근육·분할은 보존한다. 필요한 콘텐츠 갱신은 현재 판본과 영향 범위를 대조한 뒤 기존 내부 검수 서비스로 처리한다.
-- 머신 숄더 프레스 두 변형은 표준명이 같고 UUID와 제조사 후보가 다르다. 사용자가 갱신한 분류표의 15번 Hammer Strength는 스택형, 18번 Arsenal Strength는 원판형으로 매핑한다. 기존 `manufacturer`의 정확한 이름 후보를 우선 사용한다. V17의 `STACK`, `PLATE`, `DUMBBELL`, `BODYWEIGHT`와 제조사 UUID는 이후 승인된 루틴 배치에 적용할 매핑이며 표준 운동의 전역 기본값으로 사용하지 않는다. 유산소의 표준 UUID는 V23의 기존 트레드밀·야외 `RUNNING` 활동 ID와 각각 연결한다.
-- 일반 미리보기에서 두 검수 플래그는 신규 운동에 false다. 승인 미리보기에서 두 플래그를 함께 검증한다. PRIMARY 순서와 SECONDARY 중복 검사에 V32 근육 마스터를 사용한다. 웨이트 29종은 다관절 15종과 단관절 14종으로 분류한다. 머신 업도미널 크런치와 캡틴스 체어 레그 레이즈는 PPL LEGS·전면이다. 유산소 2종은 PPL·전후면·관절 분류를 미지정으로 둔다. 단계별 한국어는 사용자 확인을 바탕으로 작성된 초안이다.
-- 카탈로그 검색·자동완성은 NFKC, Unicode 공백 제거, 소문자화를 이름·별칭에 함께 적용한다. DB 별칭 키는 기존 공백 축약 계약을 유지한다. 같은 이름의 결과에는 변형을 구분할 수 있는 별칭을 표시한다.
+- 2026-11-13 사용자 피드백으로 머신 숄더 프레스는 단일 표준 UUID `f6fc6164-3d3c-863e-83d2-0068d1da9aac`로 통합했다. 사용자가 갱신한 분류표의 15번 Hammer Strength는 스택형, 18번 Arsenal Strength는 원판형으로 매핑한다. 기존 `manufacturer`의 정확한 이름 후보를 우선 사용한다. V17의 `STACK`, `PLATE`, `DUMBBELL`, `BODYWEIGHT`와 제조사 UUID는 이후 승인된 루틴 배치에 적용할 매핑이며 표준 운동의 전역 기본값으로 사용하지 않는다. 유산소의 표준 UUID는 V23의 기존 트레드밀·야외 `RUNNING` 활동 ID와 각각 연결한다.
+- 일반 미리보기에서 두 검수 플래그는 신규 운동에 false다. 승인 미리보기에서 두 플래그를 함께 검증한다. PRIMARY 순서와 SECONDARY 중복 검사에 V32 근육 마스터를 사용한다. 웨이트 28종은 다관절 14종과 단관절 14종으로 분류한다. 머신 업도미널 크런치와 캡틴스 체어 레그 레이즈는 PPL LEGS·전면이다. 유산소 2종은 PPL·전후면·관절 분류를 미지정으로 둔다. 단계별 한국어는 사용자 확인을 바탕으로 작성된 초안이다.
+- 카탈로그 검색·자동완성은 NFKC, Unicode 공백 제거, 소문자화를 이름·별칭에 함께 적용한다. DB 별칭 키는 기존 공백 축약 계약을 유지한다. 제조사·모델로 같은 표준 운동을 복제하거나 결과에 변형 라벨을 덧붙이지 않는다. 아이소래터럴 등 모델 특성은 이번 사용자 지시에 따라 제외하며 후속 데이터 검수에서 다룬다.
 - 기본 등록 자료는 하이 로우에만 `exercise_source`로 원본을 연결한다. 기존 연결이 다른 UUID를 가리키거나 원본 메타데이터가 다르면 트랜잭션을 중단한다. 대표 GIF는 기본 등록에서 비워 두며, 승인된 내부 검토에서 해당 한 종목에 지정했다. 원본의 발판 표현과 사용자가 확인한 허벅지 고정 패드의 관계는 데이터 검수 사항이다.
 
 ## 근육 후보 검수
@@ -79,10 +81,9 @@ Panatta의 Dips Press는 제품 계열별로 어깨 관여 설명이 다르다. 
 | push_incline_chest_press | 인클라인 체스트 프레스 | b40244d0-46e2-87fa-8d24-5743d2dda914 | NewTech | PLATE |
 | push_super_vertical_chest_press | 슈퍼 버티컬 체스트 프레스 | bd07bf4d-9eac-87f5-8ddf-de7984d44034 | Panatta | PLATE |
 | push_incline_fly | 머신 인클라인 플라이 | a65e10f0-146f-891f-87f8-0d2841b0b40d | Arsenal Strength | PLATE |
-| push_hammer_shoulder_press | 머신 숄더 프레스 | 32ed1719-0c4b-89d1-8c36-58618013eb8c | Hammer Strength | STACK |
 | push_standing_machine_lateral_raise | 스탠딩 머신 레터럴 레이즈 | af156b7e-2496-87c3-8c15-7f31c5878160 | NewTech | STACK |
 | push_machine_overhead_triceps_extension | 머신 오버헤드 트라이셉스 익스텐션 | aaa6f7c3-0b02-8a32-8488-e682f39260ae | NewTech | PLATE |
-| push_arsenal_shoulder_press | 머신 숄더 프레스 | f6fc6164-3d3c-863e-83d2-0068d1da9aac | Arsenal Strength | PLATE |
+| push_machine_shoulder_press | 머신 숄더 프레스 | f6fc6164-3d3c-863e-83d2-0068d1da9aac | 배치별 Hammer / Arsenal | 배치별 STACK / PLATE |
 | push_machine_dips_press | 머신 딥스 프레스 | c15d6b5b-40c2-8c9d-812a-53ad1db4d01c | Panatta | PLATE |
 | push_dumbbell_lateral_raise | 덤벨 레터럴 레이즈 | e3ef7b2e-a8e9-869d-8a08-86b4e022bad3 | — | DUMBBELL |
 | push_cable_overhead_triceps_extension | 케이블 오버헤드 트라이셉스 익스텐션 | e113fff3-d45f-8a4e-8d0c-3445914f4929 | NewTech | STACK |
@@ -96,3 +97,7 @@ Panatta의 Dips Press는 제품 계열별로 어깨 관여 설명이 다르다. 
 | legs_captains_chair_leg_raise | 캡틴스 체어 레그 레이즈 | 44d8cc67-2aff-83c9-8423-b7d77f93612d | NewTech | BODYWEIGHT |
 | cardio_treadmill_running | 트레드밀 러닝 | 2759cc0f-a8e0-866c-84cd-2a52e0aca65e | Health One | — |
 | cardio_outdoor_running | 야외 러닝 | 2ba68fb8-e8b1-8f70-8a4b-715d26ed34e9 | — | — |
+
+## 일반 운동 코드 마감 이후 상태
+
+2026-11-13 Backend a56103e에 현재30종 표준화 시드/검증 Fixture를 커밋했다. 제조사와 부하 방식은 루틴 배치에서 독립 조회한다. 모델/아이소래터럴 특성은 제외하며 새로운 데이터 검수는 후속이다. 과거31개 원본과 디렉터리명은 이력으로 유지한다. 일반 운동 검토 세션은 영구 볼륨/백업을 보존한 채 정지했다. 위 Start/Stop은 도구 사용법이며 현재 검토 환경을 재시드/폐기하라는 지시가 아니다. [현재 종료·보존 경계](../../engineering/test-environment.md#일반-운동-검토-종료--2026-11-13)

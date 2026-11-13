@@ -91,3 +91,11 @@ COMMIT;
 - **승인 카탈로그 검토 실행.** tmpfs의 현재 데이터까지 보존해야 할 때는 Stop 전에 확인된 컨테이너의 로컬 덤프를 Git 제외 경로에 저장하고 해시와 읽기 가능 여부를 확인한다. JSON은 기본 표본의 재구성 자료다. 복원 자료나 보존 조건을 확인할 수 없으면 DB를 폐기하는 Stop을 보류한다. 보호 미디어가 활성화된 실행은 소유권을 확인한 미디어 서비스도 종료한다.
 - **보존된 검토 실행.** 수동 재개한 동일 run을 확인하고 PWA 루트에서 `pwsh -NoProfile -File scripts/home-review-resume.ps1 -Action Stop`을 사용한다. 이 경로는 프런트와 Spring을 닫은 뒤 보존 DB를 정지한다. 다시 `-Action Status`로 컨테이너·볼륨·덤프가 남아 있는지 확인한다. 구형 `home-review.ps1 -Action Stop`, 기존 볼륨 삭제·prune·덮어쓰기 복원은 피한다. 추가 검토 데이터의 백업이 승인되면 새 파일로 보존한다. [보존 및 장애 복원 기록](../../../overload-pwa/docs/tasks/ui-v09-t02a-closeout.md)
 - **로컬 개발·개인·운영 환경.** 사용한 테스트 실행과 경계가 다른 컨테이너·볼륨·계정에는 정리 작업을 적용하지 않는다. 실제 데이터 삭제·초기화·migration은 [Backend AGENTS.md 15절](../../AGENTS.md#15-git-and-change-management)의 승인 절차를 따른다.
+
+## 일반 운동 검토 종료 — 2026-11-13
+
+사용자의 코드 마감 요청에 따라 검토 runId93028565-a41d-401a-8551-e74af9450991을2026-11-13 15:16 KST에 정지했다. 이전 PID를 맹목적으로 사용하지 않고 실행 명령·4173/2251 리스너·전용 런타임 식별자·컨테이너 라벨/마운트를 대조했다. Frontend28184는 헤드리스 프로세스의 정상 창 닫기가 불가능하여 대상 Node만 종료했고 Backend105916은 전용 stop marker로 정상 종료했다. 전용 PostgreSQL/미디어 컨테이너만 docker stop했으며4173/2251/1789/4181에서 더 이상 요청을 처리하지 않음을 확인했다.
+
+DB 컨테이너 overload-workout-review-93028565와 media overload-workout-media-93028565는 정지 상태로 보존한다. named volume overload-workout-review-93028565-data, 기존 V35 덤프/백업 및 공유 read-only GIF 원본은 유지한다. Docker 엔진·공유 서비스·개인/보존 V24 환경은 중단하거나 변경하지 않았다. 삭제/재시드/볼륨 제거는 하지 않았다. 자동 재시드·구형 Stop을 통한 폐기 대신 재개 전 대상·백업·소유권과 사용자 요청을 확인한다.
+
+종료 근거는 PWA Git 제외 .local-backups/workout-api-review 아래 code-stage-shutdown.json에 있으며 인증/DB 비밀값을 문서나 저장소로 옮기지 않는다. 이전 검토 주소는 실행 중 상태를 뜻하지 않는다. 코드 커밋과 이번 문서 동기화에서 테스트·검토 서버를 다시 실행하지 않았다. 당시 검증 수치는 [PWA 마감 기록](../../../overload-pwa/docs/tasks/ui-v09-workout-api-integration.md#최종-마감--2026-11-13)에 시점을 구분해 기록했다.

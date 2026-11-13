@@ -411,3 +411,7 @@ erDiagram
 | `deload_analysis_contexts` | `deload_analysis_versions`, `deload_periods` | V29 조회 뷰다. 분석 버전의 epoch 시작 행을 찾아 그 행이 연결한 완료 기간에서 재개일을 읽는다. |
 
 주간 통계와 승인 중량 성장 응답은 당시 일정, 최초 계획, 종료·수행 기록과 승인 사건을 읽어 계산한다. 영속화하는 일별 판단과 디로딩 주간 분석은 각 기능의 입력·판단 근거다. [통계와 디로딩 보존 규칙](schema.md#통계와-디로딩)
+
+## 일반 운동 연결 후 관계 확인 — 2026-11-13
+
+현재 V35 ERD는 일반 운동 코드 a56103e와 일치한다. 표준 운동과 독립 manufacturer를 루틴 배치/수행 장비가 참조하며 제조사별 표준 운동 복제를 요구하지 않는다. assessment의 weightReview와 ACTIVE progress-assessment는 읽기 계산 결과라 관계/테이블을 추가하지 않는다. 메모 서버 저장·장비 모델 테이블도 구현하지 않았다. [스키마 확인](schema.md#일반-운동-uiapi-연결에-따른-스키마-확인--2026-11-13) · [API](../api/workout-sessions.md)
