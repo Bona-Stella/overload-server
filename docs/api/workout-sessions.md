@@ -20,6 +20,17 @@
 
 V17 Backend는 [표준 운동 설계](../tasks/standard-exercise-catalog-design-analysis.md)의 단일 UUID·장비 계약을 구현한다. 아래 문서의 운동 계획/평가 schemaVersion은2다. Frontend/IndexedDB3·local schema2 전환과 당시 V17 개발 DB 연동은 [4단계 보고서](../tasks/standard-exercise-catalog-dev-phase-4-report.md)에 기록돼 있다. 6A에서는 개인 DB를 조회하지 않았으며 최신 조합의 종합 검증은6B에 남아 있다.
 
+## 최종 중량 검토 UI와 정정·승인의 경계 — 2026-11-14
+
+**설계 확정 / 신규 UI·승인 연동 구현 필요.** [Decision Log 10.23.5~6절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10235-중량-검토와-명시-승인)의 `중량 검토`·수정·전체/선택 승인은 HTML 합성 시연이다. 현재 React의 읽기 전용 weightReview와 기존 승인 해결 계약을 신규 일반 일괄 승인 API의 구현 근거로 삼지 않는다.
+
+- 체크·모달 확인은 예정값 초안만 바꾸고 최종 전체/선택 승인으로 명시 확정한다. 전부 선택은 전체 승인, 일부 해제는 선택 승인, 모두 해제는 비활성이다. 수동 초안을 보존한다. 기본 권고 폭 PLATE/STACK 5kg·기타 2kg과 수동 휠/± 2.5kg·1kg은 UI 설계값이며 현행 DTO·서버 승인 산식을 변경하지 않는다.
+- 10.21절의 최신 제품 정책에 따라 공식 증감 평가 전체 제외인 세션은 기존 `weightReview`에서 미완료 감량 등 읽기 전용 권고가 계산되더라도 UI의 `중량 검토` 카드 전체를 숨긴다. 이는 응답의 `weightReview`를 강제로 null로 만들거나 기존 권고 계산·최초 공식 평가·현재 공식 평가를 변경하라는 요구가 아니다. 현행 nullable 계약·계산 조건·반환 필드는 유지하고 실제 수행 기록은 그대로 표시한다. 세션 단위 공식 제외 근거의 응답·전달은 후속 계약 사항이다.
+- `PATCH /{id}/records`는 허용된 실제 수행값·논리 삭제만 처리한다. 계획·종목·장비·최초 승인 문맥·최초 평가를 보존하고 현재 평가를 별도 계산한다. 승인 사건·현재 루틴 승인값·routine.version을 변경하지 않으며 과거 기록 정정으로 이후 승인을 덮어쓰지 않는다. 실제 추가 부하·유산소 측정 허용 범위는 각 현행 측정 계약을 따른다.
+- 기존 `POST /{id}/closed-approval-resolutions`는 종료 후 PENDING 전체를 KEEP_CURRENT/REAPPROVE로 해결하는 별도 계약으로 유지한다. 새 일반 전체/선택 승인에 전용하거나 과거 날짜라는 이유로 제거하지 않는다. 재승인은 현재 루틴 version/승인값·활성 원출처와 새 UUID/순번/시각을 검증하고 실제 변경 시 새 승인 사건을 추가한다. 기존 후속 사건·최초 수행 문맥은 재작성하지 않는다. 동일 해결 재확인은 추가 승인을 만들지 않는다.
+
+예: 화요일 95kg 기록 뒤 수요일 100kg으로 정상 승인했다면 목요일의 records 정정은 100kg과 수요일 사건을 유지한다. 오래된 version/이전 승인값으로 재승인하면 충돌이며, 유효한 PENDING을 최신 100kg 문맥에서 사용자가 명시 재승인하는 것은 현재 시점의 새 승인이다. KEEP_CURRENT는 100kg을 유지한다. 신규 전체/선택 승인의 대상·최신성·실패/경합·사건 처리와 HTTP/DTO는 후속 검토 사항으로 남기며 이번 작업에서 추가 계약을 확정하지 않는다.
+
 ## 현재 제공 범위
 
 V12는 `workout_sessions`를 추가한다. InitialPlan은 `initial_plan_snapshot` JSONB 하나가 유일한 원본이다.
