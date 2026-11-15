@@ -53,8 +53,11 @@ public final class WorkoutSnapshotData {
         String previousApprovedWeightKg, String nextApprovedWeightKg, Instant occurredAt) {
     }
 
+    public record WeightInterval(Instant startedAt,Instant endedAt) { }
+    public record WeightTiming(int schemaVersion,boolean complete,List<WeightInterval> intervals) { }
     public record State(List<Exercise> sessionExercises, Plan appliedPlan, List<SetValue> performedSets, List<Cardio> cardioResults,
-        List<UUID> deletedPerformedSetIds, List<UUID> deletedCardioResultIds, List<Approval> approvalRequests) {
+        List<UUID> deletedPerformedSetIds, List<UUID> deletedCardioResultIds, List<Approval> approvalRequests,@JsonInclude(JsonInclude.Include.NON_NULL) WeightTiming weightTiming) {
+        public State(List<Exercise> e,Plan p,List<SetValue> s,List<Cardio> c,List<UUID> ds,List<UUID> dc,List<Approval> a){this(e,p,s,c,ds,dc,a,null);}
     }
 
     public record Save(long dataGeneration, UUID editorDeviceId, long writerEpoch, long localRevision, State snapshot) {

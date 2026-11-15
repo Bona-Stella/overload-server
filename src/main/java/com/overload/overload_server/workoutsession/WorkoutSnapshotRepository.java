@@ -95,7 +95,7 @@ public class WorkoutSnapshotRepository {
         return new View(new State(exercises(session.id).stream().map(SessionExercise::value).toList(), JSON.readValue(session.appliedPlan, Plan.class),
             sets.stream().filter(s -> s.deletedAt==null).map(PerformedSet::value).toList(), cardio.stream().filter(s -> s.deletedAt==null).map(CardioResult::value).toList(),
             sets.stream().filter(s -> s.deletedAt!=null).map(s -> s.id).toList(), cardio.stream().filter(s -> s.deletedAt!=null).map(s -> s.id).toList(),
-            requests.stream().map(WeightApprovalRequest::value).toList()), results(session.id, requests),
+            requests.stream().map(WeightApprovalRequest::value).toList(),session.weightTiming==null?null:JSON.readValue(session.weightTiming,WeightTiming.class)), results(session.id, requests),
             sets.stream().map(s -> new RecordedContext(s.id, s.approvalState, decimal(s.approvedWeight))).toList());
     }
 }

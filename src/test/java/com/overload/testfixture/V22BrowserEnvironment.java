@@ -144,7 +144,7 @@ public final class V22BrowserEnvironment implements AutoCloseable {
         }
         app.getBean(Flyway.class).validate();
         var versions = jdbc.queryForList("SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
-        require(versions.equals(java.util.stream.IntStream.rangeClosed(1, 35).mapToObj(Integer::toString).toList()), "V1 through V35 required");
+        require(versions.equals(java.util.stream.IntStream.rangeClosed(1, 37).mapToObj(Integer::toString).toList()), "V1 through V37 required");
         require(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class) == 0, "Failed migration");
         require(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class) == 0, "Fresh users required");
         require(jdbc.queryForObject("SELECT count(*) FROM exercise_definitions", Integer.class) == 0, "Personal seed prohibited");
@@ -291,6 +291,8 @@ public final class V22BrowserEnvironment implements AutoCloseable {
             }
         } catch (Exception failure) {
             System.err.println("V22 environment failed: " + failure.getClass().getSimpleName());
+            if(failure instanceof java.sql.SQLException sql)System.err.println("SQLState="+sql.getSQLState());
+            for(var frame:failure.getStackTrace())if(frame.getClassName().startsWith("com.overload."))System.err.println(frame);
             if (args.length == 2 && failure instanceof IllegalStateException) {
                 System.err.println(failure.getMessage());
             }

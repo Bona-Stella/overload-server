@@ -24,7 +24,7 @@ final class WorkoutSnapshotRequests {
         long revision = counter(body, "localRevision");
         if (revision==0) throw invalid();
         var s = body.get("snapshot");
-        fields(s, "sessionExercises", "appliedPlan", "performedSets", "cardioResults", "deletedPerformedSetIds", "deletedCardioResultIds", "approvalRequests");
+        optionalFields(s,"weightTiming", "sessionExercises", "appliedPlan", "performedSets", "cardioResults", "deletedPerformedSetIds", "deletedCardioResultIds", "approvalRequests");
         var identities = new ArrayList<Exercise>();
         for (var p:array(s, "sessionExercises")) {
             fields(p, "id", "kind", "standardExerciseId");
@@ -68,7 +68,7 @@ final class WorkoutSnapshotRequests {
         cardio.sort(Comparator.comparing(p -> p.id().toString()));
         approvals.sort(Comparator.comparing((Approval p) -> p.sessionExerciseId().toString()).thenComparingLong(Approval::sequence));
         return new Save(counter(body, "dataGeneration"), uuid(body, "editorDeviceId"), counter(body, "writerEpoch"), revision,
-            new State(List.copyOf(identities), new Plan(2, List.copyOf(weights), List.copyOf(cardioPlans)), List.copyOf(sets), List.copyOf(cardio), ids(s, "deletedPerformedSetIds"), ids(s, "deletedCardioResultIds"), List.copyOf(approvals)));
+            new State(List.copyOf(identities), new Plan(2, List.copyOf(weights), List.copyOf(cardioPlans)), List.copyOf(sets), List.copyOf(cardio), ids(s, "deletedPerformedSetIds"), ids(s, "deletedCardioResultIds"), List.copyOf(approvals),weightTiming(s)));
     }
 
     static SetValue set(JsonNode p,boolean recovery) {
@@ -159,6 +159,22 @@ final class WorkoutSnapshotRequests {
         catch (tools.jackson.core.JacksonException e) {
             throw invalid();
         }
+    }
+
+
+    private static WeightTiming weightTiming(JsonNode snapshot){
+        if(!snapshot.has("weightTiming"))return null;
+        var v=snapshot.get("weightTiming");fields(v,"schemaVersion","complete","intervals");
+        if(count(v,"schemaVersion")!=1||!v.get("complete").isBoolean())throw invalid();
+        var rows=new ArrayList<WeightInterval>();Instant previous=null;long total=0;
+        for(var row:array(v,"intervals")){
+            fields(row,"startedAt","endedAt");Instant start=time(row,"startedAt"),end=time(row,"endedAt");
+            if(!end.isAfter(start)||previous!=null&&start.isBefore(previous)||rows.size()>=10000)throw invalid();
+            try{total=Math.addExact(total,java.time.Duration.between(start,end).toMillis());}catch(ArithmeticException e){throw invalid();}
+            if(total>86400000)throw invalid();
+            rows.add(new WeightInterval(start,end));previous=end;
+        }
+        return new WeightTiming(1,v.get("complete").asBoolean(),List.copyOf(rows));
     }
 
     static void fields(JsonNode p, String... names) {

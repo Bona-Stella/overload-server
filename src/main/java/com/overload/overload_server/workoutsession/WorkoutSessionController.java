@@ -15,7 +15,12 @@ public class WorkoutSessionController {
     private final WorkoutSessionService service;
     private final WorkoutSnapshotService snapshots;
     private final WorkoutRecordService records;
-    WorkoutSessionController(WorkoutSessionService service,WorkoutSnapshotService snapshots,WorkoutRecordService records) { this.service = service; this.snapshots=snapshots;this.records=records; }
+    private final WorkoutReviewService reviews;
+    WorkoutSessionController(WorkoutSessionService service,WorkoutSnapshotService snapshots,WorkoutRecordService records,WorkoutReviewService reviews) { this.service = service; this.snapshots=snapshots;this.records=records;this.reviews=reviews; }
+    @GetMapping("/{id}/weight-review")
+    ResponseEntity<WorkoutReviewService.View> weightReview(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String id,HttpServletRequest request){validate(request,true);return ok(reviews.get(p.userId(),WorkoutSessionRequests.uuid(id)));}
+    @PostMapping(value="/{id}/weight-review-approvals",consumes="application/json")
+    ResponseEntity<WorkoutReviewService.View> approveReview(@AuthenticationPrincipal SessionPrincipal p,@PathVariable String id,@RequestBody String body,HttpServletRequest request){validate(request,false);return ok(reviews.approve(p.userId(),WorkoutSessionRequests.uuid(id),WorkoutReviewService.parse(body)));}
     @PatchMapping(value="/{id}/records",consumes="application/json")
     ResponseEntity<WorkoutRecordData.Ack> edit(@AuthenticationPrincipal SessionPrincipal principal,@PathVariable String id,
             @RequestBody String body,HttpServletRequest request) {

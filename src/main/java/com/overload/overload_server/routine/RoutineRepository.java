@@ -34,6 +34,7 @@ public class RoutineRepository {
 		public long version(){return routine.version;}
 		public boolean available(UUID id){var p=placements.get(id);return routine.deletedAt==null&&p!=null&&p.deletedAt==null;}
 		public java.math.BigDecimal weight(UUID id){return placements.get(id).approvedWeight;}
+		public boolean matches(UUID id,UUID exercise,UUID manufacturer,String load,int sets,int min,int max){var p=placements.get(id);return available(id)&&p.standardExerciseId.equals(exercise)&&Objects.equals(p.manufacturerId,manufacturer)&&Objects.equals(p.loadType,load)&&p.setCount==sets&&p.minReps==min&&p.maxReps==max;}
 		public boolean changed(){return changed;}
 		public void apply(UUID placement,UUID session,UUID exercise,UUID request,String routineName,String exerciseName,
 				java.math.BigDecimal next,java.time.Instant occurred,java.time.Instant now){

@@ -5,8 +5,8 @@ SET LOCAL standard_conforming_strings = on;
 
 DO $$
 BEGIN
-    IF (SELECT max(version::integer) FROM flyway_schema_history WHERE success AND version IS NOT NULL) IS DISTINCT FROM 35 THEN
-        RAISE EXCEPTION 'Expected the verified V35 catalog contract';
+    IF (SELECT max(version::integer) FROM flyway_schema_history WHERE success AND version IS NOT NULL) IS DISTINCT FROM 37 THEN
+        RAISE EXCEPTION 'Expected V37 with the verified catalog contract';
     END IF;
 END $$;
 

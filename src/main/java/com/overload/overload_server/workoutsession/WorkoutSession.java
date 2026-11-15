@@ -38,6 +38,8 @@ public class WorkoutSession {
     @Column(name="deleted_at") Instant deletedAt;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name="completion_assessment_snapshot",columnDefinition="jsonb") String completionAssessment;
 
+    @JdbcTypeCode(SqlTypes.JSON) @Column(name="completion_weight_review_snapshot",columnDefinition="jsonb") String completionWeightReview;
+    @JdbcTypeCode(SqlTypes.JSON) @Column(name="weight_timing_snapshot",columnDefinition="jsonb") String weightTiming;
     @Column(name="deload_period_id",updatable=false) UUID deloadPeriodId;
     @Column(name="deload_plan_id",updatable=false) UUID deloadPlanId;
     @Column(name="first_deload_activity_at",insertable=false,updatable=false) Instant firstDeloadActivityAt;

@@ -1985,6 +1985,96 @@ class WorkoutSessionIntegrationTests {
     }
     JsonNode currentExercise()throws Exception{return node(browser.get(path()+"/assessment")).get("currentAssessment").get("evaluation").get("exercises").get(0);}
 
+
+
+    State measuredState(State s,boolean complete,List<WeightInterval> intervals){return new State(s.sessionExercises(),s.appliedPlan(),s.performedSets(),s.cardioResults(),s.deletedPerformedSetIds(),s.deletedCardioResultIds(),s.approvalRequests(),new WeightTiming(1,complete,intervals));}
+    @Test void eighthWeightTimingSurvivesFinishCorrectionAndCannotChangeAfterClosure()throws Exception{
+        var base=initialState();var interval=new WeightInterval(Instant.parse("2026-10-31T16:01:00Z"),Instant.parse("2026-10-31T16:02:30Z"));
+        var value=measuredState(confirmed(base,new int[]{10,10,10},new Context("INITIAL_APPROVED",null)),true,List.of(interval));
+        node(finish(1,value));
+        var saved=node(browser.get(path())).get("snapshot").get("state").get("weightTiming");assertThat(saved.get("complete").asBoolean()).isTrue();assertThat(saved.get("intervals").size()).isEqualTo(1);
+        var before=row().get("weight_timing_snapshot");var edit=Map.of("dataGeneration","0","expectedVersion",row().get("version").toString(),"setCorrections",List.of(Map.of("id",value.performedSets().getFirst().id(),"weightKg","1","reps",1)),"cardioCorrections",List.of(),"deletedPerformedSetIds",List.of(),"deletedCardioResultIds",List.of());
+        node(browser.send("PATCH",path()+"/records",json(edit),csrf));assertThat(row().get("weight_timing_snapshot")).isEqualTo(before);
+        assertThatThrownBy(()->jdbc.update("UPDATE workout_sessions SET weight_timing_snapshot=NULL WHERE id=?",session)).isInstanceOf(org.springframework.dao.DataAccessException.class);
+    }
+    @Test void eighthWeightTimingRejectsOverlapClockOverflowAndRewritingMeasuredIntervals()throws Exception{
+        var base=initialState();var a=new WeightInterval(Instant.parse("2026-10-31T16:01:00Z"),Instant.parse("2026-10-31T16:02:00Z"));
+        var value=measuredState(base,true,List.of(a));node(save(1,value));
+        var rewrite=measuredState(base,true,List.of(new WeightInterval(a.startedAt().plusSeconds(1),a.endedAt())));
+        error(save(2,rewrite),422,"INVALID_SNAPSHOT");assertThat(node(browser.get(path())).get("snapshot").get("state").get("weightTiming").get("intervals").get(0).get("startedAt").asString()).isEqualTo(a.startedAt().toString());
+        assertThat(save(2,measuredState(base,true,List.of(a,a))).statusCode()).isEqualTo(400);
+        error(finish(2,measuredState(base,true,List.of(new WeightInterval(a.startedAt(),Instant.parse("2026-10-31T16:11:00Z"))))),422,"CLOCK_CONTEXT_INVALID");
+    }
+    @Test void eighthFinalApprovalStoresManualValueInsteadOfRecommendation()throws Exception{
+        node(finish(1,confirmed(initialState(),new int[]{10,10,10},new Context("INITIAL_APPROVED",null))));
+        var view=node(browser.get(path()+"/weight-review"));var item=view.get("frozen").get("exercises").get(0);
+        var id=UUID.fromString(item.get("sessionExerciseId").asString());
+        var saved=node(browser.send("POST",path()+"/weight-review-approvals",json(finalReviewBody(view,id,"60","61.5",UUID.randomUUID())),csrf));
+        assertThat(saved.get("approvals").get(0).get("nextWeightKg").asString()).isEqualTo("61.5");
+        assertThat(saved.get("frozen")).isEqualTo(view.get("frozen"));assertThat(jdbc.queryForObject("SELECT approved_weight FROM routine_weight_placements WHERE id=?",BigDecimal.class,placement)).isEqualByComparingTo("61.5");
+    }
+
+    Map<String,Object> finalReviewBody(JsonNode view,UUID exercise,String previous,String next,UUID request){
+        return new LinkedHashMap<>(Map.of("dataGeneration","0","expectedVersion",view.get("version").asString(),"expectedRoutineVersion",view.get("routineVersion").asString(),"confirm",true,"approvals",List.of(Map.of("id",request,"sessionExerciseId",exercise,"previousWeightKg",previous,"nextWeightKg",next))));
+    }
+    @ParameterizedTest @ValueSource(strings={"INCREASE","DECREASE","MAINTAIN","UNAVAILABLE"})
+    void sixthReviewPersistsFrozenGuidanceAndOnlyExplicitApprovals(String direction)throws Exception{
+        var base=initialState();var context=new Context(direction.equals("UNAVAILABLE")?"TODAY_ONLY":"INITIAL_APPROVED",null);
+        var values=confirmed(base,direction.equals("INCREASE")?new int[]{10,10,10}:direction.equals("DECREASE")?new int[]{5,8,8}:new int[]{8,8,8},context);
+        node(finish(1,values));var frozen=row().get("completion_weight_review_snapshot");var view=node(browser.get(path()+"/weight-review"));
+        var item=view.get("frozen").get("exercises").get(0);var id=UUID.fromString(item.get("sessionExerciseId").asString());
+        assertThat(item.get("guidance").get("advice").asString()).isEqualTo(direction);assertThat(view.get("approvals").size()).isZero();
+        if(direction.equals("INCREASE")||direction.equals("DECREASE")){
+            String next=direction.equals("INCREASE")?"62":"58";assertThat(item.get("recommendedWeightKg").asString()).isEqualTo(next);
+            var body=finalReviewBody(view,id,"60",next,UUID.randomUUID());
+            var saved=node(browser.send("POST",path()+"/weight-review-approvals",json(body),csrf));
+            assertThat(saved.get("approvals").size()).isEqualTo(1);assertThat(saved.get("approvals").get(0).get("source").asString()).isEqualTo("WORKOUT_REVIEW");
+            assertThat(jdbc.queryForObject("SELECT approved_weight FROM routine_weight_placements WHERE id=?",BigDecimal.class,placement)).isEqualByComparingTo(next);
+            assertThat(eventCount()).isEqualTo(1);assertThat(routineVersion()).isEqualTo(1);
+            assertThat(node(browser.send("POST",path()+"/weight-review-approvals",json(body),csrf)).get("approvals")).isEqualTo(saved.get("approvals"));
+            assertThat(eventCount()).isEqualTo(1);
+            var edit=new LinkedHashMap<String,Object>(Map.of("dataGeneration","0","expectedVersion",saved.get("version").asString(),"setCorrections",List.of(Map.of("id",values.performedSets().getFirst().id(),"weightKg","1","reps",1)),"cardioCorrections",List.of(),"deletedPerformedSetIds",List.of(),"deletedCardioResultIds",List.of()));
+            node(browser.send("PATCH",path()+"/records",json(edit),csrf));
+            assertThat(node(browser.get(path()+"/weight-review")).get("approvals")).isEqualTo(saved.get("approvals"));
+        }else error(browser.send("POST",path()+"/weight-review-approvals",json(finalReviewBody(view,id,"60","62",UUID.randomUUID())),csrf),409,"SOURCE_NOT_APPROVABLE");
+        assertThat(row().get("completion_weight_review_snapshot")).isEqualTo(frozen);
+        assertThatThrownBy(()->jdbc.update("UPDATE workout_sessions SET completion_weight_review_snapshot='{}'::jsonb WHERE id=?",session)).isInstanceOf(org.springframework.dao.DataAccessException.class);
+    }
+    @Test void sixthReviewRejectsNewerApprovalVersionAndCannotRelabelRoutineEditorAsSessionApproval()throws Exception{
+        var base=initialState();node(finish(1,confirmed(base,new int[]{10,10,10},new Context("INITIAL_APPROVED",null))));
+        var view=node(browser.get(path()+"/weight-review"));var id=UUID.fromString(view.get("frozen").get("exercises").get(0).get("sessionExerciseId").asString());
+        var old=finalReviewBody(view,id,"60","62",UUID.randomUUID());
+        var edit=updateRoutine();edit.put("weightApprovals",List.of(Map.of("placementId",placement,"nextApprovedWeightKg","65","occurredAt","2026-11-08T03:00:00Z")));
+        node(browser.send("PUT",routinePath(),json(edit),csrf));
+        error(browser.send("POST",path()+"/weight-review-approvals",json(old),csrf),409,"RESOLUTION_CONFLICT");
+        var latest=node(browser.get(path()+"/weight-review"));assertThat(latest.get("approvals").size()).isZero();
+        assertThat(latest.get("current").get(0).get("approvedWeightKg").asString()).isEqualTo("65");assertThat(eventCount()).isEqualTo(1);
+        var refreshed=finalReviewBody(latest,id,"65","62",UUID.randomUUID());
+        error(browser.send("POST",path()+"/weight-review-approvals",json(refreshed),csrf),409,"RESOLUTION_CONFLICT");
+        assertThat(eventCount()).isEqualTo(1);
+    }
+
+
+    @Test void sixthSelectedApprovalIsAtomicAndLeavesOtherExercisesUnapproved()throws Exception{
+        var second=UUID.randomUUID();var update=updateRoutine();
+        var placements=new ArrayList<Object>((List<?>)update.get("weightPlacements"));
+        placements.add(equipment(Map.of("mode","NEW","id",second,"standardExerciseId",exercise,"setCount",3,"minReps",6,"maxReps",10,"initialWeightKg","60")));
+        update.put("weightPlacements",placements);node(browser.send("PUT",routinePath(),json(update),csrf));
+        var base=initialState();var sets=new ArrayList<SetValue>();
+        for(var p:base.appliedPlan().weightExercises())for(int i=1;i<=3;i++)sets.add(new SetValue(UUID.randomUUID(),p.sessionExerciseId(),i,"60",p==base.appliedPlan().weightExercises().getFirst()?10:5,Instant.parse("2026-10-31T16:02:00Z"),new Context("INITIAL_APPROVED",null),null,null));
+        node(finish(1,state(base,sets,List.of(),List.of(),List.of(),List.of())));
+        var view=node(browser.get(path()+"/weight-review"));UUID a=base.appliedPlan().weightExercises().getFirst().sessionExerciseId(),b=base.appliedPlan().weightExercises().getLast().sessionExerciseId();
+        var first=finalReviewBody(view,a,"60","62",UUID.randomUUID());node(browser.send("POST",path()+"/weight-review-approvals",json(first),csrf));
+        var partial=node(browser.get(path()+"/weight-review"));assertThat(partial.get("approvals").size()).isEqualTo(1);
+        var batch=finalReviewBody(partial,b,"60","58",UUID.randomUUID());
+        var choices=new ArrayList<Object>((List<?>)batch.get("approvals"));choices.add(Map.of("id",UUID.randomUUID(),"sessionExerciseId",a,"previousWeightKg","62","nextWeightKg","64"));batch.put("approvals",choices);
+        error(browser.send("POST",path()+"/weight-review-approvals",json(batch),csrf),409,"RESOLUTION_CONFLICT");
+        assertThat(eventCount()).isEqualTo(1);assertThat(node(browser.get(path()+"/weight-review")).get("approvals").size()).isEqualTo(1);
+        node(browser.send("POST",path()+"/weight-review-approvals",json(finalReviewBody(partial,b,"60","58",UUID.randomUUID())),csrf));
+        assertThat(node(browser.get(path()+"/weight-review")).get("approvals").size()).isEqualTo(2);
+        assertThat(eventCount()).isEqualTo(2);assertThat(row().get("completion_weight_review_snapshot")).isNotNull();
+    }
+
     State initialStateAt(String started) throws Exception {var body=startBody();body.put("startedAt",started);return JSON.treeToValue(node(start(body)).get("snapshot").get("state"),State.class);}
     State confirmed(State base,int[] reps,Context context) {
         var values=new ArrayList<SetValue>();var started=((java.sql.Timestamp)row().get("started_at")).toInstant();

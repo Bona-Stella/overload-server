@@ -30,7 +30,7 @@ class GrowthRepository {
         )
         """;
     List<GrowthResponse.Exercise> search(UUID owner,long generation,GrowthQuery query,GrowthQuery.Range range) {
-        var args=args(owner,generation,range);args.add(query.search());args.add(query.offset());
+        var args=args(owner,generation,range);args.add(query.search());args.add(query.groupCode());args.add(query.groupCode());args.add(query.groupCode());args.add(query.offset());
         return jdbc.query(EVIDENCE+"""
             , facts AS (
               SELECT standard_exercise_id,name,started_at performed_at,NULL::timestamptz approval_at FROM performed
@@ -40,6 +40,7 @@ class GrowthRepository {
               FROM facts GROUP BY standard_exercise_id
             ) SELECT s.id,s.name,g.last_performed_at,g.last_approval_at FROM grouped g JOIN standard_exercise s ON s.id=g.standard_exercise_id
             WHERE strpos(lower(s.name||' '||g.aliases),lower(?))>0
+            AND (?::text IS NULL OR EXISTS(SELECT 1 FROM exercise_muscle em JOIN muscle m ON m.id=em.muscle_id WHERE em.standard_exercise_id=s.id AND em.role='PRIMARY' AND m.group_code=?) OR (?='OTHER' AND NOT EXISTS(SELECT 1 FROM exercise_muscle em WHERE em.standard_exercise_id=s.id AND em.role='PRIMARY')))
             ORDER BY g.last_performed_at DESC NULLS LAST,g.last_approval_at DESC NULLS LAST,s.id LIMIT 51 OFFSET ?
             """,(r,i)->new GrowthResponse.Exercise(r.getObject(1,UUID.class),r.getString(2),instant(r,3),instant(r,4)),args.toArray());
     }

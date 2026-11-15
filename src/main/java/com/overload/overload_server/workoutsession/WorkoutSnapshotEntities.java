@@ -58,6 +58,7 @@ class WeightApprovalRequest {
     @Column(name = "resolved_at") Instant resolvedAt;
     @Column(name = "resolved_by_request_id") UUID resolvedBy;
     @Column(name = "created_after_closure", updatable = false) boolean createdAfterClosure;
+    @Column(name="final_review",updatable=false) boolean finalReview;
     protected WeightApprovalRequest() {
     }
     WeightApprovalRequest(UUID session, WorkoutSnapshotData.Approval input) {

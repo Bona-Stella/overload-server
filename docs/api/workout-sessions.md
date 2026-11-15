@@ -317,6 +317,22 @@ query는 `limit`, `beforeClosedAt`, `beforeId`만 허용하고 중복/추가 키
 
 routineName은 불변 InitialPlan의 시작 당시 이름이다. Counter는 정규 문자열이다. 수행 요약·통계·달력·메모·평가·전체 상세를 추가하지 않는다. 종료/삭제 메타의 의미는 상세 계약과 같다. UI는 AUTO_CLOSED의 closedAt을 실제 endedAt으로 대신 표시하지 않는다. DB 스키마/기존 V1~V15 migration 변경은 없다.
 
+## 월간 이력·최근 7일·검색 요구와 현행 목록의 차이
+
+**설계 확정 / HTML 합성 시연 / 조회 계약 보완 필요.** [10.24.5절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10245-최근-7일과-월간-운동-이력)의 기록 메인 최근7일과 전체 이력 월간/전체 기간 검색을 적용한다. 최신 UI를 아래 현행 GET의 구현 완료로 표시하지 않는다.
+
+| 요구 | 현재 GET /api/v1/workout-sessions/closed | 후속 확인 |
+|---|---|---|
+| 기본 월·최근7일 | limit(기본20·1~50), beforeClosedAt/beforeId만 허용. 날짜 query 없음 | 저장 운동일·계정 시간대에 맞는 날짜 범위와 유효 완료/삭제/자동 마감 경계를 검토 |
+| 루틴별/운동별 전체 과거 검색 | 불변 InitialPlan routineName은 목록에 있으나 이름 query·세션 운동명/별칭 필터 없음 | 후보 이름과 실제 이력 결과를 분리하고 실제 세션 운동명·과거 이름·전체 과거 범위·색인·페이지네이션 확인 |
+| 최신 종료순·월 경계 | closedAt DESC → id DESC cursor. 실제 endedAt과 workoutDate가 별도이고 AUTO_CLOSED endedAt은 null | UI 종료 시점 정렬과 현재 cursor 차이를 확인. workoutDate는 closedAt과 단조 관계가 아니므로 한 페이지 또는 날짜만 보고 조회 종료하지 않음 |
+| 기존 기록 카드 | 세션/루틴명·상태·운동일·시작/종료·삭제/디로딩 참조를 제공. 수행 세트·유산소 요약·총중량은 없음 | 단건 상세로 파생 검증은 가능하나 목록 전체 상세 N+1이나 전체 이력 다운로드를 기본 해법으로 삼지 않고 요약 조회 능력 검토 |
+| 주차 구분선 | UI 표시이며 서버 주차 ID 없음 | 월/검색 필터 후 월~일의 첫 카드에만 얇은 제목·실제 범위 표시. 빈 주·큰 컨테이너·접기 없음. 월/연 경계와 페이지 경계 중복 헤더 확인 |
+
+현재 목록은 FINISHED/AUTO_CLOSED 및 삭제 메타를 반환한다. 새 피드의 노출/미동기화/삭제 처리와 AUTO_CLOSED의 실제 종료 시각 없는 상태는 기존 데이터 보호·표시 계약을 기준으로 후속 확인한다. HTML이 endedAt 존재 여부로 거른다고 해서 새 Backend 상태 정책으로 확정하지 않는다. ST-53의 운동 시작일 귀속을 업로드/서버 종료일로 바꾸지 않는다.
+
+조사 근거: [엄격 query 파서](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutSessionRequests.java), [현재 목록 응답](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutSessionResponses.java), [cursor 조회](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutSessionRepository.java). 기존 detail/정정/복구·평가·PENDING 해결은 재사용하고 승인/최초 계획·문맥을 바꾸지 않는다. 새 경로·DTO·정렬 query·색인 SQL은 이번에 확정하거나 구현하지 않는다.
+
 ## FINISH — 최종 snapshot과 최초 종료 평가
 
 `POST /api/v1/workout-sessions/{id}/finish`, application/json. 요청의 정확한 필드는 기존 snapshot PUT의 `dataGeneration,editorDeviceId,writerEpoch,localRevision,snapshot`에 `endedAt:Instant` 하나를 추가한 것이다. snapshot 구조와 모든 필드·정규화·명시 삭제·허용 정정·승인 요청 규칙은 V13과 동일하다. userId·평가값·승인 처리 상태를 입력받지 않는다.

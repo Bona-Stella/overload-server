@@ -66,11 +66,13 @@ public class WorkoutSnapshotService {
             var known=data.approvals(id).stream().map(r->r.id).collect(Collectors.toSet());
             for (var request:state.snapshot().approvalRequests()) if (!known.contains(request.id())&&request.occurredAt().isAfter(input.endedAt())) throw failure(CLOCK_CONTEXT_INVALID);
             boolean duplicateSnapshot=applySnapshot(session,state,locked.definitions(),locked.scope());
+            if(session.weightTiming!=null&&JSON.readValue(session.weightTiming,WeightTiming.class).intervals().stream().anyMatch(v->v.endedAt().isAfter(input.endedAt())))throw failure(CLOCK_CONTEXT_INVALID);
             for (var set:data.sets(id)) if (set.deletedAt==null&&set.completedAt.isAfter(input.endedAt())) throw failure(CLOCK_CONTEXT_INVALID);
             for (var cardio:data.cardio(id)) if (cardio.deletedAt==null&&cardio.occurredAt.isAfter(input.endedAt())) throw failure(CLOCK_CONTEXT_INVALID);
             if (duplicateSnapshot) { incrementable(session);session.version++; }
             Instant now=clock.instant().truncatedTo(ChronoUnit.MICROS);session.updatedAt=now;
             session.completionAssessment=json(assessments.assess(session,now));
+            session.completionWeightReview=json(WorkoutReviewService.freeze(session,assessments.weightReview(session,now)));
             session.endedAt=input.endedAt();session.closedAt=now;session.status="FINISHED";
             data.flush();return finishAck(session,false);
         });
@@ -158,6 +160,7 @@ public class WorkoutSnapshotService {
         var approvals = index(data.approvals(id), r -> r.id);
         var applied = approvals(session, input.snapshot().approvalRequests(), items, approvals, scope, false);
         boolean changed = facts(session, input.snapshot(), items, approvals);
+        if(input.snapshot().weightTiming()!=null){validateWeightTiming(session,input.snapshot().weightTiming());session.weightTiming=json(input.snapshot().weightTiming());}
         if (!oldPlan.equals(input.snapshot().appliedPlan())) {
             session.appliedPlan = json(input.snapshot().appliedPlan());
             changed = true;
@@ -510,6 +513,19 @@ public class WorkoutSnapshotService {
 
     private static void incrementable(WorkoutSession s) {
         if (s.version==Long.MAX_VALUE)throw failure(WRITE_CONFLICT);
+    }
+
+
+    private void validateWeightTiming(WorkoutSession session,WeightTiming next){
+        Instant now=clock.instant();
+        for(var row:next.intervals())if(row.startedAt().isBefore(session.startedAt)||row.endedAt().isAfter(now))throw failure(CLOCK_CONTEXT_INVALID);
+        if(session.weightTiming==null)return;
+        var old=JSON.readValue(session.weightTiming,WeightTiming.class);
+        if(!old.complete()&&next.complete()||next.intervals().size()<old.intervals().size())throw failure(INVALID_SNAPSHOT);
+        for(int i=0;i<old.intervals().size();i++){
+            var a=old.intervals().get(i);var b=next.intervals().get(i);
+            if(!a.startedAt().equals(b.startedAt())||i<old.intervals().size()-1&&!a.endedAt().equals(b.endedAt())||b.endedAt().isBefore(a.endedAt()))throw failure(INVALID_SNAPSHOT);
+        }
     }
 
     private static void afterStart(WorkoutSession s, Instant time) {

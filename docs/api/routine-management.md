@@ -21,6 +21,12 @@
 기준은 [Task 009 v1.0](../tasks/task-009-redesign-v1.0.md), 유지되는 [Task 006 도메인 정책](../tasks/task-006-integrated-design-v0.3.1.md), 기존 [온라인 쓰기](workout-online-write.md)다.
 Backend 세션과 Frontend/IndexedDB3·local schema2는 같은 표준 UUID 계약으로 전환했다. 당시 구현·연동 기록은 [Frontend3단계](../../../overload-pwa/docs/tasks/standard-exercise-catalog-frontend-phase-3-report.md)와 [실제 개발 환경4단계](../tasks/standard-exercise-catalog-dev-phase-4-report.md)를 따른다. 최신 코드의 종합 검증은6B에서 별도로 확인한다.
 
+## 기록 탭 계획·날짜 표시의 소비 경계
+
+[최신 기록 UI 10.24절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#1024--기록-탭-최종-개편--2026-11-14)의 주간 근육 계획은 선택 프리셋의 현재 월~일 배정과 현재 루틴 계획을 읽는다. 조회로 활성화·순환·루틴 PUT을 호출하지 않는다. 과거 날짜 통계와 홈/기록의 완료·△는 당시 적용 일정·InitialPlan 근거이며 현재 편집 루틴으로 과거 분모를 바꾸지 않는다.
+
+웨이트/유산소 부분 인정의 50%·min(2, 원계획 세트)·계획 시간/거리 AND는 UI 날짜 표시이며 이 API의 목표·승인 중량·version·기존 G4 산식을 변경하지 않는다. 대체 슬롯은 10.21.4절의 검수 분류·첫 PRIMARY·원계획 세트와 원래 슬롯 연결이 필요하다. 기존 배치·최초 계획만으로 새 부분 판정 근거가 충분한지, 대체/복수 세션의 연결은 후속 확인한다. 조합별 최근 실제값·NEW·공유 메모와 공식 배치별 승인 원본 정책은 유지한다.
+
 ## HTTP 및 인증
 
 기존 쿠키 세션과 쓰기의 `X-CSRF-TOKEN`을 사용한다. userId는 요청받지 않는다. 성공·명시적 오류는 no-store이며 기존 X-Request-ID를 유지한다.
