@@ -2,7 +2,7 @@
 
 ## 기준과 범위
 
-현행 Backend의 목표 스키마는 [Flyway V1~V35](../../src/main/resources/db/migration/)의 누적 결과다. 2026-11-09에 빈 일회용 PostgreSQL 18.6에서 V30의 `public` 카탈로그를 확인했다. V31 차이는 추가 DDL과 새 DB 적용·V30→V31 격리 전환 테스트를 대조했다. 반복 실행 migration은 없다. 실제 개발·개인·운영 DB의 적용 버전은 이번 조사에서 확인하지 않았다. [격리 검증 기록](../engineering/backend.md#125-다중-주간-일정-프리셋)
+현행 Backend의 목표 스키마는 [Flyway V1~V37](../../src/main/resources/db/migration/)의 누적 결과다. 2026-11-09에 빈 일회용 PostgreSQL 18.6에서 V30의 `public` 카탈로그를 확인했다. V31 차이는 추가 DDL과 새 DB 적용·V30→V31 격리 전환 테스트를 대조했다. 반복 실행 migration은 없다. 실제 개발·개인·운영 DB의 적용 버전은 이번 조사에서 확인하지 않았다. [격리 검증 기록](../engineering/backend.md#125-다중-주간-일정-프리셋)
 
 [ERD](erd.md)는 관계를, 이 문서는 컬럼과 제약조건 및 보존 규칙을 설명한다. 스키마 변경의 실행 기준은 Flyway migration이며 클라이언트 요청·응답은 [API 계약](../api/)을 따른다. DB 제약보다 좁은 쓰기 조건은 서버 코드와 함께 읽는다.
 
@@ -780,7 +780,7 @@ V30에서 편집 가능한 프리셋과 현재 설정을 분리했다. 실제 �
 | `rotation_included` | `boolean` | NO | `false` | — | 자동 순환 후보 포함 여부. |
 | `preset_version` | `bigint` | NO | `0` | — | 프리셋 편집 버전. |
 | `assignments` | `jsonb` | NO | `'[]'::jsonb` | — | 요일과 루틴 ID 배정 배열(JSON). |
-| `name` | `character varying(100)` | YES | — | 선택적 저장 이름. 이름의 유일성 제약은 없다. |
+| `name` | `character varying(100)` | YES | — | — | 선택적 저장 이름. 이름의 유일성 제약은 없다. |
 
 | 종류 | 제약조건 | 정의 |
 | --- | --- | --- |
@@ -966,6 +966,8 @@ V31은 기존 행을 재작성하거나 이름을 채우지 않는다. 이름을
 | `ended_at` | `timestamp with time zone` | YES | — | — | 운동을 종료했다고 제출한 시각. |
 | `closed_at` | `timestamp with time zone` | YES | — | — | 서버가 FINISH 또는 AUTO_CLOSED를 확정한 시각. |
 | `completion_assessment_snapshot` | `jsonb` | YES | — | — | 최초 FINISH의 평가 JSON. |
+| `completion_weight_review_snapshot` | `jsonb` | YES | — | — | V36. 최초 FINISH의 권고·추천값 봉인 JSON. |
+| `weight_timing_snapshot` | `jsonb` | YES | — | — | V37. 웨이트 측정 완전성·시간 구간 JSON. |
 | `deleted_at` | `timestamp with time zone` | YES | — | — | 논리 삭제 시각. |
 | `schedule_version_at_start` | `bigint` | YES | — | FK | START에 연결된 당시 일정 버전. |
 | `deload_period_id` | `uuid` | YES | — | FK | 디로딩 세션이 속한 기간 ID. |
@@ -1176,6 +1178,7 @@ V31은 기존 행을 재작성하거나 이름을 채우지 않는다. 이름을
 | `resolved_at` | `timestamp with time zone` | YES | — | — | 승인 요청을 해결한 시각. |
 | `resolved_by_request_id` | `uuid` | YES | — | FK | 요청을 해결한 후속 요청 ID. |
 | `created_after_closure` | `boolean` | NO | `false` | — | 세션 종료 후에 만들어진 요청인지 나타내는 값. |
+| `final_review` | `boolean` | NO | `false` | — | V36. 종료 검토의 명시 승인 여부. true면 종료 후 APPLIED이며 같은 세션 종목당 1건. |
 
 | 종류 | 제약조건 | 정의 |
 | --- | --- | --- |
@@ -1582,6 +1585,8 @@ Flyway가 실행 이력을 관리한다.
 | V33 | 표준 유산소 운동과 기록 설정 연결, 루틴과 세션의 유산소 표준 UUID 및 세션의 당시 측정 종류 보존. |
 | V34 | ExerciseDB V1 원본, 분석 근거, 검수 초안을 공개 카탈로그와 분리해 보관하는 빈 대기 테이블. |
 | V35 | `exercise_gif_access` 회원 UUID별 열람 허용 행과 부여 시각. `user_id`는 PK이며 `users.id` 삭제 시 허용 행만 함께 삭제한다. 신규·기존 회원에 허용 행을 생성하지 않는다. |
+| V36 | 종료 중량 검토 봉인 JSON·final_review 구분·종목별 부분 유일성·종료 권고 불변 트리거. |
+| V37 | 웨이트 구간 JSON·형태 제약·종료 후 측정 원본 불변 트리거. |
 
 JPA는 카탈로그, 설정, 루틴과 주요 세션·수행의 17개 테이블을 매핑한다. 다섯 세션 하위 엔티티의 일부 필드는 `nullable=false` 표기 없이 DB의 `NOT NULL` 제약을 따른다. 계정·OTP, 주간 일정, 통계 조회와 디로딩 분석·기간 저장소는 JDBC를 사용한다. 복합 FK, 부분 인덱스와 트리거는 Flyway 정의에서 관리한다. Hibernate는 `ddl-auto=validate`이며 Spring Session의 자체 초기화는 비활성화되어 있다. [세션 하위 엔티티](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutSnapshotEntities.java) · [런타임 설정](../../src/main/resources/application.yaml) · [마이그레이션 통합 테스트](../../src/test/java/com/overload/overload_server/database/PostgresMigrationTests.java) · [Flyway SQL 전체](../../src/main/resources/db/migration/)
 
@@ -1589,6 +1594,22 @@ JPA는 카탈로그, 설정, 루틴과 주요 세션·수행의 17개 테이블�
 
 ## 일반 운동 UI/API 연결에 따른 스키마 확인 — 2026-11-13
 
+아래는 당시 V35 코드 조사 기록이다. 현행 추가 컬럼·제약은 [V36·V37 저장 모델](#1차-개발의-저장-모델--v36v37)을 따른다.
+
 Backend a56103e는 기존 V35 관계를 사용하며 신규 migration/컬럼/테이블을 만들지 않았다. standard_exercise는 운동 종류, manufacturer는 독립 장비 제조사다. routine_weight_placements.manufacturer_id/load_type과 performed_sets.manufacturer_id/load_type은 배치 및 완료 당시 장비를 보존한다. 표준 이름을 제조사/모델별로 복제하는 데이터 정책을 적용하지 않는다. [검토 시드30종 표준화](../engineering/standard-exercise-handoff.md#일반-운동-검수-후-표준화--2026-11-13)는 스키마 변경이나 전체 운영 데이터 전환을 뜻하지 않는다.
 
-workout_sessions의 최초 completion_assessment 보존과 record_change_events의 수행 변경 전후 기록은 유지한다. progress-assessment와 weightReview는 저장 사실에서 읽기 계산하는 DTO이며 DB 열이 아니다. weightReview는 공식 benchmark 자격/승인 사건을 바꾸지 않는다. 기구 세팅 메모 서버 컬럼은 없고 PWA 해당 기기·세션만 보관한다. 개인/보존 DB·이미 적용된 Flyway·사용자 데이터를 이번 문서 단계에서 변경하지 않았다.
+workout_sessions의 최초 completion_assessment 보존과 record_change_events의 수행 변경 전후 기록은 유지한다. progress-assessment와 weightReview는 저장 사실에서 읽기 계산하는 DTO이며 DB 열이 아니다. weightReview는 공식 benchmark 자격/승인 사건을 바꾸지 않는다. 기구 세팅 메모 서버 컬럼은 없고 PWA 마운트 메모리 초안만 보관한다. 개인/보존 DB·이미 적용된 Flyway·사용자 데이터를 이번 문서 단계에서 변경하지 않았다.
+
+## 1차 개발의 저장 모델 — V36·V37
+
+2026-11-16 Backend `732e0c3`의 migration·Entity·쓰기 경로를 대조했다. 이 절은 **소스의 목표 구조**이며 실제 DB의 신규 적용/검증을 수행한 보고가 아니다. 위 V31 카탈로그 수치를 V37 실측값으로 재사용하지 않는다.
+
+| migration | 추가 데이터·DB 강제 범위 | 애플리케이션과의 분리 |
+|---|---|---|
+| [V36](../../src/main/resources/db/migration/V36__persist_finished_weight_review.sql) | workout_sessions.completion_weight_review_snapshot nullable jsonb, session_weight_approval_requests.final_review NOT NULL DEFAULT false | 최초 공식 평가와 별개로 FINISH 당시 권고를 봉인. 승인 대상·소유권·최신 version/값 검증은 WorkoutReviewService |
+| V36 CHECK·부분 UNIQUE | 봉인 권고는 null 또는 FINISHED의 JSON object. final_review면 created_after_closure AND APPLIED. session_one_final_review_approval은 (session_id,session_exercise_id) WHERE final_review 유일 | 일반 PENDING 해결과 구별. 새 테이블/승인 원본 없이 기존 요청·progress_change_events 사용 |
+| V36 트리거 | workout_review_immutable → preserve_finished_weight_review. OLD.status가 ACTIVE가 아니면 봉인 권고 변경 거부 | 기록 정정·후속 승인으로 과거 권고를 재작성하지 않음 |
+| [V37](../../src/main/resources/db/migration/V37__persist_weight_activity_intervals.sql) | workout_sessions.weight_timing_snapshot nullable jsonb. workout_weight_timing_shape는 object/schemaVersion 1/complete boolean/intervals array의 형태를 검사 | 필수 JSON 키·시각 정렬·구간 상한·누적 원본 보호·FINISH 범위는 요청 parser와 서비스가 추가 강제 |
+| V37 트리거 | workout_weight_timing_immutable → preserve_closed_weight_timing. OLD.status가 ACTIVE가 아니면 구간 변경 거부 | 실제 수행 정정은 activeMs 등을 허용하나 이 구간 원본은 바꾸지 않음 |
+
+두 JSON 컬럼은 기존 데이터에 null이며 권고·시간을 소급 생성/백필하지 않는다. DB CHECK만으로 모든 JSON 내부 필수 필드나 업무 규칙이 보장되는 것은 아니다. [종료 승인 API](../api/workout-sessions.md#종료-후-중량-검토와-명시-승인--v36)와 [시간 계약](../api/workout-sessions.md#웨이트-시간-구간--v37)을 함께 읽는다. approved_weight는 여전히 루틴 배치별 현재 승인 원본이고 실제 세트 중량·권고·사용자 초안과 구별된다. 기록 정정은 승인 사건/루틴 version을 쓰지 않는다. 메모 서버 테이블/컬럼은 없다.

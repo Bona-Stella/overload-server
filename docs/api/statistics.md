@@ -4,6 +4,36 @@
 
 현재 일반 통계 조회는 Overview를 사용한다. 제품 정책은 [통계·추적 v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md), 적용 이력과 날짜 판정은 [주간 일정](weekly-schedule.md), 관련 집계 계약은 [승인 성장](approved-weight-growth.md)·[유산소 실제 측정](cardio-actual-measurements.md)·[맨몸 추가 부하](bodyweight-additional-load.md)에 있다. 제거된 루트 GET과 당시 제약은 문서 마지막의 역사 기록에 보존한다.
 
+## 2026-11-16 정책 확정과 남은 연결
+
+[정책 3-1·3-5·3-7·3-8](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#1025--2026-11-16-최신-정책-확정과-구현-경계)을 적용한다. 달성의 공통 InitialPlan·거리 미입력 시간 비교는 [ST-19](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md#31-하루-종목-완료-기준)가 기준이다. 전체/부분의 기존 임계값은 유지하되 실제 거리가 없으면 시간만, 있으면 존재하는 시간/거리 목표를 함께 비교한다. 미입력만으로 UNVERIFIABLE로 만들지 않는다. 다른 측정 보호는 유지한다.
+
+현재 InitialPlanCompletion → PlanningCalculator → DailyTrainingReviewService와 DeloadCandidateCalculator는 공통 원계획 판정을 사용하지만 거리null을 unknown으로 처리한다. Frontend cardioComplete/partialAchievement/achievementReasons와 summaryData도 정책 전환이 필요하다. 이는 정책 재논의가 아니라 **정책 확정 / 일부 구현** 상태다. 기존 테스트의 거리null unknown 기대는 이전 규칙이며 최신 정책 충족 증거가 아니다. G4의 E/N·날짜 후보·단일 최고·일일 상한 등 계산식을 새로 바꾸는 요구가 아니다.
+
+서버 필터/페이지 기반 전체 과거 검색, 검수 운동 분류의 독립 집계·선택 운동/분류/근육의 실제 일별 추이는 확정 요구다. 현재 없는 데이터를 기간 합계 임의 분배·전체 이력 일괄 다운로드·근육 group_code 역산으로 대체하지 않는다. 새 endpoint/DTO/오류·테이블을 이 문서에서 확정하지 않는다.
+
+## 1차 Frontend 연결과 계산의 실제 범위 — 2026-11-16
+
+Backend `732e0c3`·Frontend `56993a0` 코드 기준이다. 아래 2026-11-13~14 정책/당시 조사에서 ‘구현 필요’였던 사항 중 현재 연결된 범위를 구분한다. 정책상 네 수준 집계를 전부 완료한 상태는 아니다.
+
+| 기능·원본 | 현재 계산·상태 전환 | 미확인/미연결 경계 |
+|---|---|---|
+| 선택 프리셋 현재 주간 계획 | PWA plannedAnalysis가 선택 프리셋의 월~일 배정 루틴을 출현마다 합산. 반복 배정도 각각 포함하고 조회 선택은 활성 프리셋 변경을 발생시키지 않음 | 서버 Overview의 당시 적용 계획과 별도. 전체 근육 마스터·권장 범위는 연결되지 않음 |
+| 현재 계획 분류 | 카탈로그 전면/후면·PPL을 원본 계획 세트에서 집계. 분류 누락 시 해당 수준을 미확인 처리 | 부위 계획은 null. 근육 group_code를 운동의 단일 대표 부위로 확정하지 않음 |
+| 세부 근육 계획 | 계획 세트 × PRIMARY 1.0 / SECONDARY 0.5. 분류 근거 누락은 임의 계수로 채우지 않음 | 전체 보기 OFF는 확인된 0만 숨기며 미확인과 구별. 탭·프리셋 변경 시 선택 유지 |
+| 이번 주 실제 근육 | Overview muscles[].contributionSets 사용. 실제 참여 정수(weights.completedSets)와 구별 | 실제 전면/후면·PPL·검수 운동 부위의 독립 집계는 PWA에서 null |
+| 당시 계획 대비 실제 | planCoverage가 FULL_SCHEDULE_HISTORY일 때 근육 weights.plannedSets에 역할 계수를 적용해 PWA가 계획 기여 계산. 소계는 세부 기여 합 | 부분/미확인 계획은 미확인. 정확히 계획0은 계획 없음/—이며 상위 분류 독립 물리 세트로 소계를 전용하지 않음 |
+| 세트/총중량 | 근육 세트 기여와 실제 중량×반복을 분리. 총중량에는 보조근 0.5를 곱하지 않음 | 맨몸 추가 부하는 명시적 실제값만 사용. 결측을 체중/계획 중량으로 채우지 않음 |
+| 운동 현황 | 공통 주간/월간 기간을 요약·전체 days 추이·날짜 판정·유산소에 공유. 기간 변경 시 해당 API 범위를 다시 읽음 | exercises/groups/muscles는 기간 합계. 특정 후보의 실제 일별 추이는 미연결이며 합계를 날짜로 나누지 않음 |
+| 날짜별 달성 | plannedDays의 selectedSessionId 상세와 같은 display-achievement 함수를 홈/기록에서 재사용. 전체 우선, 50%·min(2, 계획 세트)·유산소 각 목표 AND 적용 | UI 파생 상태이며 서버 status/effectiveDay/G4에 저장하지 않음. 미래·대기·근거 부족은 중립, 대체 슬롯 연결은 미구현 |
+| 기록 조회 | 최근7일/월간은 closed cursor+detail, 같은 기록의 시간·세트·총중량은 공통 recordSummary | 완전한 월/전체 검색과 실제 운동명 검색은 [현재 이력 경계](workout-sessions.md#월간-이력최근-7일검색-요구와-현행-목록의-차이) |
+
+서버 StatisticsCalculator의 `groups`는 근육 매핑의 부위·역할별 참여 집계이고 `groupActuals`는 실제 세트마다 연결 부위의 중복을 제거한 정수 집계다. **검수된 운동 부위 직접 분류에 의한 ST-27 독립 집계와 같지 않다.** 근육별 연결을 단일 대표 운동 부위로 해석하거나 세부 기여 합을 상위 분류로 올리지 않는다. 전면/후면·PPL 실제 응답도 없다. 기존 원본 참여 값은 보존하며 이 차이를 미구현으로 남긴다.
+
+실제 조작·달성 이유·검색 X와 실패 처리의 공통 설명은 [UI/UX 기능 흐름](../../../overload-pwa/docs/product/ui-ux.md#1차-기능의-실제-동작과-연결-범위--2026-11-16), 승인 사건의 성장선은 [성장 API](approved-weight-growth.md)로 분리한다. RecordChart는 설치된 Recharts를 사용하되 데이터 없는 일자·미확인 측정·승인 사건 사이의 단절을 임의로 채우지 않는다.
+
+근거: [StatisticsCalculator](../../src/main/java/com/overload/overload_server/statistics/StatisticsCalculator.java), [PlanningCalculator](../../src/main/java/com/overload/overload_server/statistics/PlanningCalculator.java), [StatisticsPanel](../../../overload-pwa/src/features/statistics/StatisticsPanel.tsx), [muscle-analysis](../../../overload-pwa/src/features/statistics/muscle-analysis.ts), [display-achievement](../../../overload-pwa/src/features/statistics/display-achievement.ts), [record-summary](../../../overload-pwa/src/features/workout-online/record-summary.ts). 이번 확인은 코드 조사이며 테스트 재실행이 아니다.
+
 ## 분류별 독립 집계와 선택 프리셋 계획 — 2026-11-13
 
 **제품 정책 확정 / 일부 구현·후속 확장 필요.** [ST-24~31 및 4.3절](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md#4-근육별-세트-집계)을 적용한다. 전면/후면·PPL·부위는 검수된 운동 분류와 원본 계획/실제 세트를 각각 직접 집계한다. 세부 근육만 계획·실제 원본별 PRIMARY 1.0 / SECONDARY 0.5 기여를 계산한다. 상위를 하위 기여 합으로 만들지 않으며 전체 물리적 세트와 실제 참여 세트는 정수로 보존한다. 0.5는 근사 기여 계수이며 반복·총중량에는 적용하지 않는다.
@@ -20,7 +50,7 @@
 
 ## 기록 탭 최종 UI의 지원 범위 — 2026-11-14
 
-**설계 확정 / HTML 합성 시연 / 실제 UI·조회 보완 필요.** [10.24절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#1024--기록-탭-최종-개편--2026-11-14)을 적용한다. 주간 근육 계획은 선택 프리셋 현재 반복 계획, 주간 근육 통계는 이번 주 월~일 실제/당시 계획 고정이다. 전자는 기간 UI가 없고 후자에서 주간/월간·기간 이동·달력을 제거한다. 운동 현황은 하나의 주간/월간·이전/다음·달력을 요약·추이·달성·하단 유산소에 공유한다.
+**2026-11-14 당시 조사. 현행 연결은 위 2026-11-16 절을 적용한다.** [10.24절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#1024--기록-탭-최종-개편--2026-11-14)을 적용한다. 주간 근육 계획은 선택 프리셋 현재 반복 계획, 주간 근육 통계는 이번 주 월~일 실제/당시 계획 고정이다. 전자는 기간 UI가 없고 후자에서 주간/월간·기간 이동·달력을 제거한다. 운동 현황은 하나의 주간/월간·이전/다음·달력을 요약·추이·달성·하단 유산소에 공유한다.
 
 | 기능 | 확인한 현재 구현 | 재사용·후속 요구 |
 |---|---|---|
@@ -35,7 +65,7 @@
 조사 근거: [StatisticsQuery](../../src/main/java/com/overload/overload_server/statistics/StatisticsQuery.java), [응답](../../src/main/java/com/overload/overload_server/statistics/StatisticsResponse.java), [일별 계획 응답](../../src/main/java/com/overload/overload_server/statistics/StatisticsOverview.java), [PlanningCalculator](../../src/main/java/com/overload/overload_server/statistics/PlanningCalculator.java), [최근 조회](../../src/main/java/com/overload/overload_server/statistics/StatisticsRepository.java), [카탈로그 계약](standard-exercise-catalog.md). 현재 코드 읽기 조사이며 DB 실행·구현 검증을 의미하지 않는다.
 
 - 통합 검색 범위는 전체/운동별/분류별/근육별이며 후보 선택·해제와 기간·세트/총중량을 함께 적용한다. 후보 없음·수행 없음·조회 실패를 분리한다. 근육 기여 0.5를 총중량이나 상위 물리 세트에 적용하지 않는다.
-- 날짜 기호는 기존 전체 완료 우선 후 UI 부분 달성으로 판단한다. 웨이트 세트/전체 종목 각각 ≥50%, 웨이트 인정 min(2, 원계획 세트), 유산소의 계획 시간/거리 각각 ≥50%(AND), 혼합/유산소 전용 예외는 [10.24.4절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10244-홈과-기록의-날짜별-달성-표시)을 따른다. 미래·대기·근거 부족은 중립/미확정이며 공식 완료율·유효일·G4는 유지한다.
+- 날짜 기호는 기존 전체 완료 우선 후 UI 부분 달성으로 판단한다. 실제 거리 미입력 처리만 2026-11-16 정책/ST-19로 보완하며 나머지 임계값은 유지한다. 웨이트 세트/전체 종목 각각 ≥50%, 웨이트 인정 min(2, 원계획 세트), 유산소의 계획 시간/거리 각각 ≥50%(AND), 혼합/유산소 전용 예외는 [10.24.4절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10244-홈과-기록의-날짜별-달성-표시)을 따른다. 미래·대기·근거 부족은 중립/미확정이며 공식 완료율·유효일·G4는 유지한다.
 - 선택 프리셋 계획·과거 적용 계획·실제 수행·디로딩 임시 계획을 혼합하지 않는다. HTML 권장 수치·날짜·후보 수·임시 상태를 API 필드나 enum으로 승격하지 않는다. 새 경로·DTO·오류·서버 검색 limit·페이지 크기는 이번에 확정하지 않는다.
 
 ## GET /api/v1/statistics/overview
@@ -102,7 +132,7 @@ Decimal은 정확한 JSON 문자열이다. 유효 실제 수행의 중량은 실
 - routine_plan_history는 조회 구간의 날짜별 마지막 계획과 구간 직전 기준만, 일정은 적용일별 마지막 version·구간 직전 기준·최초version1을 읽는다. 최초 이력은 같은 SQL의 UNION으로 확보하여 최근20개 편집에 의존하지 않는다. 세션/근육별 N+1 없이 추가 최대3개 고정 query를 사용한다. 적용 계획의 세트에는 **운동하지 않은 예정일**도 포함한다. 근육별 분류·중복 제거는 위의 실제 집계와 같은 기준이다.
 - 완료 후보는 예정일 날짜·예정 루틴이 모두 일치하는 미삭제 FINISHED/AUTO_CLOSED 세션이다. 각 후보의 **자기 InitialPlan**과 현재 유효 수행을 비교한다. 현재 WEIGHT 구현은 원래 sessionExerciseId의 실제 완료 세트 수가 최초 setCount 이상일 때 완료 종목1개로 센다. 후속 확정 정책에서는 ST-18의 인정된 대체 수행도 해당 원계획 슬롯 완료에 기여해야 한다. AppliedPlan 축소나 순수 추가 종목은 분자/분모를 바꾸지 않는다. 반복·승인 중량 성과 평가를 이 달성률 산식에 섞지 않는다.
 - 후보별 완료 계획 종목/최초 계획 종목의 정확한 유리수를 비교하여 **단일 최고값**만 사용한다. 서로 다른 세션의 부분 세트/종목을 합치지 않는다. 예정일에 수행이 없으면 유효 운동일0, 휴식일/다른 루틴/순수 추가 운동은 계획 분자를 채우지 않으며 실제 운동량에는 남는다. 인정된 대체는 원계획 슬롯을 채우며 분모를 늘리지 않는다. 일일 최대1과 부분 완료율(3/3=1, 4/5=0.8)을 유지한다. 유리수 합계는 BigInteger로 유지하고 표시할 때만 반올림한다.
-- CARDIO는 최초 시간·거리 목표와 실제 activeMs/distance를 비교한다. 이미 확인된 목표 미달은 미완료다. 실제 속도/경사/저항이나 필요한 거리 값이 없어서 판정할 수 없으면 UNVERIFIABLE로 남긴다. 계획 속도를 실제로 대체하지 않는다. 불확실한 후보의 가능한 최고값이 확실한 최상 후보를 넘지 못하면 그날은 확실한 결과를 사용할 수 있다.
+- **현행 코드(정책 3-1 전환 필요):** CARDIO는 최초 시간·거리 목표와 실제 activeMs/distance를 비교한다. 이미 확인된 목표 미달은 미완료다. 실제 속도/경사/저항이나 필요한 거리 값이 없어서 판정할 수 없으면 UNVERIFIABLE로 남긴다. 계획 속도를 실제로 대체하지 않는다. 불확실한 후보의 가능한 최고값이 확실한 최상 후보를 넘지 못하면 그날은 확실한 결과를 사용할 수 있다.
 - plannedDays.status는 UNKNOWN/BEFORE_REGISTRATION/REST/PLANNED/UNVERIFIABLE/PENDING이다. PENDING은 해당 날짜 ACTIVE의 판정 대기이며 unverifiableDays에 포함한다. PENDING과 UNVERIFIABLE에서 plannedExercises는 계획 종목 수를 유지하며, 완료 후보가 있으면 선택 후보의 InitialPlan 종목 수를 사용한다. 판정 대기 또는 확인 불가를 나타내는 completedExercises와 effectiveDay는 null이다. 표시 계획과 최고 후보의 InitialPlan 버전이 다른 같은 날짜의 경우, plan은 최초 시작 계획, plannedExercises/completedExercises/selectedSessionId는 최고 후보의 최초 계획 기준임을 구분한다.
 - statistics.planCoverage는 FULL_SCHEDULE_HISTORY 또는 PARTIAL_SCHEDULE_HISTORY다. UNKNOWN 날짜가 있으면 plannedWorkoutDays·routineAchievementPercent·effectiveWorkoutDays는 null이다. 최초 등록 주는 등록 전 날짜의 제외 근거가 있으므로 FULL_SCHEDULE_HISTORY이며 등록일~일요일 예정일만 분모에 포함한다. 목요일 월·목·금·토 등록/목·금 완료의 경우 계획일3·유효일2·달성률66.666667%다. 다음 주는 전체4일이다. 모든 날짜의 근거가 있고 계획일이0이면 계획일0/달성률null이다. 숫자가 없는 과거 분모를0이나 현재 루틴으로 채우지 않는다.
 - 모든 날짜의 계획이 알려져도 UNVERIFIABLE 날짜가 있으면 전체 유효일/달성률은 null이다. 확인 가능한 날짜의 상세는 유지한다. 실제 속도·거리 출처 저장은2D에서 구현했으며 경사·저항 등 여전히 없는 실제 증거는 추정하지 않는다.
@@ -193,7 +223,7 @@ Weight = { plannedSets, completedSets, reps, volumeLoadKg, setsWithoutVolume }
 - `unmappedCompletedSets`는 활성 PRIMARY 연결이 없는 실제 세트 수이며 전체 실제 세트에는 남긴다. 카탈로그 검토 완료 수치가 아니다.
 - days는 조회 범위의 모든 날짜를 오름차순으로 포함한다. 운동이 없는 날의 실제 세트/시간은0이며 근거 없는 계획은 만들지 않는다.
 - 유산소는 kind+당시 계획의 name별로 분리한다. AppliedPlan을 우선하고 보존 InitialPlan을 대안으로 삼는다. 확인 불가 메타는 UNCLASSIFIED로 분리한다. 웨이트 세트와 합치지 않는다. 시간은 전체 actual active_ms이며 거리 미입력은 recordsWithoutDistance로 표시하고 거리 합계에서 제외한다. 모든 거리가 미입력이면 distanceKm=null이다. 서로 다른 종목 거리를 하나로 합산하지 않는다.
-- 기존 직접 입력 distance를 그대로 합산한다. 계획 속도로 실제 거리를 만들거나 사용자가 수정한 거리를 덮어쓰지 않는다. 실제 속도/계산 거리 출처를 저장하는 기능은 후속 구현이다.
+- 기존 직접 입력 distance를 그대로 합산한다. 계획 속도로 실제 거리를 만들거나 사용자가 수정한 거리를 덮어쓰지 않는다. 실제 속도/계산 거리 출처는 현재 V21 측정 계약으로 구현돼 있다. 거리 미입력의 달성 정책 전환과 이 저장 기능의 구현 상태는 구분한다.
 - recentSessions는 기간과 별도로 본인·현재 세대의 미삭제 종료 기록 중 시작 시각 DESC/UUID ASC 최신3건이다. 상세는 기존 workout-sessions API를 사용한다.
 
 ## 실제 계정 화면

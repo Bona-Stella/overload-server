@@ -1,5 +1,11 @@
 # Actual Cardio Speed and Distance — Phase 2D
 
+## 2026-11-16 달성 정책 보완과 구현 차이
+
+**정책 3-1 확정 / 구현 필요.** [ST-19](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md#31-하루-종목-완료-기준)와 [10.25.1절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10251-원계획-달성과-유산소-거리-미입력--정책-3-1)에 따라 실제 거리는 선택이다. 거리null이면 확인 가능한 실제 시간만 최초 시간 목표와 비교하고, 거리가 있으면 존재하는 최초 시간/거리 목표를 함께 비교한다. 부분 인정도 기존50%에 같은 비교 대상 선택을 적용한다. 거리 미입력을 0km·UNVERIFIABLE로 만들거나 목표 거리/속도로 실적을 채우지 않는다.
+
+현재 서버 InitialPlanCompletion과 Frontend cardioComplete/partialAchievement는 최초 거리 목표가 있는데 실제 거리가 없으면 unknown을 반환하므로 아직 최신 정책과 다르다. 날짜별 완료·요약·홈/기록·통계/G4의 공통 완료 입력으로 이어지는 경로를 함께 전환해야 한다. 기존 시간 activeMs·자동 타이머 원본 timerMs·허용된 실제값 정정, 실제 속도의 계산 거리/출처·속도/강도·경사/저항의 별도 보호는 변경하지 않는다. 실제 시간 부재·기록 유효성 불명은 여전히 미확인이다. 아래 현행 측정 HTTP/JSON/DB 계약은 이 정책 반영만으로 바뀌지 않는다.
+
 2026-11-03 (Asia/Seoul). [Statistics and Tracking v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md) ST-47~52를 구현한다. 새 제품 정책이나 유산소 승인 평가를 만들지 않는다. 기존 실제 `activeMs`·timer·정정/복구·통계 경로를 사용한다. 기존 개인 DB에는 V18~V21을 적용하지 않았다.
 
 ## 선택적인 수행 결과 확장

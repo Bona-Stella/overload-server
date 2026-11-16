@@ -114,11 +114,13 @@ V24의 initialize_workout_calendar는 해당 owner를 잠그고 가장 최근 �
 
 ## 홈·기록 날짜 기호와 기존 판정의 분리
 
-**UI 설계 확정 / 공통 표시·근거 연결 구현 필요.** [10.24.4절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10244-홈과-기록의-날짜별-달성-표시)에 따라 같은 날짜/근거에는 홈 이번 주 일정과 운동 현황이 같은 ✓/△/×/–을 표시한다. 전체 완료 우선 후 웨이트 세트·전체 종목 각각 ≥50%, 인정 min(2, 원계획 세트), 유산소의 기존 시간/거리 각각 ≥50%(AND), 혼합/유산소 전용 적용 구분을 따른다. 정확히 50%는 포함하며 미래·검사 대기·계획/측정 근거 부족을 ×로 확정하지 않는다.
+**정책 확정 / 일부 구현(2026-11-16).** 홈/운동 현황은 공통 display-achievement와 selectedSessionId 상세에 연결됐다. 거리 미입력 처리와 원슬롯 연결의 최신 정책 전환은 아직 필요하다. [10.24.4절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10244-홈과-기록의-날짜별-달성-표시)에 따라 같은 날짜/근거에는 홈 이번 주 일정과 운동 현황이 같은 ✓/△/×/–을 표시한다. 전체 완료 우선 후 웨이트 세트·전체 종목 각각 ≥50%, 인정 min(2, 원계획 세트), 유산소의 시간 ≥50%(실제 거리 미입력이면 시간만, 실제 거리가 있으면 존재하는 최초 시간/거리 목표 각각 ≥50% AND), 혼합/유산소 전용 적용 구분을 따른다. 정확히 50%는 포함하며 미래·검사 대기·계획/측정 근거 부족을 ×로 확정하지 않는다.
 
 현재 일별 state의 PERFORMED는 실제 수행 존재이며 △나 전체 완료의 동의어가 아니다. MISSED·PENDING_ACTIVE·UNKNOWN·EMPTY와 Overview의 plannedDays.status/reviewStatus/effectiveDay를 새 기호로 일대일 치환하지 않는다. 원계획별 부분 수행 세트·유산소 목표/실측·대체 슬롯·동일 날짜 복수 세션 후보·정정/dirty 재조회와 화면 간 일관된 판정 전달은 후속 계약에서 확인한다.
 
 새 UI 분류로 아래 일별 영구 state·04시 검사·불변 첫 START/MISS·단일 최고 세션 공식 완료율·일일 상한·G4를 변경하지 않는다. 선택 프리셋 현재 반복 계획과 날짜별 과거 적용 이력도 분리한다. 새 서버 enum·필드·판정 저장 테이블을 추가한 계약이 아니다.
+
+**정책 3-1 구현 차이:** 공통 InitialPlanCompletion → PlanningCalculator → DailyTrainingReviewService는 거리 목표+실제null을 아직 unknown으로 처리한다. [ST-19](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md#31-하루-종목-완료-기준)는 거리 미입력만으로 UNVERIFIABLE로 만들지 않고 확인 가능한 시간으로 판정하도록 변경됐다. actual 시간/기록 유효성·기존 강도 보호와 04시 검사·단일 최고·예정일/휴식·G4 산식은 유지한다. 새 응답 enum/필드가 구현됐다는 의미가 아니다.
 
 ## 04시 판정과 재검사
 

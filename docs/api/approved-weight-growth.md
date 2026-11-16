@@ -2,7 +2,9 @@
 
 > **2026-11-13 후속 정책:** 공식 승인 원본은 루틴 배치별 `approved_weight`이며 개인 조합별 승인 원본을 추가하지 않는다. [루틴 조합 변경 정책](routine-management.md#2026-11-13-후속-확정-정책과-현재-http의-경계)은 기존 배치를 논리적으로 제외하고 NEW 배치를 생성한다. 같은 조합으로 돌아와도 과거 배치의 승인·benchmark를 새 배치에 연결하지 않는다. 최근 실제 중량 조회는 이 성장 API와 별도이며 아래 HTTP는 현재 구현을 설명한다.
 
-2026-11-02 (Asia/Seoul). [Statistics and Tracking v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md) ST-38~42를 구현한다. 제품 정책 버전은 변경하지 않는다. 새로운 승인·평가·집계 표·migration 없이 기존 `progress_change_events`를 읽는다. 개인 DB V18~V20 미적용 상태를 유지한다.
+최초 계약 2026-11-02, 현행 코드 확인 2026-11-16 (Backend `732e0c3`·Frontend `56993a0`, Asia/Seoul). [Statistics and Tracking v1.4](../product/Overload_Statistics_and_Tracking_Design_Specification_v1.4.md) ST-38~42를 구현한다. 제품 정책 버전은 변경하지 않는다. 성장 조회 자체는 새로운 승인·평가·집계 표·migration 없이 기존 `progress_change_events`를 읽는다. 개인 DB V18~V20 미적용은 2C 당시 기록이며 이번 코드 조사에서 실제 DB 적용 버전을 확인하지 않았다.
+
+**2026-11-16 정책 3-6 경계:** 조합 재선택의 최근 실제 중량 제안은 정확한 조합의 FINISHED만 대상으로 하며 ACTIVE/AUTO_CLOSED와 승인 사건을 대체 근거로 쓰지 않는다. 이 성장 API의 수행 검색은 FINISHED/AUTO_CLOSED와 승인 사건을 포함하므로 최근 종료의 마지막 세트 조회 API로 재사용 완료라고 볼 수 없다. 전용 조회는 미구현이며 [확정 기준](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10256-최근-실제-중량과-조합-메모--정책-3-6)을 따른다. Benchmark 동점 채택(3-2)은 승인 성장점의 정렬·연결 규칙을 변경하지 않는다.
 
 ## 공통 계약
 
@@ -12,11 +14,15 @@
 
 ## GET /api/v1/statistics/growth/exercises
 
-공통 query에 선택 `q`(trim 후 최대100자), `offset`을 받는다. 현재 루틴 목록이나 활성 카탈로그로 제한하지 않는다. 기간 내 현재 유효 종료 세션의 실제 WEIGHT 완료 세트가 있는 종목과 기간 내 승인 사건이 있는 종목을 합쳐 표준 운동 ID별로 반환한다. 추가 운동·비활성 표준 운동·삭제 루틴/배치의 승인 이력도 포함한다. 실제 수행은 세션/세트 논리 삭제를 반영한다.
+공통 query에 선택 `q`(trim 후 최대100자), `offset`, `groupCode`를 받는다. 현재 루틴 목록이나 활성 카탈로그로 제한하지 않는다. 기간 내 현재 유효 종료 세션의 실제 WEIGHT 완료 세트가 있는 종목과 기간 내 승인 사건이 있는 종목을 합쳐 표준 운동 ID별로 반환한다. 추가 운동·비활성 표준 운동·삭제 루틴/배치의 승인 이력도 포함한다. 실제 수행은 세션/세트 논리 삭제를 반영한다.
 
 `{...공통,query,offset,exercises:[{standardExerciseId,name,lastPerformedAt,lastApprovalAt}],nextOffset:null|integer}`
 
 최근 수행 우선(lastPerformedAt DESC NULLS LAST), 이어 최근 승인·표준UUID 순이다. 현재 표준 이름과 당시 InitialPlan/추가 종목 이름/승인 사건 이름에서 대소문자 무관 부분 검색한다. `%`/`_`는 와일드카드가 아니며 SQL 문자열에 요청값을 삽입하지 않는다. 실제 완료 없는 계획이나 승인 없는 현재 중량을 검색 사실로 만들지 않는다. 50개+다음 페이지 존재 여부를 읽는다.
+
+선택 groupCode는 CHEST/BACK/SHOULDERS/ARMS/LEGS/CORE/CARDIO/OTHER만 허용한다. 전체는 query를 생략한다. 표준 운동의 PRIMARY 근육 중 연결 group_code가 있는지 EXISTS로 검사하며 OTHER는 PRIMARY 매핑이 없는 운동이다. 필터를 페이지 LIMIT/OFFSET 전에 적용하므로 페이지를 받은 뒤 보조근 이름으로 임의 분류하지 않는다. 이는 성장 후보 검색 규칙이며 ST-27의 검수된 운동 부위 독립 집계나 단일 대표 부위 보장이 아니다.
+
+Frontend GrowthPanel은 검색 열림·기간·검색어·태그를 조회 조건으로 관리하고 바뀌면 offset=0부터 다시 읽는다. 이전 조건의 늦은 응답을 배제하고 더 보기에서만 다음 offset을 읽는다. 선택하면 해당 종목의 배치 목록, 배치를 선택하면 승인 점을 조회한다. 선택 해제는 관련 조회를 해제하되 부위 태그는 유지한다. 기간 변경은 후보·배치/점 조회를 새 기간으로 갱신하며 임의의 기간 밖 점을 만들지 않는다.
 
 ## GET /api/v1/statistics/growth/exercises/{standardId}
 
@@ -32,7 +38,7 @@ query는 period/timeZone뿐이다. 본인 수행 또는 승인 이력으로 접�
 
 `{...공통,standardExerciseId,placement:위 배치,offset,points:[Point],nextOffset:null|integer}`
 
-Point는 `{id,previousWeightKg,approvedWeightKg,occurredAt,recordedAt,source,sessionId,connectFromPrevious,previousPointId}`다. 중량은 정확한 decimal 문자열, source는 기존 ROUTINE_EDITOR/WORKOUT이며 sessionId는 운동 중 승인인 경우 기존 상세 링크다. 최신 발생 시각/UUID 순100개, 필요 시 이전 페이지를 더 읽는다. 페이지는 매번 현재 원본의 일관된 스냅샷이며 페이지 사이 새 사건 발생 시 중복/이동 가능성을 UI에서 UUID로 중복 제거한다. 일부만 로드했음을 표시한다.
+Point는 `{id,previousWeightKg,approvedWeightKg,occurredAt,recordedAt,source,sessionId,connectFromPrevious,previousPointId}`다. 중량은 정확한 decimal 문자열, source는 기존 ROUTINE_EDITOR/WORKOUT이며 sessionId는 WORKOUT 출처의 세션 상세 링크이며 진행 중 승인·종료 PENDING 재승인·V36 종료 검토 승인 사건을 포함할 수 있다. 최신 발생 시각/UUID 순100개, 필요 시 이전 페이지를 더 읽는다. 페이지는 매번 현재 원본의 일관된 스냅샷이며 페이지 사이 새 사건 발생 시 중복/이동 가능성을 UI에서 UUID로 중복 제거한다. 일부만 로드했음을 표시한다.
 
 그래프는 next_weight만 점으로 표시한다. initial_weight/current approved_weight 또는 기간 밖 값을 첫 점으로 만들지 않는다. 연결 근거는 같은 배치·선택 기간의 인접 사건에 대해 previous_weight=앞 사건 next_weight이고 발생/서버 기록 시각이 모두 엄격히 증가할 때만 true다. 같은 시각·역전/불일치는 점을 보존하되 선으로 연결하지 않는다. `previousPointId`가 실제 로드한 앞 점 UUID와도 일치해야 연결하므로 페이지 사이 끼어든 사건을 건너뛰어 선을 만들지 않는다. UUID를 승인 적용 순서로 간주하지 않는다. 이 그래프는 보존 사건의 발생 시각별 변경 기록이며 중간 시점의 승인 상태를 보간하지 않는다.
 
@@ -50,4 +56,4 @@ Point는 `{id,previousWeightKg,approvedWeightKg,occurredAt,recordedAt,source,ses
 
 ## 종료 화면 권고와 성장 기록의 구분 — 2026-11-13
 
-일반 운동 UI의 weightReview와 ACTIVE progress-assessment는 사용자 판단을 돕는 읽기 결과다. 특히 미완료 세트의 DECREASE 권고는 공식 benchmark 자격·승인 중량·진행 중량 변경 사건을 새로 만들지 않는다. 이 문서의 성장 조회는 기존 공식 승인 사건을 사용한다. 현재 루틴 값으로 과거 승인 문맥을 덮어쓰지 않는다. [공식 평가와 화면 권고 계약](workout-sessions.md#종료-화면의-중량-검토-권고--공식-평가와-분리)
+일반 운동 UI의 weightReview와 ACTIVE progress-assessment는 사용자 판단을 돕는 읽기 결과다. 특히 미완료 세트의 DECREASE 권고는 공식 benchmark 자격·승인 중량·진행 중량 변경 사건을 새로 만들지 않는다. 이 문서의 성장 조회는 실제 공식 승인 사건을 사용한다. V36의 종료 검토 권고/사용자 초안은 점이 아니며 최종 승인 성공 후 WORKOUT progress_change_events가 생겼을 때만 성장점이 된다. SavedWeightReview 응답의 WORKOUT_REVIEW 등 출처와 Point.source를 혼용하지 않는다. [종료 후 명시 승인](workout-sessions.md#종료-후-중량-검토와-명시-승인--v36) 현재 루틴 값으로 과거 승인 문맥을 덮어쓰지 않는다. [공식 평가와 화면 권고 계약](workout-sessions.md#종료-화면의-중량-검토-권고--공식-평가와-분리)

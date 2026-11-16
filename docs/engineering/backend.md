@@ -56,13 +56,18 @@ Task 006의 나머지 운동·인증 정책과 Task 008의 휴식 설정 조회 
 
 ### 1.1 현재 개발 현황
 
-**마지막 확인** 2026-11-13 (KST). 일반 운동 코드 기준 `a56103e39e9821657da3ef98b047f3ce136116c8`, PWA `15a0f6bee4421f799cd691fa435bc8103c1e28e2`. 표준 운동 DB 확장 1~4-C의 2026-11-11 통합 검증 이후 V35 격리 DB에서 실제 계정의 카탈로그·설정 UI와 하이 로우 보호 GIF 검토를 완료했다. 목표 스키마는 V35다. [표준 운동 인수인계](standard-exercise-handoff.md)
+**마지막 코드 확인** 2026-11-16 (KST). Backend `732e0c3`, PWA `56993a0`의 기능·호출·저장 경로와 테스트 소스를 조사했다. 이번 문서 작업에서는 테스트·빌드·실제 DB 적용을 실행하지 않았다. V36 종료 검토 봉인·명시 전체/선택 승인과 V37 웨이트 구간 보존이 구현돼 목표 스키마는 V37이다. [세션 계약](../api/workout-sessions.md#종료-후-중량-검토와-명시-승인--v36) · [DB 구조](../database/schema.md#1차-개발의-저장-모델--v36v37)
+
+**2026-11-16 정책 점검:** 사용자 정책 3-1~3-8은 [Decision Log 10.25절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#1025--2026-11-16-최신-정책-확정과-구현-경계)에 기록했다. Benchmark 최신 종료 동점 처리와 웨이트 시간 A안은 현행 유지다. InitialPlanCompletion의 거리null unknown, 종료 요약의 다른 판정, 서버 NEW 강제·공식 전체 제외/원슬롯, FINISHED 최근 실제/blur LWW 메모·전체 과거 서버 검색·독립 분류/선택 일별 조회는 미완성이다. [양쪽 구현 상태·우선순위](../../../overload-pwa/docs/engineering/frontend.md#2026-11-16-확정-정책별-구현-점검)를 따르며 기존 단계의 ‘완료’는 당시 범위다. 이번 작업은 Markdown만 수정하며 테스트·서버·DB 실행을 하지 않았다.
+
+**이전 검증 기록(2026-11-13):** 일반 운동 코드 `a56103e39e9821657da3ef98b047f3ce136116c8`, PWA `15a0f6bee4421f799cd691fa435bc8103c1e28e2`. 표준 운동 DB 확장 1~4-C의 2026-11-11 통합 검증 이후 V35 격리 DB에서 실제 계정의 카탈로그·설정 UI와 하이 로우 보호 GIF 검토를 완료했다. 목표 스키마는 V35다. [표준 운동 인수인계](standard-exercise-handoff.md)
 
 | 범위 | 상태와 근거 |
 | --- | --- |
-| 일반 운동 UI 검수 지원 (2026-11-13) | **구현·피드백·로컬 코드 커밋·문서 동기화 완료.** ACTIVE 잠정 평가와 종료 weightReview를 읽기 전용으로 제공한다. 공식 자격·최초 평가·기록 보호는 유지하며 스키마는 V35다. 검토 전용 서비스는 정지했고 보존 데이터는 유지한다. 메모 서버 저장·G6·HTTPS 운영 및 API 연동 후 실제 iPhone 검증은 별도다. [계약](../api/workout-sessions.md) · [마감 기록](../../../overload-pwa/docs/tasks/ui-v09-workout-api-integration.md#최종-마감--2026-11-13) |
+| 1차 기능 개발 코드 확인 (2026-11-16) | 실제 종료 승인 API는 최신 세션/루틴 version·현재값·출처를 검증하고 수행 정정과 분리한다. 성장 후보 groupCode 필터와 시간 구간·정정 후 현재 평가를 확인했다. 공식 평가 전체 조합 제외·대체 슬롯·독립 분류 집계·메모 API 등은 미완성이다. 상세 범위는 [세션](../api/workout-sessions.md)·[통계](../api/statistics.md)·[성장](../api/approved-weight-growth.md) 계약으로 구분한다. |
+| 일반 운동 UI 검수 지원 (2026-11-13 당시) | **구현·피드백·로컬 코드 커밋·문서 동기화 완료.** ACTIVE 잠정 평가와 종료 weightReview를 읽기 전용으로 제공한다. 공식 자격·최초 평가·기록 보호는 유지하며 스키마는 V35다. 검토 전용 서비스는 정지했고 보존 데이터는 유지한다. 메모 서버 저장·G6·HTTPS 운영 및 API 연동 후 실제 iPhone 검증은 별도다. [계약](../api/workout-sessions.md) · [마감 기록](../../../overload-pwa/docs/tasks/ui-v09-workout-api-integration.md#최종-마감--2026-11-13) |
 | 다중 주간 프리셋과 자동 순환 | **완료.** V30 저장·신규 계정 기본값·관리·수동 활성화·순환·누락 주차 복구와 V31 이름 저장을 구현했다. [API](../api/weekly-schedule.md) · [격리 회귀](#125-다중-주간-일정-프리셋) |
-| G3 일별 검사·일반 통계·G4 분석 | **완료.** 적용 일정과 최초 근거, 통계·성장 조회, 분석 설정·epoch·주별 확정·재계산을 구현했다. [통계 API](../api/statistics.md) · [성장 API](../api/approved-weight-growth.md) · [G3·G4 구현](#124-ui-v09와-디로딩-v17-연동) |
+| G3 일별 검사·일반 통계·G4 분석 (기존 범위) | **기존 범위 구현. 최신 거리 미입력·대체 슬롯·독립 집계 정책은 전환 필요.** 적용 일정과 최초 근거, 통계·성장 조회, 분석 설정·epoch·주별 확정·재계산을 구현했다. [통계 API](../api/statistics.md) · [성장 API](../api/approved-weight-growth.md) · [G3·G4 구현](#124-ui-v09와-디로딩-v17-연동) |
 | G5 기간·세션·프리셋 연동 | **완료.** 기간 시작·임시 계획·세션·종료, 분석 재개와 일반 프리셋 순환 정지·복귀를 구현했다. [디로딩 기간 API](../api/deload-periods.md) · [G5 연동](#124-ui-v09와-디로딩-v17-연동) |
 | 표준 운동 DB 확장 4-C | V35 회원별 열람 권한과 로컬 Nginx 보호 GIF 경로를 구현했다. [인수인계](standard-exercise-handoff.md) |
 | CATALOG-01·02 / SETTING-01 | **실제 API 연결과 내부 검토 승인·마감.** PWA `9c276d5`가 공개 목록·UUID 상세를 사용하고, 기존 V35 권한 검사로 하이 로우 원본을 제공했다. Backend `ed70174`는 검토 실행 스크립트의 LAN 옵션 변경이다. API·스키마는 기존 계약을 유지한다. [검토 종료](test-environment.md#catalog-검토-종료-기록) |
@@ -71,7 +76,7 @@ Task 006의 나머지 운동·인증 정책과 Task 008의 휴식 설정 조회 
 | 표준 운동 DB 확장 3단계 | 세부 근육 기여와 그룹 실제 세트를 분리한다. 압축 편성은 전체 PRIMARY와 운동별 분할을 사용한다. [통계](../api/statistics.md) · [편성](../api/deload-periods.md#자동-편성-경계) |
 | 표준 운동 DB 확장 2단계 | V33으로 일반 공개 검색과 신규 선택을 분리하고, 기존 유산소 기록 설정에 표준 운동 UUID를 연결한다. [카탈로그 계약](../api/standard-exercise-catalog.md) · [검증 범위](#표준-운동-db-확장-2단계) |
 | 표준 운동 DB 확장 1단계 | **구현 완료.** V32에 표준 근육 40개, 운동 상세와 독립 검수, PRIMARY 순서, ExerciseDB 원본 연결을 추가했다. [카탈로그 계약](../api/standard-exercise-catalog.md) · [구현 범위](#표준-운동-db-확장-1단계) |
-| V35 목표 스키마 | **격리 검증 완료.** PostgreSQL 18.6에서 V1~V35 신규 적용, 기존 스키마 전환 및 서버 계약을 확인했다. [DB 설계서](../database/schema.md) · [ERD](../database/erd.md) |
+| V35 목표 스키마 (당시 검증) | **격리 검증 완료.** PostgreSQL 18.6에서 V1~V35 신규 적용, 기존 스키마 전환 및 서버 계약을 확인했다. [DB 설계서](../database/schema.md) · [ERD](../database/erd.md) |
 | 실제 개발·보존·운영 DB 전환 | **별도 승인 범위.** 개인 개발의 마지막 적용 기록은 V17, 보존 검토의 마지막 직접 확인은 V24다. 대상·이력·백업과 복원 가능성을 확인한다. [실제 DB 적용 경계](standard-exercise-handoff.md#실제-db-적용-상태) |
 | HOME·ROUTINE PWA | **연동·PC 검토 완료.** Frontend `e34e433`에서 V30·V31 계약을 사용한다. 최신 iPhone 실기기·설치형 PWA·HTTPS START, G6 전체 통합, 실제 DB 적용·배포는 별도다. [Frontend 현황](../../../overload-pwa/docs/engineering/frontend.md#87-v09-적용-범위와-구현-상태) |
 

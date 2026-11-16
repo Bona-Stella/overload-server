@@ -1,15 +1,26 @@
 # 운동 세션 API — Task 009 / 표준 운동 V17
 
+## 2026-11-16 확정 정책과 현행 코드의 차이
+
+[최신 결정 10.25절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#1025--2026-11-16-최신-정책-확정과-구현-경계)의 정책 3-1~3-8을 적용한다. 정책 확정이 현재 HTTP 구현 완료를 뜻하지 않는다.
+
+- **3-1 일부 구현:** InitialPlan이 달성의 공통 기준이다. Frontend summaryData는 아직 AppliedPlan 분모와 별도 전체 완료 조건을 사용하며 통일이 필요하다. 서버 InitialPlanCompletion과 Frontend cardioComplete/partialAchievement는 최초 거리 목표+실제 거리null을 unknown으로 처리하므로, 새 ST-19의 ‘거리 미입력은 확인 가능한 시간만 비교’로 전환해야 한다. 기존 실제 시간·정정/측정 출처·다른 강도 근거 보호는 유지하며 API 필드를 추가한 계약이 아니다.
+- **3-2 구현 확인:** WorkoutAssessment.benchmarkOrder의 첫 N개 총 반복 DESC → endedAt DESC → UUID ASC를 사용자가 채택했다. 초기 동점 이전 기준 유지는 과거 정책이며 별도 변경 구현은 필요하지 않다.
+- **3-3 현행 유지:** V37의 확인 가능한 활성 화면 구간 측정 A안이다. 잠금/백그라운드 추정은 현행 요구사항이 아니다.
+- **3-4~6 구현 필요 범위:** 서버의 조합 변경 NEW 강제·공식 세션 전체 제외·원슬롯 연결, FINISHED 최근 실제값/blur 온라인 LWW 메모는 [루틴 계약](routine-management.md#후속-조회메모-api-설계-범위)을 따른다. V36 봉인 권고 제외만으로 공식 evaluate 전체 제외 완료를 인정하지 않는다.
+- **3-7 유지 / 미완성:** 이력 검색은 전체 과거 서버 필터·페이지 조회가 목표다. 아래 closed의20건 순차 조회·로드된 루틴명 필터는 이를 충족하지 않으며 전체 다운로드를 대안으로 확정하지 않는다.
+- **3-8 유지 / 일부 구현:** 독립 분류 집계·선택 대상 실제 일별 추이는 [통계 계약](statistics.md#1차-frontend-연결과-계산의-실제-범위--2026-11-16)의 부족 범위를 유지한다.
+
 ## 2026-11-13 후속 확정 정책과 구현 경계
 
 **제품 확정 / HTTP·DTO 변경 구현 전.** [제품 결정 10.21절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#1021--루틴-중심-중량메모대체-정책--2026-11-13-후속-확정)이 아래 기존 구현의 조합·평가·메모 관련 상충 설명보다 우선한다. 기존 schemaVersion/ruleVersion·응답·오류는 현재 코드 계약이며 후속 값이나 경로를 이 문서에서 임의 확정하지 않는다.
 
 - START는 조합을 변경하지 않은 정규 배치의 현재 승인 중량을 InitialPlan에 복사한다. 조합 신규 선택·변경의 최근 실제값 제안과 구분하며, [루틴 저장](routine-management.md#2026-11-13-후속-확정-정책과-현재-http의-경계)으로 확정한 NEW 배치의 평가·benchmark를 새로 시작한다. 첫 운동 평가 유예는 없다.
 - 원계획 표준 운동·제조사·중량 방식을 오늘만 변경·대체한 세션은 **공식 증감 평가 전체 제외**다. 다른 정상 종목만 개별 공식 평가하는 방안은 폐기했다. 단순 추가 운동·초과 세트는 실제 기록에 남기되 계획 첫 N개 평가에 더하지 않고, 추가만으로 정상 정규 수행의 자격을 박탈하지 않는다. 일반 미수행의 전체 완료 제한도 유지한다.
-- `WorkoutAssessment`는 현재 장비를 비교 키에 넣지 않는다. 후속 구현은 공식 제외 근거, 원계획·실제 세트·승인 대상 조합을 검증해야 한다. 최종 AppliedPlan만으로 오늘만 대체와 단순 추가를 혼동하지 않게 원계획 슬롯과 실제 대체 운동의 연결·확정 적용 근거를 표현한다. 연결 저장 위치·DTO·판정 결과 및 제외 이유의 구체 형식은 구현 확인 대상이다.
+- `WorkoutAssessment.evaluate`의 공식 평가에는 현재 장비 비교가 없다. V36의 freeze는 별도로 원계획 누락/장비 변경을 봉인 권고 전체 제외에 반영하므로 공식 평가와 구현 범위를 구별한다. 후속 구현은 공식 제외 근거, 원계획·실제 세트·승인 대상 조합을 검증해야 한다. 최종 AppliedPlan만으로 오늘만 대체와 단순 추가를 혼동하지 않게 원계획 슬롯과 실제 대체 운동의 연결·확정 적용 근거를 표현한다. 연결 저장 위치·DTO·판정 결과 및 제외 이유의 구체 형식은 구현 확인 대상이다.
 - 대체 슬롯 완료는 공식 자격과 별개다. 제품 10.21.4절의 네 분류·관리자 순서상 첫 PRIMARY·원계획 세트 조건을 모두 충족하면 원래 슬롯을 완료시킨다. 현재 `InitialPlanCompletion`의 원래 sessionExerciseId별 판정에는 이 연결이 없다. 후속 구현은 통계·G4에 동일 인정 결과를 전달하되 실제 운동·중량·세트 정체성을 바꾸지 않는다.
 - 최초 FINISH 평가와 정정 후 현재 평가를 구분하고 기존 첫 N개·증감 권고·정정/삭제/복구·확정 요청 재전송·오프라인 초안 보호를 유지한다. `weightReview`의 미완료 감량은 화면 권고이며 공식 자격을 부여하지 않는다. 공식 제외/슬롯 완료/권고를 같은 상태로 합치지 않는다. 새 제외 상태가 권고·ACTIVE 잠정 응답에 전달되는 구체 DTO 표현은 후속 계약에서 검증한다.
-- 메모는 [루틴 API의 후속 메모 설계 범위](routine-management.md#후속-조회메모-api-설계-범위)를 따르는 조합별 최신 서버값이다. 수행 snapshot·최초 평가·기록별 메모 이력을 추가하지 않는다. 현재 세션·기기 메모만 있는 상태와 목표 설계를 구분한다.
+- 메모는 [루틴 API의 후속 메모 설계 범위](routine-management.md#후속-조회메모-api-설계-범위)를 따르는 조합별 최신 서버값이다. 수행 snapshot·최초 평가·기록별 메모 이력을 추가하지 않는다. 현재 마운트 메모리 초안만 있는 상태와 blur 온라인 LWW 서버 저장의 확정 목표를 구분한다.
 
 2E의 선택 bodyweightLoad와 V22는 [맨몸 추가 부하 계약](bodyweight-additional-load.md)을 따른다. 기존 weight/승인 평가·구9필드 JSON/hash·고정 요청을 보존하며, 생략과 명시적 제거를 구분한다. 개인 DB V18~V22는 미적용이다.
 
@@ -22,14 +33,82 @@ V17 Backend는 [표준 운동 설계](../tasks/standard-exercise-catalog-design-
 
 ## 최종 중량 검토 UI와 정정·승인의 경계 — 2026-11-14
 
-**설계 확정 / 신규 UI·승인 연동 구현 필요.** [Decision Log 10.23.5~6절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10235-중량-검토와-명시-승인)의 `중량 검토`·수정·전체/선택 승인은 HTML 합성 시연이다. 현재 React의 읽기 전용 weightReview와 기존 승인 해결 계약을 신규 일반 일괄 승인 API의 구현 근거로 삼지 않는다.
+2026-11-14에는 설계·합성 시연 단계였으나, **2026-11-16 코드 확인(Backend `732e0c3`, Frontend `56993a0`)에서는 실제 종료 권고 봉인·전체/선택 승인 API가 구현됐다.** [Decision Log 10.23.5~6절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10235-중량-검토와-명시-승인)은 결정 기록으로 보존하고 현행 계약은 아래 V36 절을 사용한다.
 
-- 체크·모달 확인은 예정값 초안만 바꾸고 최종 전체/선택 승인으로 명시 확정한다. 전부 선택은 전체 승인, 일부 해제는 선택 승인, 모두 해제는 비활성이다. 수동 초안을 보존한다. 기본 권고 폭 PLATE/STACK 5kg·기타 2kg과 수동 휠/± 2.5kg·1kg은 UI 설계값이며 현행 DTO·서버 승인 산식을 변경하지 않는다.
-- 10.21절의 최신 제품 정책에 따라 공식 증감 평가 전체 제외인 세션은 기존 `weightReview`에서 미완료 감량 등 읽기 전용 권고가 계산되더라도 UI의 `중량 검토` 카드 전체를 숨긴다. 이는 응답의 `weightReview`를 강제로 null로 만들거나 기존 권고 계산·최초 공식 평가·현재 공식 평가를 변경하라는 요구가 아니다. 현행 nullable 계약·계산 조건·반환 필드는 유지하고 실제 수행 기록은 그대로 표시한다. 세션 단위 공식 제외 근거의 응답·전달은 후속 계약 사항이다.
-- `PATCH /{id}/records`는 허용된 실제 수행값·논리 삭제만 처리한다. 계획·종목·장비·최초 승인 문맥·최초 평가를 보존하고 현재 평가를 별도 계산한다. 승인 사건·현재 루틴 승인값·routine.version을 변경하지 않으며 과거 기록 정정으로 이후 승인을 덮어쓰지 않는다. 실제 추가 부하·유산소 측정 허용 범위는 각 현행 측정 계약을 따른다.
-- 기존 `POST /{id}/closed-approval-resolutions`는 종료 후 PENDING 전체를 KEEP_CURRENT/REAPPROVE로 해결하는 별도 계약으로 유지한다. 새 일반 전체/선택 승인에 전용하거나 과거 날짜라는 이유로 제거하지 않는다. 재승인은 현재 루틴 version/승인값·활성 원출처와 새 UUID/순번/시각을 검증하고 실제 변경 시 새 승인 사건을 추가한다. 기존 후속 사건·최초 수행 문맥은 재작성하지 않는다. 동일 해결 재확인은 추가 승인을 만들지 않는다.
+- 선택·중량 수정·모달 확인은 초안이다. 최종 승인만 서버 쓰기를 발생시킨다. 권고만으로 승인값이나 성장 사건이 생기지 않는다.
+- `PATCH /{id}/records`는 허용된 실제 수행값·논리 삭제만 처리한다. 최초 계획·장비·승인 문맥·최초 평가·종료 봉인 권고·웨이트 측정 구간은 보존한다. 현재 평가는 별도 계산하며 루틴 승인값·version·승인 사건을 바꾸지 않는다.
+- `POST /{id}/closed-approval-resolutions`의 PENDING KEEP_CURRENT/REAPPROVE는 별도 기존 계약이다. 현재 출처·루틴 version/승인값을 검증하고, 재승인은 현재 시점의 새 사건으로 추가하며 후속 사건을 재작성하지 않는다.
+- 화요일 95kg 기록 후 수요일 100kg 승인 시 목요일 기록 정정은 100kg과 수요일 사건을 보존한다. 신규 종료 검토 승인도 세션·루틴 version과 현재값=종료 당시 기준값을 검사하므로 오래된 95kg 작업으로 덮어쓸 수 없다. 변경 후 다시 95kg이 된 경우라도 최신 version·출처·사용자 명시 확인이 필요하다. 동일 적용 요청 재확인은 새 변경이 아니다.
+- 현재 과거 상세의 SavedWeightReview는 readOnly이며 새 승인 버튼이 없다. 서버는 과거 날짜 자체를 금지 조건으로 쓰지 않는다. 미해결 PENDING의 유효한 재승인을 제거하는 정책으로 해석하지 않는다.
 
-예: 화요일 95kg 기록 뒤 수요일 100kg으로 정상 승인했다면 목요일의 records 정정은 100kg과 수요일 사건을 유지한다. 오래된 version/이전 승인값으로 재승인하면 충돌이며, 유효한 PENDING을 최신 100kg 문맥에서 사용자가 명시 재승인하는 것은 현재 시점의 새 승인이다. KEEP_CURRENT는 100kg을 유지한다. 신규 전체/선택 승인의 대상·최신성·실패/경합·사건 처리와 HTTP/DTO는 후속 검토 사항으로 남기며 이번 작업에서 추가 계약을 확정하지 않는다.
+## 종료 후 중량 검토와 명시 승인 — V36
+
+### 조회와 봉인
+
+`GET /api/v1/workout-sessions/{id}/weight-review`는 본인 현재 세대의 세션에서 아래 값을 읽는다. 세션 일반 상세·assessment의 읽기 전용 weightReview와 구별된 응답이다. frozen은 이전 데이터·명시 FINISH가 없는 상태에서 null일 수 있으며 과거 평가를 소급 생성하지 않는다.
+
+```text
+View = {userId,dataGeneration,sessionId,version,frozen:Frozen|null,
+        routineVersion:Counter|null,current:[Current],approvals:[Applied]}
+Frozen = {schemaVersion:1,sessionVersion,assessedAt,exercises:[Item]}
+Item = {sessionExerciseId,sourcePlacementId,standardExerciseId,name,loadType,
+        recommendedWeightKg:Decimal|null,guidance:ReviewExercise}
+Current = {sessionExerciseId,approvedWeightKg:Decimal|null,available:boolean}
+Applied = {id,eventId,sessionExerciseId,sourcePlacementId,
+           previousWeightKg,nextWeightKg,occurredAt,recordedAt,
+           source:"WORKOUT_REVIEW"|"WORKOUT"|"CLOSED_PENDING_RESOLUTION"}
+```
+
+- FINISH에서 기존 completionAssessment와 별개로 당시 guidance와 recommendedWeightKg를 completion_weight_review_snapshot에 저장한다. 이후 실제 수행 정정·루틴 편집·승인으로 바뀌지 않는다. assessment.weightReview는 현재 수행에서 재계산하므로 정정 후 달라질 수 있다.
+- 원계획 종목 누락 또는 제조사/부하 방식 변경은 봉인 권고 전체를 SESSION_COMBINATION_CHANGED로 제외하고 디로딩은 DELOAD_SESSION으로 제외한다. 단순 종목 추가만으로는 제외하지 않는다. 원래 슬롯 대체 연결·공식 evaluate의 전체 제외는 [아직 남은 정책 차이](#2026-11-13-후속-확정-정책과-구현-경계)다.
+- 정상 문맥에서 실제 수행이 없으면 NO_PERFORMED_SETS, 문맥/목표 불일치 등은 UNAVAILABLE이다. 미완료 또는 첫 N개 중 최소 반복 미달은 DECREASE, 모두 최대 이상은 INCREASE, 그 외는 MAINTAIN이다. 권고 폭은 PLATE/STACK 5kg·그 외 2kg이며 감량 하한은 0이다. 기준은 당시 승인 문맥이며 첫 실제 세트 중량이 아니다.
+- current는 현재 원배치·표준 운동·제조사·부하 방식·세트/반복 목표의 일치와 최신 승인값을 나타낸다. approvals는 실제 APPLIED 요청과 progress_change_events가 연결된 사건만 반환한다. source는 이 응답의 출처이며 성장 Point.source의 ROUTINE_EDITOR/WORKOUT과 별개다.
+
+### 최종 승인
+
+`POST /api/v1/workout-sessions/{id}/weight-review-approvals`의 요청은 다음과 같다. 공통 쿠키·CSRF·엄격 JSON 규칙을 적용한다.
+
+```text
+{dataGeneration:Counter,expectedVersion:Counter,expectedRoutineVersion:Counter,
+ confirm:true,
+ approvals:[{id:UUID,sessionExerciseId:UUID,previousWeightKg:Decimal,nextWeightKg:Decimal}]}
+```
+
+승인 목록은 비어 있지 않고 요청 ID·종목 ID가 각각 유일해야 한다. 중량은 유효한 정규 십진 문자열이다. 전체/선택은 목록의 차이이며 별도 전체 승인 endpoint가 아니다. 수동 승인값은 권고 수치·방향과 같도록 강제하지 않으며 사용자 초안을 명시 확정한다.
+
+1. 소유 계정 → 원루틴 → 세션 순서로 잠근다. 현재 dataGeneration을 검사한다.
+2. 모든 ID가 이미 동일 final_review 요청(종목·이전/다음 값·expectedRoutineVersion 일치)이면 읽기 전용 재확인한다. 이후 세션 정정/루틴 변경이 있어도 같은 사건을 재적용하지 않는다. 기존 요청 일부와 새 요청을 섞거나 같은 ID의 내용을 바꾸면 충돌한다.
+3. 새 쓰기는 비삭제 FINISHED 일반 세션·활성 원출처·쓰기 가능 상태, 현재 session.version과 routine.version, 봉인된 권고와 일치하는 원배치/조합/목표를 검사한다. 이미 최종 승인됐거나 PENDING인 종목은 충돌이다.
+4. previousWeightKg가 **현재 루틴 승인값과 봉인된 referenceWeightKg 모두**와 같고 nextWeightKg와 달라야 한다. 서버 현재 시각이 closedAt·해당 종목 선행 요청보다 앞서지 않는지 확인하고 순번 overflow를 막는다.
+5. 선택 항목을 한 트랜잭션에서 final_review=true·created_after_closure=true·APPLIED로 저장하고 WORKOUT 승인 사건과 현재 루틴 값을 갱신한다. routine.version은 일괄 1회, session.version은 1 증가한다. 수행 기록·최초 계획·두 봉인 평가/권고·종료 시각은 변경하지 않는다. 응답은 최신 View다.
+
+주요 실패는 SESSION_VERSION_CONFLICT, RESOLUTION_CONFLICT, SOURCE_NOT_APPROVABLE, APPROVAL_REQUEST_ID_CONFLICT 및 공통 소유권·세대·삭제·쓰기 제한 오류다. HTTP 상태·응답 형식은 기존 공통 오류 계약을 따른다. 실패 시 일부만 적용하지 않는다.
+
+Frontend SavedWeightReview는 저장 후 GET을 다시 읽어 요청 ID·출처 WORKOUT_REVIEW·최종값을 확인한 뒤 승인 완료로 표시한다. 유실/실패 시 현황을 다시 읽고 초안·오류를 유지한다. 자동 POST 재전송을 보장하지 않으며 수동 재시도에서 새 요청 ID가 생성될 수 있으므로 서버 재조회 결과가 중요하다. 프리뷰의 메모리 승인은 이 계약과 무관하다.
+
+### 구현 근거
+
+[WorkoutReviewService](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutReviewService.java)의 parse/freeze/get/approve/view, [WorkoutSnapshotService](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutSnapshotService.java)의 FINISH, [V36](../../src/main/resources/db/migration/V36__persist_finished_weight_review.sql), [SavedWeightReview](../../../overload-pwa/src/features/workout-online/SavedWeightReview.tsx)를 대조했다. [WorkoutSessionIntegrationTests](../../src/test/java/com/overload/overload_server/workoutsession/WorkoutSessionIntegrationTests.java)의 eighthFinalApprovalStoresManualValueInsteadOfRecommendation, sixthReviewRejectsNewerApprovalVersionAndCannotRelabelRoutineEditorAsSessionApproval, sixthSelectedApprovalIsAtomicAndLeavesOtherExercisesUnapproved 및 시간 구간 보존/오류 테스트의 실제 assertion을 확인했다. 이번 문서 작업에서 실행하지 않았다.
+
+## 웨이트 시간 구간 — V37
+
+정책 3-3은 아래 A안을 유지하도록 확정했다. 백그라운드 시간 확장은 장기 검토이며 현재 요구가 아니다.
+
+snapshot의 선택 `weightTiming`을 PUT snapshot과 FINISH에서 받으며 상세 snapshot에도 반환한다. 기존 AppliedPlan schemaVersion=2와 별개다. 생략은 기존 저장값을 유지하며 명시 null·잘못된 구조는 허용하지 않는다.
+
+```text
+weightTiming = {schemaVersion:1,complete:boolean,
+                intervals:[{startedAt:Instant,endedAt:Instant}]}
+```
+
+- 각 구간은 end > start, 시각 오름차순·서로 겹치지 않으며 최대 10,000개·합계 최대 86,400,000ms다. 서버는 시작 전/서버 현재 이후 구간을 거부한다.
+- 저장된 구간의 삭제·시작 변경·마지막 외 종료 변경·종료 단축을 거부한다. 마지막 구간은 연장 가능하며 새 구간을 뒤에 추가한다. complete=false는 true로 되돌릴 수 없다.
+- FINISH의 endedAt 뒤 구간은 거부한다. 종료 후 정정/복구에서 이 값을 바꾸지 않으며 DB 트리거도 종료 상태의 구간 변경을 막는다. 구간을 새 종료 기록이나 승인 사건으로 해석하지 않는다.
+- Frontend weight-timing은 워밍업 완료·선택된 미완료 WEIGHT·휴식 아님·화면 보임·종료 전을 측정한다. 숨김/유산소/휴식/워밍업은 제외한다. 복원·기기 인계에서 관찰 못 한 틈은 complete=false이며 실제 신체 동작 측정이나 백그라운드 시간 보장을 뜻하지 않는다.
+- recordSummary는 전체=endedAt−startedAt, 웨이트=확인 가능한 구간 합, 유산소=현재 유효 COMPLETED activeMs 합, 비수행=전체−웨이트−유산소로 계산한다. 필요한 원본 누락/불완전·합계 초과는 미확인이며 임의 0·음수로 보정하지 않는다. 웨이트 유형 자체가 없을 때의 0과 측정 누락을 구분한다.
+- 자동 타이머 원본·기록 시각·밀리초 정밀도는 보존한다. 최근 목록의 HH:MM 표시와 상세의 초 단위 표시는 원본 변경이 아니다.
+
+근거: [WorkoutSnapshotRequests](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutSnapshotRequests.java), [WorkoutSnapshotService](../../src/main/java/com/overload/overload_server/workoutsession/WorkoutSnapshotService.java)의 validateWeightTiming/finish, [V37](../../src/main/resources/db/migration/V37__persist_weight_activity_intervals.sql), [weight-timing](../../../overload-pwa/src/features/workout-local/weight-timing.ts), [record-summary](../../../overload-pwa/src/features/workout-online/record-summary.ts).
 
 ## 현재 제공 범위
 
@@ -62,6 +141,8 @@ JSON 중복 키·추가 필드·필수 필드 누락·명시적으로 허용하�
 | POST | /api/v1/workout-sessions/{id}/closed-approval-resolutions | 200, 종료 후 PENDING 해결 |
 | GET | /api/v1/workout-sessions/{id}/progress-assessment | 200, ACTIVE 종목별 잠정 평가 |
 | GET | /api/v1/workout-sessions/{id}/assessment | 200, 최초 공식 평가·현재 공식 평가·화면 weightReview 구분 |
+| GET | /api/v1/workout-sessions/{id}/weight-review | 200, 종료 봉인 권고·현재 문맥·실제 승인 사건 |
+| POST | /api/v1/workout-sessions/{id}/weight-review-approvals | 200, 명시 전체/선택 승인 또는 동일 요청 재확인 |
 | GET | /api/v1/workout-sessions/{id}/record-change-events | 200, 본인 세션 변경 이력 |
 
 START의 모든 필드:
@@ -319,7 +400,9 @@ routineName은 불변 InitialPlan의 시작 당시 이름이다. Counter는 정�
 
 ## 월간 이력·최근 7일·검색 요구와 현행 목록의 차이
 
-**설계 확정 / HTML 합성 시연 / 조회 계약 보완 필요.** [10.24.5절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10245-최근-7일과-월간-운동-이력)의 기록 메인 최근7일과 전체 이력 월간/전체 기간 검색을 적용한다. 최신 UI를 아래 현행 GET의 구현 완료로 표시하지 않는다.
+**2026-11-16 현재 연결:** React RecordFeed는 closed를 기본20건씩 더 읽고 단건 상세를 최대4개 동시 조회한다. 상세 캐시는 계정/세대·갱신 문맥·세션 ID/version을 키로 갱신하고 인증 재확인 중 새 조회를 중단한다. 기록 메인은 스케줄 시간대의 종료일(endedAt, 없으면 closedAt) 기준 최근7일, 전체 이력은 workoutDate 기준 선택 월로 필터한다. 정렬은 실제 endedAt(없으면 closedAt) 최신순이다. 이는 서버 cursor 순서와 달라 전체 과거/월의 완전성을 보장하지 않으며 일부 로드 상태를 알린다.
+
+루틴 검색은 월 제한을 해제하되 **불러온 페이지**의 불변 루틴명을 검색한다. 실제 계정의 운동별 검색은 연결 대기 안내와 빈 결과이며 프리뷰에서만 실제 세션 운동명 검색이 동작한다. 검색 해제 시 선택 월을 복원한다. 최근/전체/상세는 공통 recordSummary로 현재 유효 실적을 계산하므로 같은 세션에 별도 합성 합계를 만들지 않는다. 홈의 최대3건 조회와 최근7일 목록은 범위가 다르다. 아래 표는 아직 남은 서버 조회 능력의 차이를 설명한다. 새 query를 임의로 추가하지 않았다. [10.24.5절](../../../overload-pwa/docs/product/Overload_UI_Decision_Log_v0.9.md#10245-최근-7일과-월간-운동-이력)의 기록 메인 최근7일과 전체 이력 월간/전체 기간 검색을 적용한다. 최신 UI를 아래 현행 GET의 구현 완료로 표시하지 않는다.
 
 | 요구 | 현재 GET /api/v1/workout-sessions/closed | 후속 확인 |
 |---|---|---|
@@ -358,7 +441,7 @@ routineName은 불변 InitialPlan의 시작 당시 이름이다. Counter는 정�
 
 위 예시는 수행이 없는 부분 명시 종료다. 실제 종료 시각은 시작 이후이면서 최종 유효 세트/유산소의 발생 시각 이후여야 한다. 같은 finish에서 새로 제출한 승인 시각도 endedAt 이후일 수 없다. 기존 승인 해결 같은 후속 관리 시각이나 서버 업로드 시각으로 실제 endedAt을 덮어쓰지 않는다. 모순은422 CLOCK_CONTEXT_INVALID다.
 
-하나의 workoutTransactionManager 트랜잭션에서 기존 snapshot 저장 로직을 재사용하여 최종 수행·승인 요청을 저장하고, 최초 평가·FINISHED·endedAt·closedAt을 원자 확정한다. 같은 트랜잭션의 세션 version은1회만 증가한다. 유효 수행 부족·PENDING·비교 대상 없음은 종료를 막지 않는다. 미완료 세트나 유산소를 자동 완료/SKIPPED 처리하지 않는다.
+하나의 workoutTransactionManager 트랜잭션에서 기존 snapshot 저장 로직을 재사용하여 최종 수행·승인 요청을 저장하고, 최초 공식 평가·V36 종료 권고 봉인·V37 시간 구간·FINISHED·endedAt·closedAt을 원자 확정한다. 같은 트랜잭션의 세션 version은1회만 증가한다. 유효 수행 부족·PENDING·비교 대상 없음은 종료를 막지 않는다. 미완료 세트나 유산소를 자동 완료/SKIPPED 처리하지 않는다.
 
 응답의 정확한 필드:
 
@@ -421,7 +504,7 @@ PWA는 CLEAN 및 localRevision=serverRevision인 사본에서만 요청한다. �
 
 2026-11-13 사용자 확인으로 **미완료 세트의 감량은 종료 화면의 권고에만 적용**한다. 기존 공식 평가·기준 기록의 전체 원계획 완료·첫 N개·승인 문맥·과거 비교 자격과 최초 종료 스냅샷은 변경하지 않는다.
 
-기존 `GET /api/v1/workout-sessions/{id}/assessment` 응답에 필수 nullable `weightReview`를 추가한다. 새 엔드포인트·DB 컬럼·migration은 없다. 이 값은 현재 저장 수행의 읽기 전용 권고이며 `completionAssessment`를 재작성하거나 승인 중량을 변경하지 않는다.
+기존 `GET /api/v1/workout-sessions/{id}/assessment` 응답에 필수 nullable `weightReview`를 추가한다. 이 assessment 필드 자체는 별도 DB 컬럼 없이 계산한다. 종료 당시 봉인·실제 승인은 별도 V36 endpoint/컬럼을 사용하며 [V36 계약](#종료-후-중량-검토와-명시-승인--v36)을 따른다. 이 값은 현재 저장 수행의 읽기 전용 권고이며 `completionAssessment`를 재작성하거나 승인 중량을 변경하지 않는다.
 
 ```text
 weightReview = {

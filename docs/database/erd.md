@@ -1,6 +1,6 @@
 # Overload ERD
 
-이 관계도는 V31의 프리셋 이름, V32 표준 운동 카탈로그, V33 표준 유산소 연결과 [V34 ExerciseDB 검수 대기](../../src/main/resources/db/migration/V34__stage_exercisedb_v1_candidates.sql)를 반영한 목표 스키마다. 실제 개발 DB의 적용 버전은 별도 확인이 필요하다. 컬럼 전체, 제약조건 이름, 인덱스와 보존 규칙은 [DB 설계서](schema.md)를 참고한다.
+이 관계도는 V31의 프리셋 이름, V32 표준 운동 카탈로그, V33 표준 유산소 연결과 [V34 ExerciseDB 검수 대기](../../src/main/resources/db/migration/V34__stage_exercisedb_v1_candidates.sql)와 V35 회원 GIF 허용, V36 종료 권고 봉인/명시 승인, V37 웨이트 시간 구간을 반영한 목표 스키마다. 실제 개발 DB의 적용 버전은 별도 확인이 필요하다. 컬럼 전체, 제약조건 이름, 인덱스와 보존 규칙은 [DB 설계서](schema.md)를 참고한다.
 
 - 상세 관계도의 선은 PostgreSQL FK이며, 관계 이름은 자식의 FK 컬럼 순서다. 상위 개요는 이 중 대표 관계를 표시한다.
 - 부모 쪽 `||`는 자식 행의 참조가 필수이고 `|o`는 일부 FK 컬럼이 NULL일 수 있음을 뜻한다. 자식 쪽 `o|`는 FK가 자식의 PK 또는 UNIQUE 조합을 포함해 부모당 최대 한 행이라는 뜻이며, `o{`는 최대 여러 행을 뜻한다. 부분 인덱스나 특정 상태로 제한된 유일성은 [설계서](schema.md)에서 확인한다.
@@ -283,6 +283,8 @@ erDiagram
         bigint schedule_version_at_start FK
         uuid deload_period_id FK
         uuid deload_plan_id FK
+        jsonb completion_weight_review_snapshot
+        jsonb weight_timing_snapshot
     }
     session_exercises {
         uuid id PK
@@ -312,6 +314,7 @@ erDiagram
         text kind FK
         uuid previous_request_id FK
         uuid resolved_by_request_id FK
+        boolean final_review
     }
     progress_change_events {
         uuid id PK
@@ -414,4 +417,4 @@ erDiagram
 
 ## 일반 운동 연결 후 관계 확인 — 2026-11-13
 
-현재 V35 ERD는 일반 운동 코드 a56103e와 일치한다. 표준 운동과 독립 manufacturer를 루틴 배치/수행 장비가 참조하며 제조사별 표준 운동 복제를 요구하지 않는다. assessment의 weightReview와 ACTIVE progress-assessment는 읽기 계산 결과라 관계/테이블을 추가하지 않는다. 메모 서버 저장·장비 모델 테이블도 구현하지 않았다. [스키마 확인](schema.md#일반-운동-uiapi-연결에-따른-스키마-확인--2026-11-13) · [API](../api/workout-sessions.md)
+당시 V35 ERD는 일반 운동 코드 a56103e와 일치했다. 현행 `732e0c3`의 V36·V37은 위 기존 엔티티에 JSON 2개·boolean 1개를 추가하며 새 FK/테이블은 없다. [저장 모델·불변 제약](schema.md#1차-개발의-저장-모델--v36v37)을 따른다. 표준 운동과 독립 manufacturer를 루틴 배치/수행 장비가 참조하며 제조사별 표준 운동 복제를 요구하지 않는다. assessment의 weightReview와 ACTIVE progress-assessment는 읽기 계산 결과라 관계/테이블을 추가하지 않는다. 메모 서버 저장·장비 모델 테이블도 구현하지 않았다. [스키마 확인](schema.md#일반-운동-uiapi-연결에-따른-스키마-확인--2026-11-13) · [API](../api/workout-sessions.md)
